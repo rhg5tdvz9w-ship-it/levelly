@@ -66,7 +66,10 @@ async function callGeminiText(system, messages) {
     role: m.role === "assistant" ? "model" : "user",
     parts: Array.isArray(m.content)
       ? m.content.map((c) => {
-          if (c.type === "text")                        return { text: c.text };
+          if (c.type === "text") return { text: c.text };
+          // File URI from Gemini File API (large videos/images)
+          if (c.type === "file_uri") return { fileData: { mimeType: c.mimeType, fileUri: c.fileUri } };
+          // Inline base64 for small images
           if (c.type === "image" || c.type === "document") return { inlineData: { mimeType: c.source.media_type, data: c.source.data } };
           return { text: JSON.stringify(c) };
         })
