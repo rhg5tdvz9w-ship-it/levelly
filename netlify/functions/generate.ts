@@ -60,9 +60,12 @@ async function callGeminiText(system: string, messages: any[]) {
     role: m.role === "assistant" ? "model" : "user",
     parts: Array.isArray(m.content)
       ? m.content.map((c: any) => {
-          if (c.type === "text")     return { text: c.text };
-          if (c.type === "image")    return { inlineData: { mimeType: c.source.media_type, data: c.source.data } };
-          if (c.type === "document") return { inlineData: { mimeType: c.source.media_type, data: c.source.data } };
+          if (c.type === "text") return { text: c.text };
+          if (c.type === "image") return { inlineData: { mimeType: c.source.media_type, data: c.source.data } };
+          if (c.type === "document") {
+            // Videos and docs — use inlineData for small files, warn for large
+            return { inlineData: { mimeType: c.source.media_type, data: c.source.data } };
+          }
           return { text: JSON.stringify(c) };
         })
       : [{ text: m.content }],
@@ -74,7 +77,10 @@ async function callGeminiText(system: string, messages: any[]) {
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: system }] },
       contents,
-      generationConfig: { responseMimeType: "application/json" },
+      generationConfig: {
+        responseMimeType: "application/json",
+        temperature: 1,
+      },
     }),
   });
   if (!r.ok) throw new Error(`Gemini text ${r.status}: ${await r.text()}`);
