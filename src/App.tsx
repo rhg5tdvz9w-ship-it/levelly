@@ -202,12 +202,16 @@ async function callAPI(task: string, payload: object): Promise<any> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ task, payload }),
   });
+  const text = await r.text();
   if (!r.ok) {
-    const err = await r.json().catch(() => ({ error: r.statusText }));
-    throw new Error(err.error ?? `API error ${r.status}`);
+    throw new Error(`API ${r.status}: ${text}`);
   }
-  const data = await r.json();
-  return data.result;
+  try {
+    const data = JSON.parse(text);
+    return data.result;
+  } catch {
+    throw new Error(`Invalid response: ${text.slice(0, 300)}`);
+  }
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
