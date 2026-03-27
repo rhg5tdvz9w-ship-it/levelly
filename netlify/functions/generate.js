@@ -1,7 +1,7 @@
 const GEMINI_KEY    = process.env.GEMINI_API_KEY || "";
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || "";
 
-const GEMINI_TEXT_URL  = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent";
+const GEMINI_TEXT_URL  = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
 const GEMINI_IMAGE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent";
 const ANTHROPIC_URL    = "https://api.anthropic.com/v1/messages";
 
@@ -68,7 +68,7 @@ async function callGeminiText(system, messages) {
       ? m.content.map((c) => {
           if (c.type === "text") return { text: c.text };
           // File URI from Gemini File API (large videos/images)
-          if (c.type === "file_uri") return { fileData: { mimeType: c.mimeType, fileUri: c.fileUri } };
+          if (c.type === "file_uri") return { file_data: { mime_type: c.mimeType, file_uri: c.fileUri } };
           // Inline base64 for small images
           if (c.type === "image" || c.type === "document") return { inlineData: { mimeType: c.source.media_type, data: c.source.data } };
           return { text: JSON.stringify(c) };
