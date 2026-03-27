@@ -1,122 +1,143 @@
-const GEMINI_KEY    = process.env.GEMINI_API_KEY || "";
+const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || "";
-
-const GEMINI_TEXT_URL  = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+const GEMINI_TEXT_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
 const GEMINI_IMAGE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent";
-const ANTHROPIC_URL    = "https://api.anthropic.com/v1/messages";
+const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
-exports.handler = async (event) => {
+exports.handler = async function(event) {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
   }
 
-  let task, payload;
+  var task, payload;
   try {
-    const body = JSON.parse(event.body || "{}");
-    task    = body.task;
+    var body = JSON.parse(event.body || "{}");
+    task = body.task;
     payload = body.payload;
-  } catch (e) {
+  } catch(e) {
     return { statusCode: 400, body: JSON.stringify({ error: "Invalid JSON body" }) };
   }
 
   try {
     if (task === "analyze" || task === "brief") {
-      const result = ANTHROPIC_KEY
-        ? await callClaude(payload.system, payload.messages)
-        : await callGeminiText(payload.system, payload.messages);
-      return { statusCode: 200, body: JSON.stringify({ result }) };
+      var result;
+      if (ANTHROPIC_KEY) {
+        result = await callClaude(payload.system, payload.messages);
+      } else {
+        result = await callGeminiText(payload.system, payload.messages);
+      }
+      return { statusCode: 200, body: JSON.stringify({ result: result }) };
     }
 
     if (task === "image") {
-      const result = await callGeminiImage(payload.prompt);
-      return { statusCode: 200, body: JSON.stringify({ result }) };
+      var imgResult = await callGeminiImage(payload.prompt);
+      return { statusCode: 200, body: JSON.stringify({ result: imgResult }) };
     }
 
     return { statusCode: 400, body: JSON.stringify({ error: "Unknown task: " + task }) };
 
-  } catch (err) {
-    console.error("Handler error:", err);
-    return { 
-      statusCode: 500, 
-      body: JSON.stringify({ 
-        error: err.message || "Unknown error",
-        stack: err.stack || "no stack",
-        task: task || "unknown"
-      }) 
-    };
+  } catch(err) {
+    return { statusCode: 500, body: JSON.stringify({ error: err.message || "Unknown error" }) };
   }
+};
 
 async function callClaude(system, messages) {
-  const r = await fetch(ANTHROPIC_URL, {
+  var r = await fetch(ANTHROPIC_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
+      "anthropic-version": "2023-06-01"
     },
     body: JSON.stringify({
       model: "claude-opus-4-20250514",
       max_tokens: 4000,
-      system,
-      messages,
-    }),
+      system: system,
+      messages: messages
+    })
   });
-  if (!r.ok) throw new Error("Claude " + r.status + ": " + await r.text());
-  const data = await r.json();
-  const text = (data.content || []).find(b => b.type === "text")?.text || "{}";
-  return parseJSON(text);
+  if (!r.ok) {
+    throw new Error("Claude " + r.status + ": " + await r.text());
+  }
+  var data = await r.json();
+  var text = "";
+  for (var i = 0; i < data.content.length; i++) {
+    if (data.content[i].type === "text") {
+      text = data.content[i].text;
+      break;
+    }
+  }
+  return parseJSON(text || "{}");
 }
 
 async function callGeminiText(system, messages) {
-  const contents = messages.map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: Array.isArray(m.content)
-      ? m.content.map((c) => {
-          if (c.type === "text") return { text: c.text };
-          // File URI from Gemini File API (large videos/images)
-          if (c.type === "file_uri") return { file_data: { mime_type: c.mimeType, file_uri: c.fileUri } };
-          // Inline base64 for small images
-          if (c.type === "image" || c.type === "document") return { inlineData: { mimeType: c.source.media_type, data: c.source.data } };
-          return { text: JSON.stringify(c) };
-        })
-      : [{ text: m.content }],
-  }));
+  var contents = [];
+  for (var i = 0; i < messages.length; i++) {
+    var m = messages[i];
+    var parts = [];
+    if (Array.isArray(m.content)) {
+      for (var j = 0; j < m.content.length; j++) {
+        var c = m.content[j];
+        if (c.type === "text") {
+          parts.push({ text: c.text });
+        } else if (c.type === "file_uri") {
+          parts.push({ file_data: { mime_type: c.mimeType, file_uri: c.fileUri } });
+        } else if (c.type === "image" || c.type === "document") {
+          parts.push({ inline_data: { mime_type: c.source.media_type, data: c.source.data } });
+        }
+      }
+    } else {
+      parts.push({ text: m.content });
+    }
+    contents.push({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: parts
+    });
+  }
 
-  const r = await fetch(GEMINI_TEXT_URL + "?key=" + GEMINI_KEY, {
+  var r = await fetch(GEMINI_TEXT_URL + "?key=" + GEMINI_KEY, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      systemInstruction: { parts: [{ text: system }] },
-      contents,
-      generationConfig: { responseMimeType: "application/json" },
-    }),
+      system_instruction: { parts: [{ text: system }] },
+      contents: contents,
+      generationConfig: { response_mime_type: "application/json" }
+    })
   });
-  if (!r.ok) throw new Error("Gemini text " + r.status + ": " + await r.text());
-  const data = await r.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+  if (!r.ok) {
+    throw new Error("Gemini text " + r.status + ": " + await r.text());
+  }
+  var data = await r.json();
+  var text = data.candidates[0].content.parts[0].text || "{}";
   return parseJSON(text);
 }
 
 async function callGeminiImage(prompt) {
-  const r = await fetch(GEMINI_IMAGE_URL + "?key=" + GEMINI_KEY, {
+  var r = await fetch(GEMINI_IMAGE_URL + "?key=" + GEMINI_KEY, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
-    }),
+      generationConfig: { responseModalities: ["IMAGE", "TEXT"] }
+    })
   });
-  if (!r.ok) throw new Error("Gemini image " + r.status + ": " + await r.text());
-  const data = await r.json();
-  const imgPart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-  if (!imgPart) throw new Error("No image returned — safety filter may have triggered");
-  return "data:image/png;base64," + imgPart.inlineData.data;
+  if (!r.ok) {
+    throw new Error("Gemini image " + r.status + ": " + await r.text());
+  }
+  var data = await r.json();
+  var parts = data.candidates[0].content.parts;
+  for (var i = 0; i < parts.length; i++) {
+    if (parts[i].inlineData) {
+      return "data:image/png;base64," + parts[i].inlineData.data;
+    }
+  }
+  throw new Error("No image returned from Gemini");
 }
 
 function parseJSON(text) {
   try {
-    return JSON.parse(text.replace(/```json|```/g, "").trim());
-  } catch (e) {
+    return JSON.parse(text.replace(/```json/g, "").replace(/```/g, "").trim());
+  } catch(e) {
     throw new Error("Invalid JSON from model: " + text.slice(0, 200));
   }
 }
