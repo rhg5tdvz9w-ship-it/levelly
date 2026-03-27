@@ -135,9 +135,17 @@ async function callGeminiImage(prompt) {
 }
 
 function parseJSON(text) {
+  var cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
+  // Find the first { and last } to extract just the JSON object
+  var start = cleaned.indexOf("{");
+  var end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1) {
+    throw new Error("No JSON object found in response: " + cleaned.slice(0, 200));
+  }
+  var jsonOnly = cleaned.slice(start, end + 1);
   try {
-    return JSON.parse(text.replace(/```json/g, "").replace(/```/g, "").trim());
+    return JSON.parse(jsonOnly);
   } catch(e) {
-    throw new Error("Invalid JSON from model: " + text.slice(0, 200));
+    throw new Error("JSON parse failed: " + e.message + " | Text: " + jsonOnly.slice(0, 200));
   }
 }
