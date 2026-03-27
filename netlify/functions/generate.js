@@ -1,7 +1,7 @@
 const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || "";
-const GEMINI_TEXT_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
-const GEMINI_IMAGE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent";
+const GEMINI_TEXT_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-04-17:generateContent";
+const GEMINI_IMAGE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
 exports.handler = async function(event) {
@@ -32,6 +32,11 @@ exports.handler = async function(event) {
     if (task === "image") {
       var imgResult = await callGeminiImage(payload.prompt);
       return { statusCode: 200, body: JSON.stringify({ result: imgResult }) };
+    }
+
+    if (task === "upload") {
+      var uploadResult = await uploadToGemini(payload.fileBase64, payload.mimeType, payload.fileName);
+      return { statusCode: 200, body: JSON.stringify({ result: uploadResult }) };
     }
 
     return { statusCode: 400, body: JSON.stringify({ error: "Unknown task: " + task }) };
@@ -132,6 +137,51 @@ async function callGeminiImage(prompt) {
     }
   }
   throw new Error("No image returned from Gemini");
+}
+
+async function uploadToGemini(fileBase64, mimeType, fileName) {
+  var fileBytes = Buffer.from(fileBase64, "base64");
+  var initRes = await fetch(
+    "https://generativelanguage.googleapis.com/upload/v1beta/files?key=" + GEMINI_KEY,
+    {
+      method: "POST",
+      headers: {
+        "X-Goog-Upload-Protocol": "resumable",
+        "X-Goog-Upload-Command": "start",
+        "X-Goog-Upload-Header-Content-Length": fileBytes.length.toString(),
+        "X-Goog-Upload-Header-Content-Type": mimeType,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ file: { display_name: fileName } })
+    }
+  );
+  if (!initRes.ok) throw new Error("File API init failed: " + await initRes.text());
+  var uploadUrl = initRes.headers.get("X-Goog-Upload-URL");
+  if (!uploadUrl) throw new Error("No upload URL from Gemini File API");
+
+  var uploadRes = await fetch(uploadUrl, {
+    method: "POST",
+    headers: {
+      "X-Goog-Upload-Command": "upload, finalize",
+      "X-Goog-Upload-Offset": "0",
+      "Content-Type": mimeType
+    },
+    body: fileBytes
+  });
+  if (!uploadRes.ok) throw new Error("File upload failed: " + await uploadRes.text());
+  var uploadData = await uploadRes.json();
+  var fileUri = uploadData.file && uploadData.file.uri;
+  var name = uploadData.file && uploadData.file.name;
+  if (!fileUri) throw new Error("No file URI from Gemini");
+
+  for (var i = 0; i < 20; i++) {
+    var stateRes = await fetch("https://generativelanguage.googleapis.com/v1beta/" + name + "?key=" + GEMINI_KEY);
+    var stateData = await stateRes.json();
+    if (stateData.state === "ACTIVE") break;
+    if (stateData.state === "FAILED") throw new Error("Gemini file processing failed");
+    await new Promise(function(r) { setTimeout(r, 2000); });
+  }
+  return { fileUri: fileUri, mimeType: mimeType };
 }
 
 function parseJSON(text) {
