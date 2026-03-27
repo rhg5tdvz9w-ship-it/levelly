@@ -36,9 +36,15 @@ exports.handler = async (event) => {
 
   } catch (err) {
     console.error("Handler error:", err);
-    return { statusCode: 500, body: JSON.stringify({ error: err.message || "Unknown error" }) };
+    return { 
+      statusCode: 500, 
+      body: JSON.stringify({ 
+        error: err.message || "Unknown error",
+        stack: err.stack || "no stack",
+        task: task || "unknown"
+      }) 
+    };
   }
-};
 
 async function callClaude(system, messages) {
   const r = await fetch(ANTHROPIC_URL, {
