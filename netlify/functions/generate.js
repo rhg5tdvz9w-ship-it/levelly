@@ -19,12 +19,24 @@ exports.handler = async function(event) {
   }
 
   try {
+    // ── Task: extract key frames from video (Call 1 of 2-call pipeline) ──────
+    if (task === "extract_frames") {
+      var result = await callGeminiText(
+        GEMINI_KEY,
+        GEMINI_TEXT_URL,
+        payload.system,
+        payload.messages
+      );
+      return { statusCode: 200, body: JSON.stringify({ result: result }) };
+    }
+
+    // ── Task: analyze video with frame context + references (Call 2) ─────────
     if (task === "analyze" || task === "brief") {
       var result;
       if (ANTHROPIC_KEY) {
         result = await callClaude(payload.system, payload.messages);
       } else {
-        result = await callGeminiText(payload.system, payload.messages);
+        result = await callGeminiText(GEMINI_KEY, GEMINI_TEXT_URL, payload.system, payload.messages);
       }
       return { statusCode: 200, body: JSON.stringify({ result: result }) };
     }
@@ -44,31 +56,19 @@ exports.handler = async function(event) {
 async function callClaude(system, messages) {
   var r = await fetch(ANTHROPIC_URL, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01"
-    },
-    body: JSON.stringify({
-      model: "claude-opus-4-20250514",
-      max_tokens: 4000,
-      system: system,
-      messages: messages
-    })
+    headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({ model: "claude-opus-4-20250514", max_tokens: 4000, system: system, messages: messages })
   });
   if (!r.ok) throw new Error("Claude " + r.status + ": " + await r.text());
   var data = await r.json();
   var text = "";
   for (var i = 0; i < data.content.length; i++) {
-    if (data.content[i].type === "text") {
-      text = data.content[i].text;
-      break;
-    }
+    if (data.content[i].type === "text") { text = data.content[i].text; break; }
   }
   return parseJSON(text || "{}");
 }
 
-async function callGeminiText(system, messages) {
+async function callGeminiText(key, url, system, messages) {
   var contents = [];
   for (var i = 0; i < messages.length; i++) {
     var m = messages[i];
@@ -82,18 +82,18 @@ async function callGeminiText(system, messages) {
           parts.push({ file_data: { mime_type: c.mimeType, file_uri: c.fileUri } });
         } else if (c.type === "image" || c.type === "document") {
           parts.push({ inline_data: { mime_type: c.source.media_type, data: c.source.data } });
+        } else if (c.type === "inline_image") {
+          // Reference images injected from frontend
+          parts.push({ inline_data: { mime_type: c.mimeType, data: c.data } });
         }
       }
     } else {
       parts.push({ text: m.content });
     }
-    contents.push({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: parts
-    });
+    contents.push({ role: m.role === "assistant" ? "model" : "user", parts: parts });
   }
 
-  var r = await fetch(GEMINI_TEXT_URL + "?key=" + GEMINI_KEY, {
+  var r = await fetch(url + "?key=" + key, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -121,9 +121,7 @@ async function callGeminiImage(prompt) {
   var data = await r.json();
   var parts = data.candidates[0].content.parts;
   for (var i = 0; i < parts.length; i++) {
-    if (parts[i].inlineData) {
-      return "data:image/png;base64," + parts[i].inlineData.data;
-    }
+    if (parts[i].inlineData) return "data:image/png;base64," + parts[i].inlineData.data;
   }
   throw new Error("No image returned from Gemini");
 }
@@ -133,9 +131,6 @@ function parseJSON(text) {
   var start = cleaned.indexOf("{");
   var end = cleaned.lastIndexOf("}");
   if (start === -1 || end === -1) throw new Error("No JSON found: " + cleaned.slice(0, 200));
-  try {
-    return JSON.parse(cleaned.slice(start, end + 1));
-  } catch(e) {
-    throw new Error("JSON parse failed: " + e.message);
-  }
+  try { return JSON.parse(cleaned.slice(start, end + 1)); }
+  catch(e) { throw new Error("JSON parse failed: " + e.message); }
 }
