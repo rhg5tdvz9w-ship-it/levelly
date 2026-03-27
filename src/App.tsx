@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import { MOC_REFERENCES, buildReferenceContext, buildReferenceParts } from "./refImages";
+import { buildReferenceContext, buildReferenceParts, MOC_REFERENCES } from "./refImages";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface DNAEntry {
@@ -26,6 +26,7 @@ interface DNAEntry {
   why_it_works: string;
   why_it_fails: string | null;
   creative_gaps: string | null;
+  frame_extraction_gaps: string | null;
   replication_instructions: string;
   auto_frames?: FrameExtraction[];
   manual_frames?: string[];
@@ -63,25 +64,91 @@ const TIER_STYLE: Record<string, { bg: string; text: string; border: string }> =
   inspiration: { bg: "#FAEEDA", text: "#854F0B", border: "#FAC775" },
 };
 const SEGMENTS = ["Whale", "Dolphin", "Minnow", "Non-Payer"];
-const GEMINI_BROWSER_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
+const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
+const GEMINI_TEXT_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
+const GEMINI_BRIEF_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
 
-// ─── Frame extraction prompt (Call 1) ────────────────────────────────────────
+// ─── Direct Gemini call from browser ─────────────────────────────────────────
+async function callGeminiDirect(systemPrompt: string, contentParts: any[]): Promise<any> {
+  const r = await fetch(GEMINI_TEXT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ role: "user", parts: contentParts }],
+      generationConfig: { response_mime_type: "application/json" }
+    })
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`Gemini ${r.status}: ${text}`);
+  const data = JSON.parse(text);
+  const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+  return parseJSON(raw);
+}
+
+function parseJSON(text: string): any {
+  const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1) throw new Error("No JSON in response: " + cleaned.slice(0, 200));
+  return JSON.parse(cleaned.slice(start, end + 1));
+}
+
+// ─── Netlify proxy — image generation only ───────────────────────────────────
+async function callImageAPI(prompt: string): Promise<string> {
+  const r = await fetch("/api/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ task: "image", payload: { prompt } })
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`Image API ${r.status}: ${text}`);
+  return JSON.parse(text).result;
+}
+
+// ─── Gemini File API upload ───────────────────────────────────────────────────
+async function uploadToGeminiFileAPI(file: File, onStatus: (m: string) => void): Promise<{ fileUri: string; mimeType: string }> {
+  onStatus(`Uploading "${file.name}" (${Math.round(file.size / 1024 / 1024)}MB)…`);
+  const initRes = await fetch(
+    `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${GEMINI_KEY}`,
+    { method: "POST", headers: { "X-Goog-Upload-Protocol": "resumable", "X-Goog-Upload-Command": "start", "X-Goog-Upload-Header-Content-Length": file.size.toString(), "X-Goog-Upload-Header-Content-Type": file.type, "Content-Type": "application/json" }, body: JSON.stringify({ file: { display_name: file.name } }) }
+  );
+  if (!initRes.ok) throw new Error(`File API init failed: ${initRes.status}`);
+  const uploadUrl = initRes.headers.get("X-Goog-Upload-URL");
+  if (!uploadUrl) throw new Error("No upload URL");
+  onStatus(`Uploading "${file.name}"… (may take a minute)`);
+  const uploadRes = await fetch(uploadUrl, { method: "POST", headers: { "X-Goog-Upload-Command": "upload, finalize", "X-Goog-Upload-Offset": "0", "Content-Type": file.type }, body: file });
+  if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status}`);
+  const uploadData = await uploadRes.json();
+  const fileUri = uploadData.file?.uri;
+  const name = uploadData.file?.name;
+  if (!fileUri) throw new Error("No file URI");
+  onStatus(`Processing "${file.name}"…`);
+  for (let i = 0; i < 20; i++) {
+    const s = await (await fetch(`https://generativelanguage.googleapis.com/v1beta/${name}?key=${GEMINI_KEY}`)).json();
+    if (s.state === "ACTIVE") break;
+    if (s.state === "FAILED") throw new Error("Gemini file processing failed");
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  return { fileUri, mimeType: file.type };
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res((r.result as string).split(",")[1]);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
+// ─── Prompts ──────────────────────────────────────────────────────────────────
 const frameExtractionSystem = () => `You are a video analyst. Watch the video and identify the 8 most visually significant moments.
-Return ONLY valid JSON:
-{
-  "frames": [
-    {
-      "timestamp_seconds": number,
-      "description": "precise visual description of what is shown",
-      "significance": "why this moment matters for ad analysis (hook/gate/swarm/loss/win/fail)"
-    }
-  ]
-}`;
+Return ONLY valid JSON: { "frames": [{ "timestamp_seconds": number, "description": string, "significance": string }] }`;
 
-// ─── Main analysis prompt (Call 2) ───────────────────────────────────────────
 const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtraction[], hasManualFrames: boolean, hasRefs: boolean) => `You are a World-Class Creative Intelligence Analyst for Mob Control ads. NEVER guess — only report what you directly observe.
 
-AD TYPE: ${config.ad_type === "moc" ? "MOB CONTROL ORIGINAL AD" : "COMPETITOR / MARKET REFERENCE AD"}
+AD TYPE: ${config.ad_type === "moc" ? "MOB CONTROL ORIGINAL AD" : "COMPETITOR / MARKET REFERENCE"}
 PERFORMANCE TIER: ${config.tier.toUpperCase()}
 ANALYST CONTEXT: ${config.context || "No additional context provided."}
 
@@ -90,36 +157,33 @@ ${lib.length > 0 ? JSON.stringify(lib.map(d => ({ title: d.title, tier: d.tier, 
 
 ${hasRefs ? buildReferenceContext() : ""}
 
-### AUTO-EXTRACTED KEY FRAMES (from the video being analyzed):
-${frames.length > 0 ? frames.map(f => `- [${f.timestamp_seconds}s] ${f.description} (${f.significance})`).join("\n") : "Frame extraction not available."}
+### AUTO-EXTRACTED KEY FRAMES:
+${frames.length > 0 ? frames.map(f => `- [${f.timestamp_seconds}s] ${f.description} (${f.significance})`).join("\n") : "Not available."}
 
 ${hasManualFrames ? `### MANUAL STORYBOARD FRAMES PROVIDED:
-Your team uploaded additional screenshots from this video. These are shown as images above the video.
-IMPORTANT: Compare these manual frames against the auto-extracted frame descriptions above.
-If the manual frames reveal moments NOT captured in auto-extraction (e.g. a death gate, a specific champion, a loss moment), flag this in your analysis and use the manual frame data to correct any gaps.` : ""}
+Compare manual frames against auto-extracted descriptions. If manual frames reveal moments NOT in auto-extraction (e.g. a death gate, specific champion, loss moment), flag in frame_extraction_gaps and correct the analysis.` : ""}
 
-### GATE TYPES — detect ALL of these:
-- Multiplication gate: blue/orange/pink/purple rectangle with X value (x2, x3, x4, x100 etc.) — multiplies mob count
-- Addition gate: blue rectangle with + value (+1, +2, +5 etc.) — adds to mob/cannon count
-- Death gate: RED rectangle with SKULL-AND-CROSSBONES icon — instantly kills ALL mobs passing through
-- If you see only 1 X gate and multiple + gates, report exactly that. NEVER invent gates.
+### GATE TYPES — detect ALL:
+- Multiplication gate: rectangle with X value (x2, x3, x4, x100 etc.) — blue/orange/pink/purple colored
+- Addition gate: blue rectangle with + value (+1, +2, +5 etc.)
+- Death gate: RED rectangle with SKULL-AND-CROSSBONES — instantly kills ALL mobs
+- Report ONLY gates you actually see. Never invent gates.
 
-### BIOME GUIDE — match what you see:
-- Foggy Forest: grey/white atmospheric fog, dark green pine trees barely visible through mist, grey road — THE FOG IS NOT SNOW. No white ground coverage.
-- Desert: tan/beige sand, flat dunes, bright warm sunlight, blue sky, sparse vegetation
-- Cyber-City: grey metal paths, orange glowing tech structures
-- Volcanic: red/orange lava, dark black rocks
-- Snow: actual WHITE SNOW on the ground, icy frozen structures, blue-white lighting
+### BIOME GUIDE:
+- Foggy Forest: grey/white atmospheric fog, dark green pine trees through mist, grey road. THE FOG IS NOT SNOW — no white ground.
+- Desert: tan/beige sand, flat dunes, bright warm sunlight, blue sky
+- Cyber-City: grey metal paths, orange tech structures
+- Volcanic: red/orange lava, dark rocks
+- Snow: actual WHITE SNOW on ground, icy structures, blue-white lighting
 - Toxic: purple paths, green slime
 
 ### CHAMPION GUIDE — visual match only:
-- Captain Kaboom: SMALL skeleton pirate, mushroom-shaped hat, skull face, dual guns (silver statue = chrome version)
-- Hulk/Gold Golem: LARGE golden muscular bodybuilder humanoid (gold statue)
-- Caveman: blue-skinned muscular man, blonde hair, no weapon shown in some views
-- Yellow Normie: small yellow round humanoid — used as BOSS enemy, NOT a named champion
-- Unknown: if character doesn't match any above
-
-${config.ad_type === "competitor" ? "NOTE: This is a competitor ad. Do NOT force MOC biome/champion labels if not applicable." : ""}
+- Captain Kaboom: SMALL skeleton pirate, mushroom hat, skull face, dual guns
+- Hulk/Gold Golem: LARGE golden muscular bodybuilder (gold statue)
+- Caveman: blue-skinned muscular, blonde hair
+- Yellow Normie: small yellow round humanoid — BOSS ENEMY, not a named champion
+- Unknown: if doesn't match any above
+${config.ad_type === "competitor" ? "NOTE: Competitor ad — do not force MOC labels if not applicable." : ""}
 
 Return ONLY valid JSON:
 {
@@ -147,7 +211,7 @@ Return ONLY valid JSON:
 const briefSystem = (lib: DNAEntry[], ctx: string, seg: string) => `You are a World-Class Lead Creative Producer for Mob Control.
 CREATIVE DNA LIBRARY (${lib.length} analyzed ads): ${JSON.stringify(lib, null, 2)}
 BRIEF: ${ctx} | SEGMENT: ${seg}
-SEGMENT DATA: Whale(>$50/mo,45-59yo,Motivation=Winning/Rankings), Dolphin($10-50/mo,35-44yo,Motivation=Winning+Fun), Minnow(<$10/mo,Motivation=Fun+Winning), Non-Payer(Motivation=Fun+Challenges).
+SEGMENT DATA: Whale(>$50/mo,45-59yo,Motivation=Winning/Rankings), Dolphin($10-50/mo,Motivation=Winning+Fun), Minnow(<$10/mo,Motivation=Fun+Winning), Non-Payer(Motivation=Fun+Challenges).
 MOC CHAMPIONS: Mobzilla(purple/yellow T-Rex), Nexus(blue/white mech+orange sword), Captain Kaboom(skeleton pirate), Explodon(blue knight), Big Blob(green slime+crown), Raccoon(blue=player/red=enemy), Caveman(blue muscular), General(red-skinned commander).
 9-STEP CURVE: Pressure→Investment→Validate→Investment2→Payoff→False Safety→Pressure++→Almost Win→Fail
 3 PILLARS: Danger Lane(X gates), Investment Lane(+ gates), Upgrade Lane(power-ups).
@@ -156,50 +220,9 @@ Return ONLY valid JSON:
 
 const imagePrompt = (concept: Concept, scene: "start" | "middle" | "end") => {
   const vi = concept.visual_identity;
-  const desc = { start: "Opening: enemies approaching, cannon ready, first gate imminent.", middle: "Mid-battle: massive mob swarm through gates. Power fantasy.", end: "Climax: nearly winning — last-second enemy snatches victory." }[scene];
-  return `High-fidelity top-down 3D Mob Control gameplay screenshot. SCENE: ${desc} ENVIRONMENT: ${vi.environment} | LIGHTING: ${vi.lighting} | PLAYER: ${vi.player_champion} | ENEMY: ${vi.enemy_champion} | GATES: ${vi.gate_values.join(", ")} | CANNON: ${vi.cannon_type} | MOOD: ${vi.mood_notes}. Rules: cinematic top-down, high contrast blue vs red, large readable gates, cannon at bottom, NO text/UI overlays.`;
+  const desc = { start: "Opening: enemies approaching, cannon ready, first gate imminent.", middle: "Mid-battle: massive mob swarm through gates.", end: "Climax: nearly winning — last-second enemy snatches victory." }[scene];
+  return `High-fidelity top-down 3D Mob Control gameplay screenshot. SCENE: ${desc} ENV: ${vi.environment} | LIGHTING: ${vi.lighting} | PLAYER: ${vi.player_champion} | ENEMY: ${vi.enemy_champion} | GATES: ${vi.gate_values?.join(", ")} | CANNON: ${vi.cannon_type} | MOOD: ${vi.mood_notes}. Cinematic top-down, high contrast blue vs red, large readable gates, cannon at bottom, NO text/UI overlays.`;
 };
-
-// ─── API ──────────────────────────────────────────────────────────────────────
-async function callAPI(task: string, payload: object): Promise<any> {
-  const r = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ task, payload }) });
-  const text = await r.text();
-  if (!r.ok) throw new Error(`API ${r.status}: ${text}`);
-  try { return JSON.parse(text).result; }
-  catch { throw new Error(`Invalid response: ${text.slice(0, 300)}`); }
-}
-
-async function uploadToGeminiFileAPI(file: File, onStatus: (m: string) => void): Promise<{ fileUri: string; mimeType: string }> {
-  onStatus(`Uploading "${file.name}" (${Math.round(file.size / 1024 / 1024)}MB)…`);
-  const initRes = await fetch(`https://generativelanguage.googleapis.com/upload/v1beta/files?key=${GEMINI_BROWSER_KEY}`, { method: "POST", headers: { "X-Goog-Upload-Protocol": "resumable", "X-Goog-Upload-Command": "start", "X-Goog-Upload-Header-Content-Length": file.size.toString(), "X-Goog-Upload-Header-Content-Type": file.type, "Content-Type": "application/json" }, body: JSON.stringify({ file: { display_name: file.name } }) });
-  if (!initRes.ok) throw new Error(`File API init failed: ${initRes.status}`);
-  const uploadUrl = initRes.headers.get("X-Goog-Upload-URL");
-  if (!uploadUrl) throw new Error("No upload URL");
-  onStatus(`Uploading "${file.name}"… (may take a minute)`);
-  const uploadRes = await fetch(uploadUrl, { method: "POST", headers: { "X-Goog-Upload-Command": "upload, finalize", "X-Goog-Upload-Offset": "0", "Content-Type": file.type }, body: file });
-  if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status}`);
-  const uploadData = await uploadRes.json();
-  const fileUri = uploadData.file?.uri;
-  const name = uploadData.file?.name;
-  if (!fileUri) throw new Error("No file URI");
-  onStatus(`Processing "${file.name}"…`);
-  for (let i = 0; i < 20; i++) {
-    const s = await (await fetch(`https://generativelanguage.googleapis.com/v1beta/${name}?key=${GEMINI_BROWSER_KEY}`)).json();
-    if (s.state === "ACTIVE") break;
-    if (s.state === "FAILED") throw new Error("Gemini file processing failed");
-    await new Promise(r => setTimeout(r, 2000));
-  }
-  return { fileUri, mimeType: file.type };
-}
-
-async function fileToBase64(file: File): Promise<string> {
-  return new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload = () => res((r.result as string).split(",")[1]);
-    r.onerror = rej;
-    r.readAsDataURL(file);
-  });
-}
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const css = {
@@ -219,7 +242,7 @@ const css = {
   error: { fontSize: 12, color: "#dc2626", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "8px 12px", marginTop: 8 } as React.CSSProperties,
   info: { fontSize: 12, color: "#1a56db", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "8px 12px", marginTop: 8 } as React.CSSProperties,
   metric: { background: "#f5f5f5", borderRadius: 8, padding: "8px 12px", textAlign: "center" as const },
-  sceneWrap: { aspectRatio: "9/16", background: "#f0f0f0", borderRadius: 10, border: "1px solid #e8e8e8", overflow: "hidden", display: "flex", flexDirection: "column" as const, alignItems: "center", justifyContent: "center", cursor: "pointer", position: "relative" as const },
+  sceneWrap: { aspectRatio: "9/16", background: "#f0f0f0", borderRadius: 10, border: "1px solid #e8e8e8", overflow: "hidden", display: "flex", flexDirection: "column" as const, alignItems: "center", justifyContent: "center", cursor: "pointer" } as React.CSSProperties,
   grid3: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 } as React.CSSProperties,
   gridAuto: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 8 } as React.CSSProperties,
   overlay: { position: "fixed" as const, inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 },
@@ -234,7 +257,6 @@ function UploadModal({ onConfirm, onCancel }: { onConfirm: (cfg: UploadConfig) =
   const [context, setContext] = useState("");
   const [manualFrames, setManualFrames] = useState<File[]>([]);
   const frameRef = useRef<HTMLInputElement>(null);
-
   const refCount = MOC_REFERENCES.filter(r => !r.base64.startsWith("REPLACE_")).length;
 
   return (
@@ -266,35 +288,31 @@ function UploadModal({ onConfirm, onCancel }: { onConfirm: (cfg: UploadConfig) =
         </div>
 
         <div style={{ marginBottom: 16 }}>
-          <span style={css.label}>Context for Gemini (optional — improves accuracy)</span>
-          <textarea style={css.textarea} placeholder={adType === "moc" ? "E.g. 'Forest biome ad with death gate mechanic. The champion on the right is Captain Kaboom. Focus on the gate sequence and the loss moment at the end.'" : "E.g. 'Competitor puzzle game ad. Focus on hook pattern and what creates tension.'"} value={context} onChange={e => setContext(e.target.value)} />
+          <span style={css.label}>Context for Gemini (optional)</span>
+          <textarea style={css.textarea} placeholder={adType === "moc" ? "E.g. 'Forest biome ad with death gate. Champion on right is Captain Kaboom. Focus on gate sequence and loss moment.'" : "E.g. 'Competitor puzzle game. Analyze hook pattern and tension mechanics.'"} value={context} onChange={e => setContext(e.target.value)} />
         </div>
 
         <div style={{ marginBottom: 20 }}>
-          <span style={css.label}>Manual storyboard frames (optional — screenshots from the video)</span>
-          <p style={{ margin: "0 0 8px", fontSize: 11, color: "#888" }}>Upload screenshots from the video to help Gemini identify hard-to-read moments. These are compared against auto-extracted frames.</p>
+          <span style={css.label}>Manual storyboard frames (optional)</span>
+          <p style={{ margin: "0 0 8px", fontSize: 11, color: "#888" }}>Screenshots from the video to help identify hard-to-read moments. Compared against auto-extracted frames.</p>
           <input ref={frameRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => setManualFrames(Array.from(e.target.files ?? []))} />
           <button style={css.btnSecondary} onClick={() => frameRef.current?.click()}>
             {manualFrames.length > 0 ? `${manualFrames.length} frame${manualFrames.length > 1 ? "s" : ""} selected` : "+ Add storyboard frames"}
           </button>
           {manualFrames.length > 0 && (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const, marginTop: 8 }}>
-              {manualFrames.map((f, i) => (
-                <span key={i} style={{ fontSize: 11, padding: "2px 8px", background: "#f0fdf4", color: "#166534", borderRadius: 6, border: "1px solid #bbf7d0" }}>{f.name}</span>
-              ))}
+              {manualFrames.map((f, i) => <span key={i} style={{ fontSize: 11, padding: "2px 8px", background: "#f0fdf4", color: "#166534", borderRadius: 6, border: "1px solid #bbf7d0" }}>{f.name}</span>)}
             </div>
           )}
         </div>
 
         <div style={{ marginBottom: 16, padding: "10px 12px", background: "#f8f8f8", borderRadius: 8, fontSize: 11, color: "#666" }}>
-          <strong>Analysis pipeline:</strong> {refCount > 0 ? `✓ ${refCount} MOC visual refs` : "⚠ No visual refs (add to refImages.ts)"} → Auto frame extraction → {manualFrames.length > 0 ? `✓ ${manualFrames.length} manual frames` : "No manual frames"} → Full DNA analysis
+          <strong>Pipeline:</strong> {refCount > 0 ? `✓ ${refCount} MOC refs` : "⚠ No refs"} → Auto frame extraction → {manualFrames.length > 0 ? `✓ ${manualFrames.length} manual frames` : "No manual frames"} → DNA analysis
         </div>
 
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button style={css.btnSecondary} onClick={onCancel}>Cancel</button>
-          <button style={css.btnPrimary} onClick={() => onConfirm({ tier, ad_type: adType, context, manual_frames: manualFrames })}>
-            Choose video →
-          </button>
+          <button style={css.btnPrimary} onClick={() => onConfirm({ tier, ad_type: adType, context, manual_frames: manualFrames })}>Choose video →</button>
         </div>
       </div>
     </div>
@@ -343,79 +361,64 @@ export default function App() {
 
     try {
       for (const file of files) {
+        // Step 1: get video part
         let videoPart: any;
-
-        // ── Step 1: Upload video to Gemini ──────────────────────────────────
         if (file.size > 4 * 1024 * 1024) {
           const { fileUri, mimeType } = await uploadToGeminiFileAPI(file, setAnalyzeInfo);
-          videoPart = { type: "file_uri", fileUri, mimeType };
+          videoPart = { fileData: { mimeType, fileUri } };
         } else {
           setAnalyzeInfo(`Processing "${file.name}"…`);
-          const base64 = await fileToBase64(file);
-          videoPart = file.type.startsWith("video/")
-            ? { type: "document", source: { type: "base64", media_type: file.type, data: base64 } }
-            : { type: "image", source: { type: "base64", media_type: file.type, data: base64 } };
+          const b64 = await fileToBase64(file);
+          videoPart = { inlineData: { mimeType: file.type, data: b64 } };
         }
 
-        // ── Step 2: Extract key frames (Call 1) ─────────────────────────────
+        // Step 2: extract key frames (Call 1)
         setAnalyzeInfo(`Extracting key frames from "${file.name}"…`);
         let autoFrames: FrameExtraction[] = [];
         try {
-          const frameResult = await callAPI("extract_frames", {
-            system: frameExtractionSystem(),
-            messages: [{ role: "user", content: [
-              { type: "text", text: "Watch this video and identify the 8 most visually significant moments for ad analysis:" },
-              videoPart
-            ]}],
-          });
+          const frameResult = await callGeminiDirect(
+            frameExtractionSystem(),
+            [{ text: "Watch this video and identify the 8 most significant moments:" }, videoPart]
+          );
           autoFrames = frameResult?.frames || [];
         } catch (err) {
-          console.warn("Frame extraction failed, continuing without frames:", err);
+          console.warn("Frame extraction failed:", err);
         }
 
-        // ── Step 3: Convert manual frames to base64 ──────────────────────────
-        const manualFrameParts: any[] = [];
+        // Step 3: convert manual frames
+        const manualParts: any[] = [];
         if (cfg.manual_frames.length > 0) {
-          setAnalyzeInfo(`Processing ${cfg.manual_frames.length} manual storyboard frame(s)…`);
+          setAnalyzeInfo(`Processing ${cfg.manual_frames.length} manual frame(s)…`);
           for (const mf of cfg.manual_frames) {
             const b64 = await fileToBase64(mf);
-            manualFrameParts.push({ type: "inline_image", mimeType: mf.type, data: b64 });
+            manualParts.push({ text: `Manual storyboard frame: ${mf.name}` });
+            manualParts.push({ inlineData: { mimeType: mf.type, data: b64 } });
           }
         }
 
-        // ── Step 4: Build full analysis message with all 3 layers ────────────
-        setAnalyzeInfo(`Analyzing "${file.name}" with ${autoFrames.length} auto-frames + ${cfg.manual_frames.length} manual frames…`);
+        // Step 4: build full analysis content (Call 2)
+        setAnalyzeInfo(`Analyzing "${file.name}"…`);
         const refParts = buildReferenceParts();
         const hasRefs = refParts.length > 0;
-        const hasManualFrames = manualFrameParts.length > 0;
+        const hasManualFrames = manualParts.length > 0;
 
-        const analysisContent: any[] = [];
+        const analysisParts: any[] = [
+          // Layer 1: MOC visual references
+          ...refParts,
+          // Layer 3: manual storyboard frames
+          ...(hasManualFrames ? [{ text: "### MANUAL STORYBOARD FRAMES FROM THE VIDEO:" }, ...manualParts] : []),
+          // The video
+          { text: "### THE AD VIDEO — analyze this only, do not analyze the reference images above:" },
+          videoPart,
+          { text: "Extract Creative DNA from the video above using the reference images and frame data as context." }
+        ];
 
-        // Layer 1: MOC visual references
-        if (hasRefs) {
-          analysisContent.push(...refParts);
-        }
+        const dna = await callGeminiDirect(
+          analyzeSystem(lib, cfg, autoFrames, hasManualFrames, hasRefs),
+          analysisParts
+        );
 
-        // Layer 3: Manual storyboard frames (with label)
-        if (hasManualFrames) {
-          analysisContent.push({ type: "text", text: "### MANUAL STORYBOARD FRAMES FROM THE VIDEO (provided by analyst):" });
-          manualFrameParts.forEach((mfp, idx) => {
-            analysisContent.push({ type: "text", text: `Manual frame ${idx + 1}:` });
-            analysisContent.push(mfp);
-          });
-        }
-
-        // The actual video
-        analysisContent.push({ type: "text", text: "### THE AD VIDEO TO ANALYZE (extract DNA from this only):" });
-        analysisContent.push(videoPart);
-        analysisContent.push({ type: "text", text: "Now analyze the video above using the reference images and frame data provided." });
-
-        const dna = await callAPI("analyze", {
-          system: analyzeSystem(lib, cfg, autoFrames, hasManualFrames, hasRefs),
-          messages: [{ role: "user", content: analysisContent }],
-        });
-
-        const newEntry: DNAEntry = {
+        saveLib([...lib, {
           ...dna,
           id: Date.now() + Math.random(),
           tier: cfg.tier,
@@ -425,8 +428,7 @@ export default function App() {
           added_at: new Date().toISOString(),
           auto_frames: autoFrames,
           manual_frames: cfg.manual_frames.map(f => f.name),
-        };
-        saveLib([...lib, newEntry]);
+        }]);
         setAnalyzeInfo("");
       }
     } catch (err: any) {
@@ -442,7 +444,7 @@ export default function App() {
     if (lib.length === 0) { setBriefErr("Add at least one ad to the DNA Library first."); return; }
     setGenerating(true); setBriefErr(""); setConcepts([]); setBriefAnalysis(null);
     try {
-      const result = await callAPI("brief", { system: briefSystem(lib, briefCtx, segment), messages: [{ role: "user", content: "Generate 3 MOC ad concepts." }] });
+      const result = await callGeminiDirect(briefSystem(lib, briefCtx, segment), [{ text: "Generate 3 MOC ad concepts based on the DNA library and brief." }]);
       setConcepts(result.concepts ?? []); setBriefAnalysis(result.analysis ?? null); setExpandedConcept(0);
     } catch (err: any) { setBriefErr(err.message); }
     finally { setGenerating(false); }
@@ -452,7 +454,7 @@ export default function App() {
     const k = `${ci}-${scene}`;
     setRenderingScene(p => ({ ...p, [k]: true }));
     try {
-      const url = await callAPI("image", { prompt: imagePrompt(concepts[ci], scene) });
+      const url = await callImageAPI(imagePrompt(concepts[ci], scene));
       setConcepts(p => p.map((c, i) => i === ci ? { ...c, [`visual_${scene}`]: url } : c));
     } catch (err: any) { alert(`Render failed: ${err.message}`); }
     finally { setRenderingScene(p => ({ ...p, [k]: false })); }
@@ -546,18 +548,16 @@ export default function App() {
                       </div>
                     </div>
                   )}
-
                   {d.gate_sequence?.length > 0 && (
                     <div style={{ marginBottom: 10 }}>
                       <span style={css.label}>Gate sequence</span>
                       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const }}>
                         {d.gate_sequence.map((g, i) => (
-                          <span key={i} style={{ fontSize: 11, padding: "2px 8px", background: g.toLowerCase().includes("death") || g.includes("☠") ? "#fef2f2" : "#eff6ff", color: g.toLowerCase().includes("death") ? "#dc2626" : "#1e40af", borderRadius: 6, border: `1px solid ${g.toLowerCase().includes("death") ? "#fca5a5" : "#bfdbfe"}` }}>{g}</span>
+                          <span key={i} style={{ fontSize: 11, padding: "2px 8px", background: g.toLowerCase().includes("death") ? "#fef2f2" : "#eff6ff", color: g.toLowerCase().includes("death") ? "#dc2626" : "#1e40af", borderRadius: 6, border: `1px solid ${g.toLowerCase().includes("death") ? "#fca5a5" : "#bfdbfe"}` }}>{g}</span>
                         ))}
                       </div>
                     </div>
                   )}
-
                   {d.champions_visible?.length > 0 && (
                     <div style={{ marginBottom: 10 }}>
                       <span style={css.label}>Champions visible</span>
@@ -566,20 +566,18 @@ export default function App() {
                       </div>
                     </div>
                   )}
-
                   {d.biome_visual_notes && (
                     <div style={{ marginBottom: 10 }}>
                       <span style={css.label}>Biome visual notes</span>
                       <p style={{ margin: 0, fontSize: 12, color: "#666", fontStyle: "italic" }}>{d.biome_visual_notes}</p>
                     </div>
                   )}
-
                   {[
                     { label: "Key mechanic", value: d.key_mechanic },
                     { label: "Emotional arc", value: d.emotional_arc },
                     { label: "Why it works", value: d.why_it_works },
                     { label: "Creative gaps", value: d.creative_gaps },
-                    { label: "Frame extraction gaps", value: (d as any).frame_extraction_gaps },
+                    { label: "Frame extraction gaps", value: d.frame_extraction_gaps },
                     { label: "Why it fails", value: d.why_it_fails },
                     { label: "Replication instructions", value: d.replication_instructions },
                   ].filter(x => x.value).map(({ label, value }) => (
@@ -590,7 +588,6 @@ export default function App() {
                   ))}
                 </div>
               )}
-
               <button style={{ ...css.btnSecondary, marginTop: 10, fontSize: 11 }} onClick={() => setExpandedDNA(expandedDNA === di ? null : di)}>
                 {expandedDNA === di ? "Collapse" : "Expand details"}
               </button>
@@ -648,7 +645,6 @@ export default function App() {
                   </div>
                 )}
               </div>
-
               {expandedConcept === ci && (
                 <div style={{ marginTop: 16, borderTop: "1px solid #f0f0f0", paddingTop: 16 }}>
                   {c.visual_identity && (
@@ -671,7 +667,6 @@ export default function App() {
                       </div>
                     </div>
                   )}
-
                   <div style={{ marginBottom: 16 }}>
                     <span style={css.label}>Scene renders — click to generate</span>
                     <div style={css.grid3}>
@@ -682,13 +677,12 @@ export default function App() {
                           <div key={scene} style={css.sceneWrap} onClick={() => !imgUrl && !loading && handleRenderScene(ci, scene)}>
                             {imgUrl ? <img src={imgUrl} alt={scene} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                               : loading ? <p style={{ margin: 0, fontSize: 11, color: "#888" }}>Rendering…</p>
-                              : <div style={{ textAlign: "center", padding: 12 }}><p style={{ margin: 0, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", color: "#aaa" }}>{scene}</p><p style={{ margin: "4px 0 0", fontSize: 10, color: "#bbb" }}>Click to render</p></div>}
+                              : <div style={{ textAlign: "center", padding: 12 }}><p style={{ margin: 0, fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "#aaa" }}>{scene}</p><p style={{ margin: "4px 0 0", fontSize: 10, color: "#bbb" }}>Click to render</p></div>}
                           </div>
                         );
                       })}
                     </div>
                   </div>
-
                   {c.production_script?.length > 0 && (
                     <div style={{ marginBottom: 16 }}>
                       <span style={css.label}>Production script</span>
@@ -707,7 +701,6 @@ export default function App() {
                       </div>
                     </div>
                   )}
-
                   {c.performance_hooks?.length > 0 && (
                     <div style={{ marginBottom: 16 }}>
                       <span style={css.label}>Performance hooks</span>
@@ -721,7 +714,6 @@ export default function App() {
                       </div>
                     </div>
                   )}
-
                   {c.quality_score && (
                     <div>
                       <span style={css.label}>Quality score</span>
