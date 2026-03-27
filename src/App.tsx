@@ -97,29 +97,64 @@ const SEGMENTS = ["Whale", "Dolphin", "Minnow", "Non-Payer"];
 const GEMINI_BROWSER_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 
 // ─── Prompts ──────────────────────────────────────────────────────────────────
-const analyzeSystem = (lib: DNAEntry[]) => `You are a World-Class Creative Intelligence Analyst for Mob Control mobile game ads. Extract precise Creative DNA from the uploaded ad. Be extremely specific — use timestamps, exact mechanics, emotional beats.
+const analyzeSystem = (lib: DNAEntry[]) => `You are a World-Class Creative Intelligence Analyst specializing in Mob Control mobile game ads. Your job is to watch the uploaded video carefully, frame by frame, and extract precise data. Never guess — only report what you can directly observe.
 
 EXISTING LIBRARY (${lib.length} entries):
 ${lib.length > 0 ? JSON.stringify(lib.map(d => ({ title: d.title, tier: d.tier, hook_type: d.hook_type, hook_timing_seconds: d.hook_timing_seconds }))) : "Empty — first entry."}
 
-Return ONLY valid JSON matching this exact schema:
+### STEP 1 — WATCH CAREFULLY BEFORE ANSWERING
+Before filling in any field, do the following:
+1. Identify the exact second the first surprising or engaging moment occurs — this is the hook. It is NEVER 0 seconds unless something dramatic happens in the very first frame.
+2. Look at the environment: ground texture, trees, lighting color, structures. Do NOT guess — describe what you see, then match to the biome list.
+3. Look at every character carefully. Match their visual design to the champion list below. If unsure, write "Unknown" — do not guess.
+4. Watch the full gate sequence in order. List every gate value shown (x2, x5, +3, etc.) in the exact order they appear.
+5. Identify the single mechanic that drives the most tension or excitement — be specific (e.g. "x999 gate multiplies mob to fill screen at 8s" not just "gate mechanic").
+
+### BIOME RECOGNITION GUIDE (match what you see, not what you expect)
+- Desert: yellow/orange sand, palm trees, bright warm sunlight, sandy paths
+- Cyber-City: grey stone/metal paths, orange glowing tech structures, industrial buildings
+- Forest: green grass, dense green trees, soft natural lighting, lush foliage — can have fog or mist
+- Volcanic: red/orange lava flows, dark black rocks, red/orange dramatic lighting
+- Snow: white snow ground, frozen/icy pipes or structures, blue-white cold lighting
+- Toxic: purple-tinted paths, green slime or ooze, glowing crystals
+- Unknown: use this if the environment doesn't clearly match any above
+
+### CHAMPION RECOGNITION GUIDE (match visual design only)
+- Mobzilla: LARGE purple/yellow robotic T-Rex dinosaur with blue crystalline spikes on back
+- Nexus: blue/white/orange futuristic humanoid mech robot with an orange glowing energy sword
+- Captain Kaboom: SMALL skeleton pirate with skull face, pirate hat, dual pistols
+- Explodon: heavily armored blue knight/soldier with a blue feather plume on helmet
+- Big Blob: GIANT round green slime monster wearing a crown, with red eyes
+- Raccoon (player): cute BLUE raccoon with dual submachine guns
+- Raccoon (enemy): cute RED raccoon with dual submachine guns
+- Caveman: blue-skinned muscular caveman carrying a wooden club
+- General: red-skinned military commander in red uniform with gold armor details and a monocle
+
+### HOOK TIMING GUIDE
+- Hook timing = the exact second when the first emotionally engaging moment occurs
+- This is typically: first gate hit, first big swarm reveal, first boss appearance, or first surprising visual
+- It is ALMOST NEVER 0 seconds — 0 means something dramatic happens in the very first frame
+- Watch the video and count seconds before reporting this number
+
+Return ONLY valid JSON matching this exact schema, no preamble:
 {
-  "title": string,
+  "title": string (descriptive title based on what you observe),
   "hook_type": "Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial",
-  "hook_timing_seconds": number,
-  "hook_description": string,
-  "gate_sequence": [string],
-  "swarm_peak_moment_seconds": number,
+  "hook_timing_seconds": number (NEVER 0 unless action starts in frame 1),
+  "hook_description": string (exactly what happens at the hook moment),
+  "gate_sequence": [string] (every gate value in order of appearance, e.g. ["x2", "+5", "x10", "x999"]),
+  "swarm_peak_moment_seconds": number (exact second when mob swarm is largest),
   "loss_event_type": "Wrong Gate|Boss Overwhelm|Timer|None",
   "loss_event_timing_seconds": number | null,
-  "emotional_arc": string,
+  "emotional_arc": string (describe the tension curve in detail — what the viewer feels at each stage),
   "biome": "Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Unknown",
-  "champions_visible": [string],
+  "biome_visual_notes": string (describe exactly what you see: ground color, trees, lighting — justify your biome choice),
+  "champions_visible": [string] (only champions you can clearly identify from the visual guide above — use "Unknown" if unsure),
   "pacing": "Fast|Medium|Slow",
-  "key_mechanic": string,
-  "why_it_works": string,
-  "why_it_fails": string | null,
-  "replication_instructions": string
+  "key_mechanic": string (the single most specific mechanic driving tension — include timing and visual detail),
+  "why_it_works": string (2-3 sentences on conversion psychology — be specific to what you observed),
+  "why_it_fails": string | null (if this is a weak ad, explain specifically why — else null),
+  "replication_instructions": string (step-by-step instructions precise enough for a Unity producer to recreate this ad)
 }`;
 
 const briefSystem = (lib: DNAEntry[], ctx: string, seg: string) => `You are a World-Class Lead Creative Producer for Mob Control.
