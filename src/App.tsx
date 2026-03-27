@@ -94,16 +94,76 @@ function parseJSON(text: string): any {
   return JSON.parse(cleaned.slice(start, end + 1));
 }
 
-// ─── Netlify proxy — image generation only ───────────────────────────────────
-async function callImageAPI(prompt: string): Promise<string> {
-  const r = await fetch("/api/generate", {
+// ─── Direct Gemini image generation from browser ─────────────────────────────
+const GEMINI_IMAGE_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${GEMINI_KEY}`;
+
+// Pick 2-3 most relevant refs based on biome + champion match
+function pickRelevantRefs(vi: VisualIdentity): any[] {
+  const biome = vi.environment?.toLowerCase() || "";
+  const player = vi.player_champion?.toLowerCase() || "";
+  const enemy = vi.enemy_champion?.toLowerCase() || "";
+
+  const populated = MOC_REFERENCES.filter(r => !r.base64.startsWith("REPLACE_"));
+  if (populated.length === 0) return [];
+
+  // Score each ref by relevance
+  const scored = populated.map(ref => {
+    const label = ref.label.toLowerCase();
+    let score = 0;
+    if (label.includes(biome)) score += 3;
+    if (player && label.includes(player)) score += 2;
+    if (enemy && label.includes(enemy)) score += 2;
+    if (ref.category === "gate") score += 1; // always useful
+    if (ref.category === "biome" && label.includes(biome)) score += 2;
+    return { ref, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+
+  // Always include: best biome match + best champion match + one gate ref
+  const selected: typeof populated = [];
+  const biomeRef = scored.find(s => s.ref.category === "biome" && s.score > 0)?.ref;
+  const champRef = scored.find(s => s.ref.category === "champion" && s.score > 0)?.ref;
+  const gateRef = scored.find(s => s.ref.category === "gate")?.ref;
+
+  if (biomeRef) selected.push(biomeRef);
+  if (champRef && champRef !== biomeRef) selected.push(champRef);
+  if (gateRef && !selected.includes(gateRef)) selected.push(gateRef);
+
+  // Fill to max 3 with highest scoring remaining
+  for (const { ref } of scored) {
+    if (selected.length >= 3) break;
+    if (!selected.includes(ref)) selected.push(ref);
+  }
+
+  // Build Gemini parts
+  const parts: any[] = [{ text: "### MOC VISUAL REFERENCES — match this exact art style:" }];
+  selected.forEach(ref => {
+    parts.push({ text: `[${ref.category.toUpperCase()}]: ${ref.label.split(".")[0]}` });
+    parts.push({ inlineData: { mimeType: "image/jpeg", data: ref.base64 } });
+  });
+  return parts;
+}
+
+async function callImageDirect(prompt: string, refParts: any[]): Promise<string> {
+  const parts = [
+    ...refParts,
+    { text: prompt }
+  ];
+  const r = await fetch(GEMINI_IMAGE_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ task: "image", payload: { prompt } })
+    body: JSON.stringify({
+      contents: [{ parts }],
+      generationConfig: { responseModalities: ["IMAGE", "TEXT"] }
+    })
   });
   const text = await r.text();
-  if (!r.ok) throw new Error(`Image API ${r.status}: ${text}`);
-  return JSON.parse(text).result;
+  if (!r.ok) throw new Error(`Image gen ${r.status}: ${text}`);
+  const data = JSON.parse(text);
+  const imgPart = data.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
+  if (!imgPart) throw new Error("No image returned — safety filter may have triggered");
+  return `data:image/png;base64,${imgPart.inlineData.data}`;
 }
 
 // ─── Gemini File API upload ───────────────────────────────────────────────────
@@ -218,10 +278,55 @@ MOC CHAMPIONS: Mobzilla(purple/yellow T-Rex), Nexus(blue/white mech+orange sword
 Return ONLY valid JSON:
 {"analysis":{"patterns_used":string,"segment_insight":string,"strategy":string},"concepts":[{"title":string,"is_data_backed":boolean,"objective":string,"target_segment":string,"player_motivation":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"layout":string,"production_script":[{"time":string,"action":string,"visual_cue":string,"audio_cue":string}],"performance_hooks":[{"type":string,"text":string}],"engagement_hooks":string,"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}]}`;
 
-const imagePrompt = (concept: Concept, scene: "start" | "middle" | "end") => {
+const imagePrompt = (concept: Concept, scene: "start" | "middle" | "end", visualSeed?: string) => {
   const vi = concept.visual_identity;
-  const desc = { start: "Opening: enemies approaching, cannon ready, first gate imminent.", middle: "Mid-battle: massive mob swarm through gates.", end: "Climax: nearly winning — last-second enemy snatches victory." }[scene];
-  return `High-fidelity top-down 3D Mob Control gameplay screenshot. SCENE: ${desc} ENV: ${vi.environment} | LIGHTING: ${vi.lighting} | PLAYER: ${vi.player_champion} | ENEMY: ${vi.enemy_champion} | GATES: ${vi.gate_values?.join(", ")} | CANNON: ${vi.cannon_type} | MOOD: ${vi.mood_notes}. Cinematic top-down, high contrast blue vs red, large readable gates, cannon at bottom, NO text/UI overlays.`;
+  const scenes = {
+    start:  "SCENE: Opening shot. Player cannon at bottom of frame, small mob swarm just fired. First gate visible ahead. Enemy base visible at top with full health bar. High tension — enemies approaching from base.",
+    middle: "SCENE: Mid-battle climax. Massive blue mob swarm filling the screen after passing through multiplier gates. Swarm is overwhelming — screen-filling power fantasy moment. Gate values clearly visible.",
+    end:    "SCENE: Dramatic fail moment. Player mob swarm nearly depleted, enemy champion or boss with low health bar but still standing. Cannon about to be overwhelmed. Emotional peak — defeat snatched from near-victory."
+  }[scene];
+
+  const consistencyBlock = visualSeed
+    ? `\nVISUAL CONSISTENCY (match start scene exactly): ${visualSeed}\n`
+    : "";
+
+  return `You are generating a gameplay screenshot for a Mob Control mobile ad. Match the reference images above — same art style, same 3D rendering quality, same lighting approach.
+
+${scenes}
+
+VISUAL IDENTITY (non-negotiable):
+- Environment: ${vi.environment}
+- Lighting: ${vi.lighting}  
+- Player champion: ${vi.player_champion}
+- Enemy champion: ${vi.enemy_champion}
+- Player mob color: ${vi.player_mob_color} small round blob creatures
+- Enemy mob color: ${vi.enemy_mob_color} small round blob creatures
+- Gate values shown: ${vi.gate_values?.join(", ")}
+- Cannon type: ${vi.cannon_type}
+- Mood: ${vi.mood_notes}
+${consistencyBlock}
+BIOME VISUALS:
+- Forest (foggy): grey/white mist atmosphere, dark green pine trees barely visible through fog, grey road
+- Desert: tan/beige sand dunes, bright warm sunlight, blue sky, sparse vegetation
+- Cyber-City: grey metal paths, orange glowing tech structures
+- Volcanic: red/orange lava flows, dark black rocks
+- Snow: white snow ground, icy frozen structures, blue-white lighting
+- Toxic: purple paths, green slime, glowing crystals
+
+CHAMPION VISUALS:
+- Captain Kaboom: small skeleton pirate, mushroom-shaped hat, skull face, dual pistols
+- Hulk/Gold Golem: large golden muscular bodybuilder
+- Caveman: blue-skinned muscular man with wooden club
+- Mobzilla: large purple/yellow robotic T-Rex with blue crystalline spikes
+- Nexus: blue/white/orange humanoid mech with orange energy sword
+
+COMPOSITION RULES:
+1. Cinematic slightly-tilted top-down view — camera angle matches reference images
+2. Cannon always visible at bottom center of frame
+3. Gates must be large, clear, and show exact values
+4. High contrast between blue player mobs and ${vi.enemy_mob_color} enemy mobs
+5. NO text overlays, NO UI elements, NO watermarks, NO logos
+6. Photo-realistic 3D game screenshot quality — match reference image fidelity exactly`;
 };
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -454,7 +559,15 @@ export default function App() {
     const k = `${ci}-${scene}`;
     setRenderingScene(p => ({ ...p, [k]: true }));
     try {
-      const url = await callImageAPI(imagePrompt(concepts[ci], scene));
+      const concept = concepts[ci];
+      const refParts = pickRelevantRefs(concept.visual_identity);
+
+      // Use start scene as visual seed for middle + end to ensure consistency
+      const visualSeed = scene !== "start" && concept.visual_start
+        ? `This scene is part of the same ad as the start scene. Maintain identical: biome environment, lighting, road texture, gate style, mob appearance, and overall art style. Only the action/content changes.`
+        : undefined;
+
+      const url = await callImageDirect(imagePrompt(concept, scene, visualSeed), refParts);
       setConcepts(p => p.map((c, i) => i === ci ? { ...c, [`visual_${scene}`]: url } : c));
     } catch (err: any) { alert(`Render failed: ${err.message}`); }
     finally { setRenderingScene(p => ({ ...p, [k]: false })); }
