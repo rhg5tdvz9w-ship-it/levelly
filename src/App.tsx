@@ -93,6 +93,9 @@ const TIER_STYLE: Record<string, { bg: string; text: string; border: string }> =
 
 const SEGMENTS = ["Whale", "Dolphin", "Minnow", "Non-Payer"];
 
+// ─── Gemini key for large file uploads (injected at build time by Vite) ───────
+const GEMINI_BROWSER_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
+
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 const analyzeSystem = (lib: DNAEntry[]) => `You are a World-Class Creative Intelligence Analyst for Mob Control mobile game ads. Extract precise Creative DNA from the uploaded ad. Be extremely specific — use timestamps, exact mechanics, emotional beats.
 
@@ -195,42 +198,102 @@ BIOME: ${vi.environment}
 RULES: Cinematic slightly-tilted top-down view. High contrast blue vs red mobs. Gates large and readable showing exact values. Cannon at bottom of frame. Instant win/fail readability. NO text, labels, UI overlays, watermarks. Real high-quality game screenshot aesthetic.`;
 };
 
-// ─── API call via serverless proxy ───────────────────────────────────────────
+// ─── API call via Netlify function proxy ─────────────────────────────────────
 async function callAPI(task: string, payload: object): Promise<any> {
   const r = await fetch("/api/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ task, payload }),
   });
-  if (!r.ok) {
-    const err = await r.json().catch(() => ({ error: r.statusText }));
-    throw new Error(err.error ?? `API error ${r.status}`);
+  const text = await r.text();
+  if (!r.ok) throw new Error(`API ${r.status}: ${text}`);
+  try {
+    const data = JSON.parse(text);
+    return data.result;
+  } catch {
+    throw new Error(`Invalid response: ${text.slice(0, 300)}`);
   }
-  const data = await r.json();
-  return data.result;
+}
+
+// ─── Large file upload directly to Gemini File API ───────────────────────────
+// Videos go browser → Gemini directly, bypassing Netlify bandwidth limits
+async function uploadToGeminiFileAPI(
+  file: File,
+  onStatus: (msg: string) => void
+): Promise<{ fileUri: string; mimeType: string }> {
+  onStatus(`Uploading "${file.name}" (${Math.round(file.size / 1024 / 1024)}MB) to Gemini…`);
+
+  const initRes = await fetch(
+    `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${GEMINI_BROWSER_KEY}`,
+    {
+      method: "POST",
+      headers: {
+        "X-Goog-Upload-Protocol": "resumable",
+        "X-Goog-Upload-Command": "start",
+        "X-Goog-Upload-Header-Content-Length": file.size.toString(),
+        "X-Goog-Upload-Header-Content-Type": file.type,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ file: { display_name: file.name } }),
+    }
+  );
+  if (!initRes.ok) throw new Error(`File API init failed: ${initRes.status} — ${await initRes.text()}`);
+  const uploadUrl = initRes.headers.get("X-Goog-Upload-URL");
+  if (!uploadUrl) throw new Error("No upload URL returned from Gemini File API");
+
+  onStatus(`Uploading "${file.name}"… (may take a minute for large files)`);
+
+  const uploadRes = await fetch(uploadUrl, {
+    method: "POST",
+    headers: {
+      "X-Goog-Upload-Command": "upload, finalize",
+      "X-Goog-Upload-Offset": "0",
+      "Content-Type": file.type,
+    },
+    body: file,
+  });
+  if (!uploadRes.ok) throw new Error(`File upload failed: ${uploadRes.status} — ${await uploadRes.text()}`);
+  const uploadData = await uploadRes.json();
+
+  const fileUri = uploadData.file?.uri;
+  const name = uploadData.file?.name;
+  if (!fileUri) throw new Error("No file URI returned from Gemini");
+
+  onStatus(`Processing "${file.name}"…`);
+  for (let i = 0; i < 20; i++) {
+    const stateRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/${name}?key=${GEMINI_BROWSER_KEY}`
+    );
+    const stateData = await stateRes.json();
+    if (stateData.state === "ACTIVE") break;
+    if (stateData.state === "FAILED") throw new Error("Gemini file processing failed");
+    await new Promise(r => setTimeout(r, 2000));
+  }
+
+  return { fileUri, mimeType: file.type };
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const css = {
-  app:       { fontFamily: "system-ui, sans-serif", maxWidth: 960, margin: "0 auto", padding: "1.5rem 1rem", color: "#111" } as React.CSSProperties,
-  logo:      { fontSize: 22, fontWeight: 600, margin: 0, letterSpacing: "-0.5px" } as React.CSSProperties,
-  sub:       { fontSize: 13, color: "#666", margin: "2px 0 1.5rem" } as React.CSSProperties,
-  tabs:      { display: "flex", gap: 2, borderBottom: "1px solid #e5e5e5", marginBottom: "1.5rem" } as React.CSSProperties,
-  tab:       (a: boolean): React.CSSProperties => ({ padding: "8px 18px", fontSize: 13, fontWeight: a ? 600 : 400, color: a ? "#111" : "#888", background: "none", border: "none", borderBottom: a ? "2px solid #111" : "2px solid transparent", cursor: "pointer", marginBottom: -1 }),
-  card:      { background: "#fff", border: "1px solid #e8e8e8", borderRadius: 12, padding: "1rem 1.25rem", marginBottom: 10 } as React.CSSProperties,
-  cardGray:  { background: "#f8f8f8", border: "1px solid #e8e8e8", borderRadius: 12, padding: "1rem 1.25rem", marginBottom: 10 } as React.CSSProperties,
-  label:     { fontSize: 10, fontWeight: 600, color: "#999", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 5, display: "block" },
-  input:     { width: "100%", boxSizing: "border-box" as const, fontSize: 13, padding: "8px 10px", border: "1px solid #e0e0e0", borderRadius: 8, outline: "none" },
-  textarea:  { width: "100%", boxSizing: "border-box" as const, fontSize: 13, padding: "8px 10px", border: "1px solid #e0e0e0", borderRadius: 8, minHeight: 90, resize: "vertical" as const, outline: "none", fontFamily: "inherit" },
-  btnPrimary:{ padding: "9px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer", borderRadius: 8, border: "none", background: "#1a56db", color: "#fff" } as React.CSSProperties,
-  btnSecondary:{ padding: "7px 14px", fontSize: 12, fontWeight: 500, cursor: "pointer", borderRadius: 8, border: "1px solid #e0e0e0", background: "#fff", color: "#444" } as React.CSSProperties,
-  btnDanger: { padding: "5px 10px", fontSize: 11, cursor: "pointer", borderRadius: 6, border: "1px solid #fca5a5", background: "#fff", color: "#dc2626" } as React.CSSProperties,
-  badge:     (tier: string): React.CSSProperties => ({ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 6, background: TIER_STYLE[tier]?.bg ?? "#eee", color: TIER_STYLE[tier]?.text ?? "#333", border: `1px solid ${TIER_STYLE[tier]?.border ?? "#ccc"}` }),
-  error:     { fontSize: 12, color: "#dc2626", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "8px 12px", marginTop: 8 } as React.CSSProperties,
-  metric:    { background: "#f5f5f5", borderRadius: 8, padding: "8px 12px", textAlign: "center" as const },
-  sceneWrap: { aspectRatio: "9/16", background: "#f0f0f0", borderRadius: 10, border: "1px solid #e8e8e8", overflow: "hidden", display: "flex", flexDirection: "column" as const, alignItems: "center", justifyContent: "center", cursor: "pointer", position: "relative" as const },
-  grid3:     { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 } as React.CSSProperties,
-  gridAuto:  { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 8 } as React.CSSProperties,
+  app:          { fontFamily: "system-ui, sans-serif", maxWidth: 960, margin: "0 auto", padding: "1.5rem 1rem", color: "#111" } as React.CSSProperties,
+  logo:         { fontSize: 22, fontWeight: 600, margin: 0, letterSpacing: "-0.5px" } as React.CSSProperties,
+  sub:          { fontSize: 13, color: "#666", margin: "2px 0 1.5rem" } as React.CSSProperties,
+  tabs:         { display: "flex", gap: 2, borderBottom: "1px solid #e5e5e5", marginBottom: "1.5rem" } as React.CSSProperties,
+  tab:          (a: boolean): React.CSSProperties => ({ padding: "8px 18px", fontSize: 13, fontWeight: a ? 600 : 400, color: a ? "#111" : "#888", background: "none", border: "none", borderBottom: a ? "2px solid #111" : "2px solid transparent", cursor: "pointer", marginBottom: -1 }),
+  card:         { background: "#fff", border: "1px solid #e8e8e8", borderRadius: 12, padding: "1rem 1.25rem", marginBottom: 10 } as React.CSSProperties,
+  cardGray:     { background: "#f8f8f8", border: "1px solid #e8e8e8", borderRadius: 12, padding: "1rem 1.25rem", marginBottom: 10 } as React.CSSProperties,
+  label:        { fontSize: 10, fontWeight: 600, color: "#999", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 5, display: "block" },
+  textarea:     { width: "100%", boxSizing: "border-box" as const, fontSize: 13, padding: "8px 10px", border: "1px solid #e0e0e0", borderRadius: 8, minHeight: 90, resize: "vertical" as const, outline: "none", fontFamily: "inherit" },
+  btnPrimary:   { padding: "9px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer", borderRadius: 8, border: "none", background: "#1a56db", color: "#fff" } as React.CSSProperties,
+  btnSecondary: { padding: "7px 14px", fontSize: 12, fontWeight: 500, cursor: "pointer", borderRadius: 8, border: "1px solid #e0e0e0", background: "#fff", color: "#444" } as React.CSSProperties,
+  btnDanger:    { padding: "5px 10px", fontSize: 11, cursor: "pointer", borderRadius: 6, border: "1px solid #fca5a5", background: "#fff", color: "#dc2626" } as React.CSSProperties,
+  badge:        (tier: string): React.CSSProperties => ({ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 6, background: TIER_STYLE[tier]?.bg ?? "#eee", color: TIER_STYLE[tier]?.text ?? "#333", border: `1px solid ${TIER_STYLE[tier]?.border ?? "#ccc"}` }),
+  error:        { fontSize: 12, color: "#dc2626", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "8px 12px", marginTop: 8 } as React.CSSProperties,
+  info:         { fontSize: 12, color: "#1a56db", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "8px 12px", marginTop: 8 } as React.CSSProperties,
+  metric:       { background: "#f5f5f5", borderRadius: 8, padding: "8px 12px", textAlign: "center" as const },
+  sceneWrap:    { aspectRatio: "9/16", background: "#f0f0f0", borderRadius: 10, border: "1px solid #e8e8e8", overflow: "hidden", display: "flex", flexDirection: "column" as const, alignItems: "center", justifyContent: "center", cursor: "pointer", position: "relative" as const },
+  grid3:        { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 } as React.CSSProperties,
+  gridAuto:     { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 8 } as React.CSSProperties,
 };
 
 const scoreColor = (n: number) => n >= 80 ? "#16a34a" : n >= 60 ? "#1a56db" : "#dc2626";
@@ -241,6 +304,7 @@ export default function App() {
   const [lib, setLib] = useState<DNAEntry[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeErr, setAnalyzeErr] = useState("");
+  const [analyzeInfo, setAnalyzeInfo] = useState("");
   const [expandedDNA, setExpandedDNA] = useState<number | null>(null);
 
   const [briefCtx, setBriefCtx] = useState("");
@@ -259,28 +323,59 @@ export default function App() {
     if (!files.length) return;
     setAnalyzing(true);
     setAnalyzeErr("");
+    setAnalyzeInfo("");
     try {
       for (const file of files) {
-        const base64 = await new Promise<string>((res, rej) => {
-          const r = new FileReader();
-          r.onload = () => res((r.result as string).split(",")[1]);
-          r.onerror = rej;
-          r.readAsDataURL(file);
-        });
-        const isVideo = file.type.startsWith("video/");
-        const contentPart = isVideo
-          ? { type: "document", source: { type: "base64", media_type: file.type, data: base64 } }
-          : { type: "image",    source: { type: "base64", media_type: file.type, data: base64 } };
+        let contentPart: any;
+
+        if (file.size > 4 * 1024 * 1024) {
+          // Large file (>4MB) — upload directly from browser to Gemini File API
+          // This bypasses Netlify entirely, avoiding bandwidth limits
+          if (!GEMINI_BROWSER_KEY) {
+            throw new Error("VITE_GEMINI_API_KEY is not set — large file uploads won't work.");
+          }
+          const { fileUri, mimeType } = await uploadToGeminiFileAPI(file, setAnalyzeInfo);
+          setAnalyzeInfo(`Extracting creative DNA from "${file.name}"…`);
+          contentPart = { type: "file_uri", fileUri, mimeType };
+        } else {
+          // Small file (<4MB) — send as base64 through Netlify function
+          setAnalyzeInfo(`Processing "${file.name}"…`);
+          const base64 = await new Promise<string>((res, rej) => {
+            const r = new FileReader();
+            r.onload = () => res((r.result as string).split(",")[1]);
+            r.onerror = rej;
+            r.readAsDataURL(file);
+          });
+          contentPart = file.type.startsWith("video/")
+            ? { type: "document", source: { type: "base64", media_type: file.type, data: base64 } }
+            : { type: "image",    source: { type: "base64", media_type: file.type, data: base64 } };
+        }
+
         const dna = await callAPI("analyze", {
           system: analyzeSystem(lib),
-          messages: [{ role: "user", content: [{ type: "text", text: "Analyze this Mob Control ad and extract Creative DNA:" }, contentPart] }],
+          messages: [{
+            role: "user",
+            content: [
+              { type: "text", text: "Analyze this Mob Control ad and extract Creative DNA:" },
+              contentPart
+            ]
+          }],
         });
-        setLib(prev => [...prev, { ...dna, id: Date.now() + Math.random(), tier: "winner", file_name: file.name, added_at: new Date().toISOString() }]);
+
+        setLib(prev => [...prev, {
+          ...dna,
+          id: Date.now() + Math.random(),
+          tier: "winner",
+          file_name: file.name,
+          added_at: new Date().toISOString()
+        }]);
+        setAnalyzeInfo("");
       }
     } catch (err: any) {
       setAnalyzeErr(err.message);
     } finally {
       setAnalyzing(false);
+      setAnalyzeInfo("");
       if (fileRef.current) fileRef.current.value = "";
     }
   }, [lib]);
@@ -331,7 +426,7 @@ export default function App() {
         ))}
       </div>
 
-      {/* ── LIBRARY ─────────────────────────────────────────────────────── */}
+      {/* ── LIBRARY ── */}
       {tab === "Library" && (
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
@@ -345,8 +440,9 @@ export default function App() {
           </div>
 
           {analyzeErr && <div style={css.error}>{analyzeErr}</div>}
+          {analyzeInfo && <div style={css.info}>{analyzeInfo}</div>}
 
-          {analyzing && (
+          {analyzing && !analyzeInfo && (
             <div style={{ ...css.cardGray, textAlign: "center", padding: "2rem" }}>
               <p style={{ margin: 0, fontSize: 13, color: "#666" }}>Extracting creative DNA…</p>
             </div>
@@ -355,7 +451,7 @@ export default function App() {
           {lib.length === 0 && !analyzing && (
             <div style={{ ...css.card, textAlign: "center", padding: "3rem", border: "1px dashed #ddd" }}>
               <p style={{ margin: 0, fontSize: 14, color: "#888" }}>Upload MOC ads or competitor ads to start building your library.</p>
-              <p style={{ margin: "6px 0 0", fontSize: 12, color: "#aaa" }}>Supports MP4, MOV, PNG, JPG. Gemini will extract hook timing, gate sequences, emotional arcs, and replication instructions.</p>
+              <p style={{ margin: "6px 0 0", fontSize: 12, color: "#aaa" }}>Supports MP4, MOV, PNG, JPG. Videos upload directly to Gemini — no size limit.</p>
             </div>
           )}
 
@@ -383,12 +479,12 @@ export default function App() {
 
               <div style={{ ...css.gridAuto, marginTop: 12 }}>
                 {[
-                  { label: "Hook type",    value: d.hook_type },
-                  { label: "Hook at",      value: d.hook_timing_seconds != null ? `${d.hook_timing_seconds}s` : "—" },
-                  { label: "Pacing",       value: d.pacing },
-                  { label: "Loss event",   value: d.loss_event_type },
-                  { label: "Biome",        value: d.biome },
-                  { label: "Swarm peak",   value: d.swarm_peak_moment_seconds != null ? `${d.swarm_peak_moment_seconds}s` : "—" },
+                  { label: "Hook type",  value: d.hook_type },
+                  { label: "Hook at",    value: d.hook_timing_seconds != null ? `${d.hook_timing_seconds}s` : "—" },
+                  { label: "Pacing",     value: d.pacing },
+                  { label: "Loss event", value: d.loss_event_type },
+                  { label: "Biome",      value: d.biome },
+                  { label: "Swarm peak", value: d.swarm_peak_moment_seconds != null ? `${d.swarm_peak_moment_seconds}s` : "—" },
                 ].map(({ label, value }) => (
                   <div key={label} style={css.metric}>
                     <div style={{ fontSize: 9, color: "#999", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>{label}</div>
@@ -420,10 +516,10 @@ export default function App() {
                     </div>
                   )}
                   {[
-                    { label: "Key mechanic", value: d.key_mechanic },
-                    { label: "Emotional arc", value: d.emotional_arc },
-                    { label: "Why it works", value: d.why_it_works },
-                    { label: "Why it fails", value: d.why_it_fails },
+                    { label: "Key mechanic",            value: d.key_mechanic },
+                    { label: "Emotional arc",            value: d.emotional_arc },
+                    { label: "Why it works",             value: d.why_it_works },
+                    { label: "Why it fails",             value: d.why_it_fails },
                     { label: "Replication instructions", value: d.replication_instructions },
                   ].filter(x => x.value).map(({ label, value }) => (
                     <div key={label} style={{ marginBottom: 10 }}>
@@ -445,7 +541,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ── BRIEF STUDIO ─────────────────────────────────────────────────── */}
+      {/* ── BRIEF STUDIO ── */}
       {tab === "Brief Studio" && (
         <div>
           <div style={css.card}>
@@ -517,32 +613,32 @@ export default function App() {
               {expandedConcept === ci && (
                 <div style={{ marginTop: 16, borderTop: "1px solid #f0f0f0", paddingTop: 16 }}>
 
-                  {/* Visual identity */}
-                  <div style={{ marginBottom: 16 }}>
-                    <span style={css.label}>Visual identity</span>
-                    <div style={css.gridAuto}>
-                      {[
-                        { l: "Environment", v: c.visual_identity.environment },
-                        { l: "Lighting",    v: c.visual_identity.lighting },
-                        { l: "Cannon",      v: c.visual_identity.cannon_type },
-                        { l: "Player",      v: `${c.visual_identity.player_champion} (${c.visual_identity.player_mob_color})` },
-                        { l: "Enemy",       v: `${c.visual_identity.enemy_champion} (${c.visual_identity.enemy_mob_color})` },
-                        { l: "Gates",       v: c.visual_identity.gate_values?.join(", ") },
-                      ].map(({ l, v }) => (
-                        <div key={l} style={css.metric}>
-                          <div style={{ fontSize: 9, color: "#999", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>{l}</div>
-                          <div style={{ fontSize: 11, fontWeight: 600 }}>{v ?? "—"}</div>
-                        </div>
-                      ))}
+                  {c.visual_identity && (
+                    <div style={{ marginBottom: 16 }}>
+                      <span style={css.label}>Visual identity</span>
+                      <div style={css.gridAuto}>
+                        {[
+                          { l: "Environment", v: c.visual_identity.environment },
+                          { l: "Lighting",    v: c.visual_identity.lighting },
+                          { l: "Cannon",      v: c.visual_identity.cannon_type },
+                          { l: "Player",      v: `${c.visual_identity.player_champion} (${c.visual_identity.player_mob_color})` },
+                          { l: "Enemy",       v: `${c.visual_identity.enemy_champion} (${c.visual_identity.enemy_mob_color})` },
+                          { l: "Gates",       v: c.visual_identity.gate_values?.join(", ") },
+                        ].map(({ l, v }) => (
+                          <div key={l} style={css.metric}>
+                            <div style={{ fontSize: 9, color: "#999", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>{l}</div>
+                            <div style={{ fontSize: 11, fontWeight: 600 }}>{v ?? "—"}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {c.visual_identity.mood_notes && (
+                        <p style={{ margin: "8px 0 0", fontSize: 12, color: "#888", fontStyle: "italic" }}>{c.visual_identity.mood_notes}</p>
+                      )}
                     </div>
-                    {c.visual_identity.mood_notes && (
-                      <p style={{ margin: "8px 0 0", fontSize: 12, color: "#888", fontStyle: "italic" }}>{c.visual_identity.mood_notes}</p>
-                    )}
-                  </div>
+                  )}
 
-                  {/* Scene renders */}
                   <div style={{ marginBottom: 16 }}>
-                    <span style={css.label}>Scene renders — click to generate with Gemini</span>
+                    <span style={css.label}>Scene renders — click to generate</span>
                     <div style={css.grid3}>
                       {(["start", "middle", "end"] as const).map(scene => {
                         const imgUrl = c[`visual_${scene}` as keyof Concept] as string | undefined;
@@ -565,7 +661,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Production script */}
                   {c.production_script?.length > 0 && (
                     <div style={{ marginBottom: 16 }}>
                       <span style={css.label}>Production script</span>
@@ -587,7 +682,6 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Performance hooks */}
                   {c.performance_hooks?.length > 0 && (
                     <div style={{ marginBottom: 16 }}>
                       <span style={css.label}>Performance hooks</span>
@@ -602,10 +696,9 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Quality score */}
                   {c.quality_score && (
                     <div>
-                      <span style={css.label}>Quality score breakdown</span>
+                      <span style={css.label}>Quality score</span>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(100px,1fr))", gap: 8, marginBottom: 8 }}>
                         {[
                           { l: "Pattern fidelity", v: c.quality_score.pattern_fidelity },
