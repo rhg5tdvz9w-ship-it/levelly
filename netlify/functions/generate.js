@@ -1,8 +1,7 @@
+// This function now handles ONLY image generation.
+// All analysis calls go directly from browser to Gemini API.
 const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
-const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || "";
-const GEMINI_TEXT_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 const GEMINI_IMAGE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent";
-const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
 exports.handler = async function(event) {
   if (event.httpMethod !== "POST") {
@@ -19,94 +18,15 @@ exports.handler = async function(event) {
   }
 
   try {
-    // ── Task: extract key frames from video (Call 1 of 2-call pipeline) ──────
-    if (task === "extract_frames") {
-      var result = await callGeminiText(
-        GEMINI_KEY,
-        GEMINI_TEXT_URL,
-        payload.system,
-        payload.messages
-      );
-      return { statusCode: 200, body: JSON.stringify({ result: result }) };
-    }
-
-    // ── Task: analyze video with frame context + references (Call 2) ─────────
-    if (task === "analyze" || task === "brief") {
-      var result;
-      if (ANTHROPIC_KEY) {
-        result = await callClaude(payload.system, payload.messages);
-      } else {
-        result = await callGeminiText(GEMINI_KEY, GEMINI_TEXT_URL, payload.system, payload.messages);
-      }
-      return { statusCode: 200, body: JSON.stringify({ result: result }) };
-    }
-
     if (task === "image") {
-      var imgResult = await callGeminiImage(payload.prompt);
-      return { statusCode: 200, body: JSON.stringify({ result: imgResult }) };
+      var result = await callGeminiImage(payload.prompt);
+      return { statusCode: 200, body: JSON.stringify({ result: result }) };
     }
-
     return { statusCode: 400, body: JSON.stringify({ error: "Unknown task: " + task }) };
-
   } catch(err) {
     return { statusCode: 500, body: JSON.stringify({ error: err.message || "Unknown error" }) };
   }
 };
-
-async function callClaude(system, messages) {
-  var r = await fetch(ANTHROPIC_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: "claude-opus-4-20250514", max_tokens: 4000, system: system, messages: messages })
-  });
-  if (!r.ok) throw new Error("Claude " + r.status + ": " + await r.text());
-  var data = await r.json();
-  var text = "";
-  for (var i = 0; i < data.content.length; i++) {
-    if (data.content[i].type === "text") { text = data.content[i].text; break; }
-  }
-  return parseJSON(text || "{}");
-}
-
-async function callGeminiText(key, url, system, messages) {
-  var contents = [];
-  for (var i = 0; i < messages.length; i++) {
-    var m = messages[i];
-    var parts = [];
-    if (Array.isArray(m.content)) {
-      for (var j = 0; j < m.content.length; j++) {
-        var c = m.content[j];
-        if (c.type === "text") {
-          parts.push({ text: c.text });
-        } else if (c.type === "file_uri") {
-          parts.push({ file_data: { mime_type: c.mimeType, file_uri: c.fileUri } });
-        } else if (c.type === "image" || c.type === "document") {
-          parts.push({ inline_data: { mime_type: c.source.media_type, data: c.source.data } });
-        } else if (c.type === "inline_image") {
-          // Reference images injected from frontend
-          parts.push({ inline_data: { mime_type: c.mimeType, data: c.data } });
-        }
-      }
-    } else {
-      parts.push({ text: m.content });
-    }
-    contents.push({ role: m.role === "assistant" ? "model" : "user", parts: parts });
-  }
-
-  var r = await fetch(url + "?key=" + key, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      system_instruction: { parts: [{ text: system }] },
-      contents: contents,
-      generationConfig: { response_mime_type: "application/json" }
-    })
-  });
-  if (!r.ok) throw new Error("Gemini text " + r.status + ": " + await r.text());
-  var data = await r.json();
-  var text = data.candidates[0].content.parts[0].text || "{}";
-  return parseJSON(text);
-}
 
 async function callGeminiImage(prompt) {
   var r = await fetch(GEMINI_IMAGE_URL + "?key=" + GEMINI_KEY, {
@@ -124,13 +44,4 @@ async function callGeminiImage(prompt) {
     if (parts[i].inlineData) return "data:image/png;base64," + parts[i].inlineData.data;
   }
   throw new Error("No image returned from Gemini");
-}
-
-function parseJSON(text) {
-  var cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
-  var start = cleaned.indexOf("{");
-  var end = cleaned.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new Error("No JSON found: " + cleaned.slice(0, 200));
-  try { return JSON.parse(cleaned.slice(start, end + 1)); }
-  catch(e) { throw new Error("JSON parse failed: " + e.message); }
 }
