@@ -436,6 +436,43 @@ export default function App() {
     try { localStorage.setItem("levelly_dna_library", JSON.stringify(updated)); } catch {}
   };
 
+  const exportLibrary = () => {
+    const json = JSON.stringify(lib, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `levelly-dna-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importLibrary = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result as string);
+        if (!Array.isArray(parsed)) throw new Error("Invalid format");
+        if (lib.length > 0) {
+          const merged = [...lib];
+          parsed.forEach((entry: DNAEntry) => {
+            if (!merged.find(x => x.id === entry.id)) merged.push(entry);
+          });
+          saveLib(merged);
+        } else {
+          saveLib(parsed);
+        }
+      } catch {
+        alert("Import failed — invalid file format.");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const importRef = useRef<HTMLInputElement>(null);
   const [showModal, setShowModal] = useState(false);
   const [uploadConfig, setUploadConfig] = useState<UploadConfig | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
@@ -592,7 +629,14 @@ export default function App() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
             <p style={{ margin: 0, fontSize: 13, color: "#666" }}>{lib.length} ad{lib.length !== 1 ? "s" : ""} in DNA library</p>
             <div style={{ display: "flex", gap: 8 }}>
-              {lib.length > 0 && <button style={css.btnSecondary} onClick={() => { if (confirm("Clear entire DNA library?")) saveLib([]); }}>Clear library</button>}
+              {lib.length > 0 && (
+                <>
+                  <button style={css.btnSecondary} onClick={exportLibrary} title="Download library as JSON">Export</button>
+                  <button style={css.btnSecondary} onClick={() => { if (confirm("Clear entire DNA library?")) saveLib([]); }}>Clear</button>
+                </>
+              )}
+              <input ref={importRef} type="file" accept=".json" style={{ display: "none" }} onChange={importLibrary} />
+              <button style={css.btnSecondary} onClick={() => importRef.current?.click()}>Import</button>
               <button style={css.btnPrimary} onClick={() => setShowModal(true)} disabled={analyzing}>{analyzing ? "Analyzing…" : "+ Upload ads"}</button>
             </div>
           </div>
