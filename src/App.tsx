@@ -20,14 +20,8 @@ interface DNAEntry {
   ad_type: "moc" | "competitor" | "compound";
   upload_context: string; file_name: string; added_at: string;
   reanalyzed?: boolean; iteration_of?: string; strategic_notes?: string;
-  // Spend fields
-  creative_id?: string;
-  spend_tier?: string;
-  spend_window_days?: number | null;
-  spend_networks?: string[];
-  spend_notes?: string;
-  spend_data_source?: string;
-  // Analysis fields
+  creative_id?: string; spend_tier?: string; spend_window_days?: number | null;
+  spend_networks?: string[]; spend_notes?: string; spend_data_source?: string;
   title: string; hook_type: string; hook_timing_seconds: number | null;
   hook_description: string; gate_sequence: string[];
   swarm_peak_moment_seconds: number | null; loss_event_type: string;
@@ -55,32 +49,30 @@ interface VisualIdentity { environment: string; lighting: string; player_champio
 interface ScriptStep { time: string; action: string; visual_cue: string; audio_cue: string; }
 interface PerformanceHook { type: string; text: string; }
 interface QualityScore { pattern_fidelity: number; moc_dna: number; emotional_arc: number; visual_clarity: number; segment_fit: number; overall: number; notes: string; }
-interface Concept { title: string; is_data_backed: boolean; objective: string; target_segment: string; player_motivation: string; visual_identity: VisualIdentity; layout: string; production_script: ScriptStep[]; performance_hooks: PerformanceHook[]; engagement_hooks: string; quality_score: QualityScore; visual_start?: string; visual_middle?: string; visual_end?: string; }
-interface BriefAnalysis { patterns_used: string; segment_insight: string; strategy: string; }
+interface NetworkAdaptations { AppLovin?: string; Facebook?: string; Google?: string; TikTok?: string; }
+interface Concept {
+  title: string; is_data_backed: boolean; objective: string; target_segment: string;
+  player_motivation: string; visual_identity: VisualIdentity; layout: string;
+  production_script: ScriptStep[]; performance_hooks: PerformanceHook[];
+  engagement_hooks: string; quality_score: QualityScore;
+  network_adaptations?: NetworkAdaptations;
+  visual_start?: string; visual_middle?: string; visual_end?: string;
+}
+interface BriefAnalysis { patterns_used: string; segment_insight: string; strategy: string; dna_sources?: string[]; }
 
 const TIERS = ["winner", "scalable", "failed", "inspiration"] as const;
-const TIER_STYLE: Record<string, { bg: string; text: string; border: string }> = {
-  winner:      { bg: "#EAF3DE", text: "#3B6D11",  border: "#97C459" },
-  scalable:    { bg: "#E6F1FB", text: "#185FA5",  border: "#85B7EB" },
-  failed:      { bg: "#FCEBEB", text: "#A32D2D",  border: "#F09595" },
-  inspiration: { bg: "#FAEEDA", text: "#854F0B",  border: "#FAC775" },
-};
-
 const SPEND_TIERS = [
-  { value: "sub100K", label: "<$100K", bg: "#F1EFE8", text: "#5F5E5A", border: "#B4B2A9" },
-  { value: "100K",    label: ">$100K", bg: "#E1F5EE", text: "#0F6E56", border: "#5DCAA5" },
-  { value: "300K",    label: ">$300K", bg: "#E6F1FB", text: "#185FA5", border: "#85B7EB" },
-  { value: "500K",    label: ">$500K", bg: "#FAEEDA", text: "#854F0B", border: "#EF9F27" },
-  { value: "1M",      label: ">$1M",   bg: "#FAECE7", text: "#993C1D", border: "#F0997B" },
+  { value: "sub100K", label: "<$100K", bg: "#1a2a1a", text: "#3fb950", border: "#238636" },
+  { value: "100K",    label: ">$100K", bg: "#1a2a1a", text: "#3fb950", border: "#238636" },
+  { value: "300K",    label: ">$300K", bg: "#1a2a4a", text: "#58a6ff", border: "#1f6feb" },
+  { value: "500K",    label: ">$500K", bg: "#2a1a0a", text: "#f0c53a", border: "#9e6a03" },
+  { value: "1M",      label: ">$1M",   bg: "#2a1a10", text: "#ffa657", border: "#d1242f" },
 ];
-
 const WINDOW_OPTIONS = [
   { value: 7, label: "7d" }, { value: 14, label: "14d" }, { value: 30, label: "30d" },
   { value: 60, label: "60d" }, { value: 90, label: "90d" }, { value: 180, label: "6mo" }, { value: 365, label: "1yr+" },
 ];
-
 const NETWORK_OPTIONS = ["AppLovin", "Facebook", "TikTok", "Google", "Voodoo Ads", "Unity"];
-
 const SEGMENTS_LIST = ["Whale", "Dolphin", "Minnow", "Non-Payer"];
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 const GEMINI_TEXT_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
@@ -138,7 +130,6 @@ async function fileToBase64(file: File): Promise<string> {
   return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res((r.result as string).split(",")[1]); r.onerror = rej; r.readAsDataURL(file); });
 }
 
-// ─── Ref image helpers ────────────────────────────────────────────────────────
 function pickRelevantRefs(vi: VisualIdentity): any[] {
   const biome = vi.environment?.toLowerCase() || ""; const player = vi.player_champion?.toLowerCase() || ""; const enemy = vi.enemy_champion?.toLowerCase() || "";
   const populated = MOC_REFERENCES.filter(r => !r.base64.startsWith("REPLACE_"));
@@ -212,9 +203,11 @@ const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtra
 
 const reanalysisSystem = (entry: DNAEntry) => `You are re-analyzing a Mob Control ad based on existing DNA data. Fix systematic errors and enrich the analysis.\n\nEXISTING DNA:\n${JSON.stringify(entry, null, 2)}\n\nKNOWN ERRORS TO FIX:\n1. hook_timing_seconds is likely 0 or a fraction — fix to real seconds\n2. swarm_peak/loss_event timestamps may be fractions — convert to real seconds\n3. gate_sequence may be hallucinated — cross-check against context\n4. unit_evolution_chain likely missing — extract from context and frame names\n5. emotional_beats missing — add timestamp-mapped beats\n6. creative_gaps_structured missing — add structured analysis\n7. If compound, set is_compound: true and add segments\n\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\n\nReturn the CORRECTED full DNA as valid JSON with all original fields plus:\n{ "title": string, "hook_type": string, "hook_timing_seconds": number, "hook_description": string, "gate_sequence": [string], "swarm_peak_moment_seconds": number | null, "loss_event_type": string, "loss_event_timing_seconds": number | null, "unit_evolution_chain": [string], "emotional_arc": string, "emotional_beats": [{ "timestamp_seconds": number, "event": string, "emotion": string }], "biome": string, "biome_visual_notes": string, "champions_visible": [string], "pacing": string, "key_mechanic": string, "why_it_works": string, "why_it_fails": string | null, "creative_gaps": string, "creative_gaps_structured": { "hook_strength": string, "mechanic_clarity": string, "emotional_payoff": string }, "strategic_notes": string, "replication_instructions": string, "is_compound": boolean, "transition_type": string | null, "segments": [] | null }`;
 
-const briefSystem = (lib: DNAEntry[], ctx: string, seg: string) => {
+// ─── Brief system — now accepts iterateFrom ref ───────────────────────────────
+const briefSystem = (lib: DNAEntry[], ctx: string, seg: string, iterateFrom?: string) => {
   const winners = lib.filter(d => d.tier === "winner");
-  return `You are a World-Class Lead Creative Producer for Mob Control. Ground EVERY concept in specific patterns from the DNA library.\n\nWINNER DNA LIBRARY (${winners.length} entries):\n${JSON.stringify(winners.map(d => ({ title: d.title, hook_type: d.hook_type, hook_timing_seconds: d.hook_timing_seconds, gate_sequence: d.gate_sequence.slice(0, 5), unit_evolution_chain: d.unit_evolution_chain, key_mechanic: d.key_mechanic, biome: d.biome, loss_event_type: d.loss_event_type, replication_instructions: d.replication_instructions?.slice(0, 200) })), null, 2)}\n\nBRIEF: ${ctx} | SEGMENT: ${seg}\nSEGMENT DATA: Whale(>$50/mo,45-59yo,Motivation=Winning/Rankings), Dolphin($10-50/mo,Motivation=Winning+Fun), Minnow(<$10/mo,Motivation=Fun+Winning), Non-Payer(Motivation=Fun+Challenges).\nMOC BIOMES: Desert, Foggy Forest, Water, Bunker, Cyber-City, Volcanic, Snow, Toxic, Meadow\n9-STEP CURVE: Pressure→Investment→Validate→Investment2→Payoff→False Safety→Pressure++→Almost Win→Fail\n\nINSTRUCTIONS:\n- Cite which DNA library entry each concept is based on\n- Replicate exact gate sequences and unit evolution chains from winners\n- Hook timing must NOT be 0\n- Emotional beats must map to real timestamps\n\nReturn ONLY valid JSON:\n{"analysis":{"patterns_used":string,"dna_sources":[string],"segment_insight":string,"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"objective":string,"target_segment":string,"player_motivation":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"layout":string,"hook_timing_seconds":number,"unit_evolution_chain":[string],"production_script":[{"time":string,"action":string,"visual_cue":string,"audio_cue":string}],"performance_hooks":[{"type":string,"text":string}],"engagement_hooks":string,"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}]}`;
+  const refBlock = iterateFrom ? `\nVISUAL REF — ITERATE FROM: "${iterateFrom}"\nThis creative is the user's starting point. Study its patterns from the DNA library if it exists there. Levelly DNA rules below are still the PRIMARY output driver — the ref tells you WHERE TO START, not where to end up. Extract what's working in this creative and layer proven DNA patterns on top.\n` : "";
+  return `You are a World-Class Lead Creative Producer for Mob Control. Ground EVERY concept in specific patterns from the DNA library.\n\nWINNER DNA LIBRARY (${winners.length} entries):\n${JSON.stringify(winners.map(d => ({ title: d.title, hook_type: d.hook_type, hook_timing_seconds: d.hook_timing_seconds, gate_sequence: d.gate_sequence.slice(0, 5), unit_evolution_chain: d.unit_evolution_chain, key_mechanic: d.key_mechanic, biome: d.biome, loss_event_type: d.loss_event_type, spend_tier: d.spend_tier, spend_networks: d.spend_networks, replication_instructions: d.replication_instructions?.slice(0, 200) })), null, 2)}\n\nBRIEF: ${ctx} | SEGMENT: ${seg}\n${refBlock}\nSEGMENT DATA: Whale(>$50/mo,45-59yo,Motivation=Winning/Rankings), Dolphin($10-50/mo,Motivation=Winning+Fun), Minnow(<$10/mo,Motivation=Fun+Winning), Non-Payer(Motivation=Fun+Challenges).\nMOC BIOMES: Desert, Foggy Forest, Water, Bunker, Cyber-City, Volcanic, Snow, Toxic, Meadow\n9-STEP CURVE: Pressure→Investment→Validate→Investment2→Payoff→False Safety→Pressure++→Almost Win→Fail\nNETWORK RULES:\n- AppLovin: skeleton/challenge hooks, custom side camera, blue palette, CT43 formula strongest\n- Facebook: blue/red swap, desert biome, default MOC camera, CZ65 pattern\n- Google: strengthen almost-win (boss at 1HP), CB57 pattern, foggy forest worth testing\n\nINSTRUCTIONS:\n- Cite which DNA library entry each concept is based on\n- Replicate exact gate sequences and unit evolution chains from winners\n- Hook timing must NOT be 0\n- For network_adaptations: give a specific 1-sentence instruction per network\n\nReturn ONLY valid JSON:\n{"analysis":{"patterns_used":string,"dna_sources":[string],"segment_insight":string,"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"objective":string,"target_segment":string,"player_motivation":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"layout":string,"hook_timing_seconds":number,"unit_evolution_chain":[string],"network_adaptations":{"AppLovin":string,"Facebook":string,"Google":string},"production_script":[{"time":string,"action":string,"visual_cue":string,"audio_cue":string}],"performance_hooks":[{"type":string,"text":string}],"engagement_hooks":string,"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}]}`;
 };
 
 const imagePrompt = (concept: Concept, scene: "start" | "middle" | "end", visualSeed?: string) => {
@@ -223,45 +216,127 @@ const imagePrompt = (concept: Concept, scene: "start" | "middle" | "end", visual
   return `Mob Control gameplay screenshot — match reference images above EXACTLY in art style and 3D quality.\n${scenes}\nENV: ${vi.environment} | LIGHTING: ${vi.lighting} | PLAYER: ${vi.player_champion} | ENEMY: ${vi.enemy_champion}\nPLAYER MOB: ${vi.player_mob_color} round blob creatures | ENEMY MOB: ${vi.enemy_mob_color} round blob creatures\nGATES: ${vi.gate_values?.join(", ")} | CANNON: ${vi.cannon_type} | MOOD: ${vi.mood_notes}\n${visualSeed ? `CONSISTENCY: ${visualSeed}` : ""}\n${BIOME_GUIDE}\nRULES: Cinematic top-down angle, cannon at bottom center, gates large and readable, NO text/UI/watermarks.`;
 };
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-const css = {
-  app:          { fontFamily: "system-ui, sans-serif", maxWidth: 960, margin: "0 auto", padding: "1.5rem 1rem", color: "#111" } as React.CSSProperties,
-  logo:         { fontSize: 22, fontWeight: 600, margin: 0, letterSpacing: "-0.5px" } as React.CSSProperties,
-  sub:          { fontSize: 13, color: "#666", margin: "2px 0 1.5rem" } as React.CSSProperties,
-  tabs:         { display: "flex", gap: 2, borderBottom: "1px solid #e5e5e5", marginBottom: "1.5rem" } as React.CSSProperties,
-  tab:          (a: boolean): React.CSSProperties => ({ padding: "8px 18px", fontSize: 13, fontWeight: a ? 600 : 400, color: a ? "#111" : "#888", background: "none", border: "none", borderBottom: a ? "2px solid #111" : "2px solid transparent", cursor: "pointer", marginBottom: -1 }),
-  card:         { background: "#fff", border: "1px solid #e8e8e8", borderRadius: 12, padding: "1rem 1.25rem", marginBottom: 10 } as React.CSSProperties,
-  cardGray:     { background: "#f8f8f8", border: "1px solid #e8e8e8", borderRadius: 12, padding: "1rem 1.25rem", marginBottom: 10 } as React.CSSProperties,
-  label:        { fontSize: 10, fontWeight: 600, color: "#999", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 5, display: "block" },
-  textarea:     { width: "100%", boxSizing: "border-box" as const, fontSize: 13, padding: "8px 10px", border: "1px solid #e0e0e0", borderRadius: 8, minHeight: 80, resize: "vertical" as const, outline: "none", fontFamily: "inherit" },
-  input:        { width: "100%", boxSizing: "border-box" as const, fontSize: 13, padding: "7px 10px", border: "1px solid #e0e0e0", borderRadius: 8, outline: "none" },
-  btnPrimary:   { padding: "9px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer", borderRadius: 8, border: "none", background: "#1a56db", color: "#fff" } as React.CSSProperties,
-  btnSecondary: { padding: "7px 14px", fontSize: 12, fontWeight: 500, cursor: "pointer", borderRadius: 8, border: "1px solid #e0e0e0", background: "#fff", color: "#444" } as React.CSSProperties,
-  btnDanger:    { padding: "5px 10px", fontSize: 11, cursor: "pointer", borderRadius: 6, border: "1px solid #fca5a5", background: "#fff", color: "#dc2626" } as React.CSSProperties,
-  btnWarning:   { padding: "7px 14px", fontSize: 12, fontWeight: 500, cursor: "pointer", borderRadius: 8, border: "1px solid #fcd34d", background: "#fef3c7", color: "#92400e" } as React.CSSProperties,
-  badge:        (tier: string): React.CSSProperties => ({ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 6, background: TIER_STYLE[tier]?.bg ?? "#eee", color: TIER_STYLE[tier]?.text ?? "#333", border: `1px solid ${TIER_STYLE[tier]?.border ?? "#ccc"}` }),
-  error:        { fontSize: 12, color: "#dc2626", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "8px 12px", marginTop: 8 } as React.CSSProperties,
-  info:         { fontSize: 12, color: "#1a56db", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "8px 12px", marginTop: 8 } as React.CSSProperties,
-  metric:       { background: "#f5f5f5", borderRadius: 8, padding: "8px 12px", textAlign: "center" as const },
-  sceneWrap:    { aspectRatio: "9/16", background: "#f0f0f0", borderRadius: 10, border: "1px solid #e8e8e8", overflow: "hidden", display: "flex", flexDirection: "column" as const, alignItems: "center", justifyContent: "center", cursor: "pointer" } as React.CSSProperties,
-  grid3:        { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 } as React.CSSProperties,
-  gridAuto:     { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 8 } as React.CSSProperties,
-  overlay:      { position: "fixed" as const, inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 },
-  modal:        { background: "#fff", borderRadius: 16, padding: "1.5rem", width: "90%", maxWidth: 540, boxShadow: "0 20px 60px rgba(0,0,0,0.2)", maxHeight: "90vh", overflowY: "auto" as const } as React.CSSProperties,
+// ─── Dark design tokens ───────────────────────────────────────────────────────
+const D = {
+  bg:        "#0d1117",
+  surface:   "#161b22",
+  surface2:  "#1c2128",
+  border:    "#21262d",
+  border2:   "#30363d",
+  text:      "#e6edf3",
+  textMuted: "#8b949e",
+  textDim:   "#484f58",
+  blue:      "#58a6ff",
+  blueDark:  "#1f6feb",
+  blueBg:    "#1a2a4a",
+  green:     "#3fb950",
+  greenBg:   "#1a2a1a",
+  greenBdr:  "#238636",
+  gold:      "#f0c53a",
+  goldBg:    "#2a1a0a",
+  goldBdr:   "#9e6a03",
+  purple:    "#d2a8ff",
+  purpleBg:  "#1e1a2e",
+  purpleBdr: "#8957e5",
+  red:       "#f85149",
+  redBg:     "#2a1010",
 };
-const scoreColor = (n: number) => n >= 80 ? "#16a34a" : n >= 60 ? "#1a56db" : "#dc2626";
 
-// ─── Spend display helpers ────────────────────────────────────────────────────
-function spendLabel(tier: string) {
-  return SPEND_TIERS.find(t => t.value === tier)?.label ?? tier;
-}
+const TIER_DARK: Record<string, { bg: string; text: string; border: string }> = {
+  winner:      { bg: D.greenBg,  text: D.green,  border: D.greenBdr },
+  scalable:    { bg: D.blueBg,   text: D.blue,   border: D.blueDark },
+  failed:      { bg: D.redBg,    text: D.red,     border: "#6e2020" },
+  inspiration: { bg: D.goldBg,   text: D.gold,    border: D.goldBdr },
+};
+
+const scoreColor = (n: number) => n >= 80 ? D.green : n >= 60 ? D.blue : D.red;
+
+function spendLabel(tier: string) { return SPEND_TIERS.find(t => t.value === tier)?.label ?? tier; }
 function velocityPerDay(tier: string, days: number | null | undefined): string | null {
   if (!tier || !days || tier === "sub100K") return null;
   const amounts: Record<string, number> = { "100K": 100000, "300K": 300000, "500K": 500000, "1M": 1000000 };
-  const v = amounts[tier];
-  if (!v) return null;
+  const v = amounts[tier]; if (!v) return null;
   return `~$${Math.round(v / days).toLocaleString()}/day`;
 }
+
+// ─── Shared dark component styles ─────────────────────────────────────────────
+const s = {
+  card: {
+    background: D.surface, border: `0.5px solid ${D.border}`,
+    borderRadius: 10, padding: "14px 16px", marginBottom: 10,
+  } as React.CSSProperties,
+  label: {
+    fontSize: 9, fontWeight: 600, color: D.textDim,
+    textTransform: "uppercase" as const, letterSpacing: "0.1em",
+    marginBottom: 6, display: "block",
+  },
+  input: {
+    width: "100%", boxSizing: "border-box" as const, fontSize: 12,
+    padding: "7px 10px", background: D.bg, border: `0.5px solid ${D.border2}`,
+    borderRadius: 7, outline: "none", color: D.text, fontFamily: "inherit",
+  },
+  textarea: {
+    width: "100%", boxSizing: "border-box" as const, fontSize: 13,
+    padding: "9px 11px", background: "transparent",
+    border: "none", borderRadius: 0, minHeight: 64,
+    resize: "vertical" as const, outline: "none",
+    fontFamily: "inherit", color: D.text, lineHeight: 1.6,
+  },
+  btnPrimary: {
+    padding: "8px 18px", fontSize: 12, fontWeight: 500, cursor: "pointer",
+    borderRadius: 8, border: "none", background: D.blueDark, color: "#fff",
+    transition: "background .15s, transform .1s",
+  } as React.CSSProperties,
+  btnSecondary: {
+    padding: "6px 12px", fontSize: 11, fontWeight: 400, cursor: "pointer",
+    borderRadius: 7, border: `0.5px solid ${D.border2}`,
+    background: "transparent", color: D.textMuted,
+    transition: "background .15s, color .15s",
+  } as React.CSSProperties,
+  btnDanger: {
+    padding: "4px 9px", fontSize: 11, cursor: "pointer",
+    borderRadius: 6, border: `0.5px solid #6e2020`,
+    background: "transparent", color: D.red,
+  } as React.CSSProperties,
+  badge: (tier: string): React.CSSProperties => ({
+    fontSize: 9, fontWeight: 600, padding: "2px 8px", borderRadius: 20,
+    background: TIER_DARK[tier]?.bg ?? D.surface2,
+    color: TIER_DARK[tier]?.text ?? D.textMuted,
+    border: `0.5px solid ${TIER_DARK[tier]?.border ?? D.border2}`,
+  }),
+  chip: (active: boolean, color: "blue" | "green" | "gold" = "blue"): React.CSSProperties => ({
+    padding: "4px 10px", borderRadius: 20, fontSize: 11,
+    cursor: "pointer", transition: "border-color .15s, background .15s, color .15s",
+    border: `0.5px solid ${active ? (color === "green" ? D.greenBdr : color === "gold" ? D.goldBdr : D.blueDark) : D.border2}`,
+    background: active ? (color === "green" ? D.greenBg : color === "gold" ? D.goldBg : D.blueBg) : "transparent",
+    color: active ? (color === "green" ? D.green : color === "gold" ? D.gold : D.blue) : D.textMuted,
+  }),
+  metric: {
+    background: D.surface2, borderRadius: 7, padding: "8px 10px", textAlign: "center" as const,
+  },
+  error: {
+    fontSize: 11, color: D.red, background: D.redBg,
+    border: `0.5px solid #6e2020`, borderRadius: 8, padding: "8px 12px", marginTop: 8,
+  } as React.CSSProperties,
+  info: {
+    fontSize: 11, color: D.blue, background: D.blueBg,
+    border: `0.5px solid ${D.blueDark}`, borderRadius: 8, padding: "8px 12px", marginTop: 8,
+  } as React.CSSProperties,
+  gridAuto: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(110px,1fr))", gap: 7 } as React.CSSProperties,
+  grid3: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 } as React.CSSProperties,
+  sceneWrap: {
+    aspectRatio: "9/16", background: D.surface2, borderRadius: 10,
+    border: `0.5px solid ${D.border}`, overflow: "hidden",
+    display: "flex", flexDirection: "column" as const,
+    alignItems: "center", justifyContent: "center", cursor: "pointer",
+  } as React.CSSProperties,
+  overlay: { position: "fixed" as const, inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 },
+  modal: {
+    background: D.surface, borderRadius: 14, padding: "1.5rem",
+    width: "90%", maxWidth: 520, border: `0.5px solid ${D.border2}`,
+    maxHeight: "90vh", overflowY: "auto" as const,
+  } as React.CSSProperties,
+};
 
 // ─── Upload Modal ─────────────────────────────────────────────────────────────
 function UploadModal({ onConfirm, onCancel }: { onConfirm: (cfg: UploadConfig) => void; onCancel: () => void }) {
@@ -274,16 +349,16 @@ function UploadModal({ onConfirm, onCancel }: { onConfirm: (cfg: UploadConfig) =
   const refCount = MOC_REFERENCES.filter(r => !r.base64.startsWith("REPLACE_")).length;
 
   return (
-    <div style={css.overlay} onClick={onCancel}>
-      <div style={css.modal} onClick={e => e.stopPropagation()}>
-        <h2 style={{ margin: "0 0 4px", fontSize: 17, fontWeight: 600 }}>Upload ads</h2>
-        <p style={{ margin: "0 0 20px", fontSize: 13, color: "#666" }}>Configure before choosing files.</p>
+    <div style={s.overlay} onClick={onCancel}>
+      <div style={s.modal} onClick={e => e.stopPropagation()}>
+        <h2 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 500, color: D.text }}>Upload ads</h2>
+        <p style={{ margin: "0 0 20px", fontSize: 12, color: D.textMuted }}>Configure before choosing files.</p>
 
         <div style={{ marginBottom: 14 }}>
-          <span style={css.label}>Ad type</span>
+          <span style={s.label}>Ad type</span>
           <div style={{ display: "flex", gap: 6 }}>
             {(["moc", "competitor", "compound"] as const).map(t => (
-              <button key={t} onClick={() => setAdType(t)} style={{ flex: 1, padding: "7px 0", fontSize: 11, fontWeight: 600, borderRadius: 8, border: `2px solid ${adType === t ? "#1a56db" : "#e0e0e0"}`, background: adType === t ? "#eff6ff" : "#fff", color: adType === t ? "#1a56db" : "#666", cursor: "pointer" }}>
+              <button key={t} onClick={() => setAdType(t)} style={{ flex: 1, padding: "7px 0", fontSize: 11, fontWeight: 500, borderRadius: 8, border: `1.5px solid ${adType === t ? D.blueDark : D.border2}`, background: adType === t ? D.blueBg : "transparent", color: adType === t ? D.blue : D.textMuted, cursor: "pointer", transition: "all .15s" }}>
                 {t === "moc" ? "MOC" : t === "competitor" ? "Competitor" : "Compound/Mix"}
               </button>
             ))}
@@ -291,48 +366,46 @@ function UploadModal({ onConfirm, onCancel }: { onConfirm: (cfg: UploadConfig) =
         </div>
 
         <div style={{ marginBottom: 14 }}>
-          <span style={css.label}>Performance tier</span>
+          <span style={s.label}>Performance tier</span>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const }}>
-            {TIERS.map(t => (
-              <button key={t} onClick={() => setTier(t)} style={{ padding: "5px 12px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: `2px solid ${tier === t ? TIER_STYLE[t].border : "#e0e0e0"}`, background: tier === t ? TIER_STYLE[t].bg : "#fff", color: tier === t ? TIER_STYLE[t].text : "#888", cursor: "pointer" }}>{t}</button>
+            {(["winner","scalable","failed","inspiration"] as const).map(t => (
+              <button key={t} onClick={() => setTier(t)} style={{ padding: "5px 12px", fontSize: 11, fontWeight: 500, borderRadius: 20, border: `1.5px solid ${tier === t ? TIER_DARK[t].border : D.border2}`, background: tier === t ? TIER_DARK[t].bg : "transparent", color: tier === t ? TIER_DARK[t].text : D.textMuted, cursor: "pointer", transition: "all .15s" }}>{t}</button>
             ))}
           </div>
         </div>
 
         <div style={{ marginBottom: 14 }}>
-          <span style={css.label}>Iteration of</span>
-          <input style={css.input} type="text" placeholder="e.g. CT43" value={iterOf} onChange={e => setIterOf(e.target.value)} />
+          <span style={s.label}>Iteration of</span>
+          <input style={s.input} type="text" placeholder="e.g. CT43" value={iterOf} onChange={e => setIterOf(e.target.value)} />
         </div>
 
         <div style={{ marginBottom: 14 }}>
-          <span style={css.label}>Context for Gemini</span>
-          <textarea style={css.textarea} placeholder="Describe biome, hook, key mechanics, what to focus on…" value={context} onChange={e => setContext(e.target.value)} />
+          <span style={s.label}>Context for Gemini</span>
+          <textarea style={{ ...s.textarea, background: D.bg, border: `0.5px solid ${D.border2}`, borderRadius: 7, padding: "8px 10px", minHeight: 72 }} placeholder="Describe biome, hook, key mechanics…" value={context} onChange={e => setContext(e.target.value)} />
         </div>
 
         <div style={{ marginBottom: 16 }}>
-          <span style={css.label}>Manual storyboard frames (optional)</span>
+          <span style={s.label}>Manual storyboard frames (optional)</span>
           <input ref={frameRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => setManualFrames(Array.from(e.target.files ?? []))} />
-          <button style={css.btnSecondary} onClick={() => frameRef.current?.click()}>
+          <button style={s.btnSecondary} onClick={() => frameRef.current?.click()}>
             {manualFrames.length > 0 ? `${manualFrames.length} frame(s) selected` : "+ Add frames"}
           </button>
         </div>
 
-        <div style={{ marginBottom: 16, padding: "8px 12px", background: "#f8f8f8", borderRadius: 8, fontSize: 11, color: "#666" }}>
+        <div style={{ marginBottom: 16, padding: "8px 12px", background: D.surface2, borderRadius: 8, fontSize: 10, color: D.textMuted, border: `0.5px solid ${D.border}` }}>
           {refCount > 0 ? `✓ ${refCount} MOC refs` : "⚠ No refs"} → Frame extraction → Hook detection → {manualFrames.length > 0 ? `✓ ${manualFrames.length} manual frames` : "No manual frames"} → DNA analysis
         </div>
 
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button style={css.btnSecondary} onClick={onCancel}>Cancel</button>
-          <button style={css.btnPrimary} onClick={() => onConfirm({ tier, ad_type: adType, context, manual_frames: manualFrames, iteration_of: iterOf || undefined })}>
-            Choose video →
-          </button>
+          <button style={s.btnSecondary} onClick={onCancel}>Cancel</button>
+          <button style={s.btnPrimary} onClick={() => onConfirm({ tier, ad_type: adType, context, manual_frames: manualFrames, iteration_of: iterOf || undefined })}>Choose video →</button>
         </div>
       </div>
     </div>
   );
 }
 
-// ─── Spend Tagger (inline inside expanded card) ───────────────────────────────
+// ─── Spend Tagger ─────────────────────────────────────────────────────────────
 function SpendTagger({ entry, onSave }: { entry: DNAEntry; onSave: (fields: Partial<DNAEntry>) => void }) {
   const [tier, setTier] = useState(entry.spend_tier ?? "");
   const [days, setDays] = useState<number | null>(entry.spend_window_days ?? null);
@@ -340,107 +413,76 @@ function SpendTagger({ entry, onSave }: { entry: DNAEntry; onSave: (fields: Part
   const [notes, setNotes] = useState(entry.spend_notes ?? "");
   const [iterOf, setIterOf] = useState(entry.iteration_of ?? "");
   const [saved, setSaved] = useState(false);
-
-  function toggleNetwork(n: string) {
-    setNetworks(prev => prev.includes(n) ? prev.filter(x => x !== n) : [...prev, n]);
-  }
+  const vel = velocityPerDay(tier, days);
 
   function save() {
     onSave({ spend_tier: tier || undefined, spend_window_days: days, spend_networks: networks.length > 0 ? networks : undefined, spend_notes: notes || undefined, iteration_of: iterOf || undefined });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setSaved(true); setTimeout(() => setSaved(false), 2000);
   }
 
-  const vel = velocityPerDay(tier, days);
-
   return (
-    <div style={{ marginTop: 14, padding: "14px 16px", background: "#fafafa", borderRadius: 10, border: "1px solid #f0f0f0" }}>
-      <span style={{ ...css.label, marginBottom: 12 }}>Spend data</span>
+    <div style={{ marginTop: 14, padding: "14px 16px", background: D.surface2, borderRadius: 10, border: `0.5px solid ${D.border}` }}>
+      <span style={{ ...s.label, marginBottom: 12 }}>Spend data</span>
 
-      {/* Spend tier */}
       <div style={{ marginBottom: 12 }}>
-        <span style={{ fontSize: 11, color: "#999", display: "block", marginBottom: 6 }}>Spend tier</span>
+        <span style={{ fontSize: 10, color: D.textDim, display: "block", marginBottom: 6 }}>Spend tier</span>
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap" as const }}>
           {SPEND_TIERS.map(t => (
             <button key={t.value} onClick={() => setTier(tier === t.value ? "" : t.value)}
-              style={{ padding: "4px 10px", fontSize: 11, fontWeight: 500, borderRadius: 99, cursor: "pointer", transition: "all .15s",
-                border: `1.5px solid ${tier === t.value ? t.border : "#e0e0e0"}`,
-                background: tier === t.value ? t.bg : "transparent",
-                color: tier === t.value ? t.text : "#888" }}>
+              style={{ padding: "4px 10px", fontSize: 11, fontWeight: 500, borderRadius: 20, cursor: "pointer", transition: "all .15s", border: `1.5px solid ${tier === t.value ? t.border : D.border2}`, background: tier === t.value ? t.bg : "transparent", color: tier === t.value ? t.text : D.textMuted }}>
               {t.label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Time window — only show if tier is not sub100K or empty */}
       {tier && tier !== "sub100K" && (
         <div style={{ marginBottom: 12 }}>
-          <span style={{ fontSize: 11, color: "#999", display: "block", marginBottom: 6 }}>Time to reach that spend</span>
+          <span style={{ fontSize: 10, color: D.textDim, display: "block", marginBottom: 6 }}>Time to reach that spend</span>
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap" as const }}>
             {WINDOW_OPTIONS.map(w => (
               <button key={w.value} onClick={() => setDays(days === w.value ? null : w.value)}
-                style={{ padding: "4px 10px", fontSize: 11, borderRadius: 99, cursor: "pointer", transition: "all .15s",
-                  border: `1.5px solid ${days === w.value ? "#85B7EB" : "#e0e0e0"}`,
-                  background: days === w.value ? "#E6F1FB" : "transparent",
-                  color: days === w.value ? "#185FA5" : "#888" }}>
+                style={{ padding: "4px 10px", fontSize: 11, borderRadius: 20, cursor: "pointer", transition: "all .15s", border: `1.5px solid ${days === w.value ? D.blueDark : D.border2}`, background: days === w.value ? D.blueBg : "transparent", color: days === w.value ? D.blue : D.textMuted }}>
                 {w.label}
               </button>
             ))}
           </div>
-          {vel && <div style={{ marginTop: 6, fontSize: 11, color: "#185FA5", fontWeight: 500 }}>{vel}</div>}
+          {vel && <div style={{ marginTop: 6, fontSize: 11, color: D.blue, fontWeight: 500 }}>{vel}</div>}
         </div>
       )}
 
-      {/* Networks */}
       <div style={{ marginBottom: 12 }}>
-        <span style={{ fontSize: 11, color: "#999", display: "block", marginBottom: 6 }}>Networks</span>
+        <span style={{ fontSize: 10, color: D.textDim, display: "block", marginBottom: 6 }}>Networks</span>
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap" as const }}>
           {NETWORK_OPTIONS.map(n => (
-            <button key={n} onClick={() => toggleNetwork(n)}
-              style={{ padding: "4px 10px", fontSize: 11, borderRadius: 99, cursor: "pointer", transition: "all .15s",
-                border: `1.5px solid ${networks.includes(n) ? "#97C459" : "#e0e0e0"}`,
-                background: networks.includes(n) ? "#EAF3DE" : "transparent",
-                color: networks.includes(n) ? "#3B6D11" : "#888" }}>
+            <button key={n} onClick={() => setNetworks(p => p.includes(n) ? p.filter(x => x !== n) : [...p, n])}
+              style={s.chip(networks.includes(n), "green")}>
               {n}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Iteration of */}
       <div style={{ marginBottom: 12 }}>
-        <span style={{ fontSize: 11, color: "#999", display: "block", marginBottom: 6 }}>Iteration of</span>
-        <input
-          style={{ ...css.input, fontSize: 12, padding: "5px 8px" }}
-          placeholder="e.g. CT43, CZ66"
-          value={iterOf}
-          onChange={e => setIterOf(e.target.value)}
-        />
+        <span style={{ fontSize: 10, color: D.textDim, display: "block", marginBottom: 6 }}>Iteration of</span>
+        <input style={{ ...s.input, fontSize: 11, padding: "5px 8px" }} placeholder="e.g. CT43, CZ66" value={iterOf} onChange={e => setIterOf(e.target.value)} />
       </div>
 
-      {/* Notes */}
       <div style={{ marginBottom: 12 }}>
-        <span style={{ fontSize: 11, color: "#999", display: "block", marginBottom: 6 }}>Notes</span>
-        <textarea
-          style={{ ...css.textarea, minHeight: 56, fontSize: 12 }}
-          placeholder="e.g. peaked week 2, Meta only, still running low budget…"
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
-        />
+        <span style={{ fontSize: 10, color: D.textDim, display: "block", marginBottom: 6 }}>Notes</span>
+        <textarea style={{ ...s.textarea, background: D.bg, border: `0.5px solid ${D.border2}`, borderRadius: 7, padding: "7px 9px", minHeight: 52, fontSize: 11 }} placeholder="e.g. peaked week 2, Meta only, still running low budget…" value={notes} onChange={e => setNotes(e.target.value)} />
       </div>
 
-      <button onClick={save} style={{ ...css.btnPrimary, padding: "6px 16px", fontSize: 12 }}>
+      <button onClick={save} style={{ ...s.btnPrimary, padding: "6px 14px", fontSize: 11 }}>
         {saved ? "Saved ✓" : "Save spend data"}
       </button>
     </div>
   );
 }
 
-// ─── App ─────────────────────────────────────────────────────────────────────
+// ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [tab, setTab] = useState<"Library" | "Brief Studio">("Library");
-
   const [lib, setLib] = useState<DNAEntry[]>([]);
   const [libraryLoaded, setLibraryLoaded] = useState(false);
   const [cloudStatus, setCloudStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -449,7 +491,7 @@ export default function App() {
     fetch("/api/load-library")
       .then(res => { if (!res.ok) throw new Error(); return res.json(); })
       .then((data: DNAEntry[]) => {
-        if (Array.isArray(data) && data.length > 0) { setLib(data); }
+        if (Array.isArray(data) && data.length > 0) setLib(data);
         else { try { const local = localStorage.getItem("levelly_dna_library"); if (local) setLib(JSON.parse(local)); } catch {} }
         setLibraryLoaded(true);
       })
@@ -480,14 +522,17 @@ export default function App() {
   const [reanalyzingAll, setReanalyzingAll] = useState(false);
   const [reanalysisProgress, setReanalysisProgress] = useState("");
 
+  // Brief Studio state
   const [briefCtx, setBriefCtx] = useState("");
   const [segment, setSegment] = useState("Whale");
+  const [iterateFrom, setIterateFrom] = useState("");
   const [generating, setGenerating] = useState(false);
   const [briefErr, setBriefErr] = useState("");
   const [concepts, setConcepts] = useState<Concept[]>([]);
   const [briefAnalysis, setBriefAnalysis] = useState<BriefAnalysis | null>(null);
   const [expandedConcept, setExpandedConcept] = useState<number | null>(null);
   const [renderingScene, setRenderingScene] = useState<Record<string, boolean>>({});
+
   const fileRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
 
@@ -527,8 +572,7 @@ export default function App() {
 
   const handleReanalyzeAll = async () => {
     if (!confirm(`Re-analyze all ${lib.length} entries? This will make ${lib.length} API calls.`)) return;
-    setReanalyzingAll(true);
-    let updated = [...lib];
+    setReanalyzingAll(true); let updated = [...lib];
     for (let i = 0; i < lib.length; i++) {
       setReanalysisProgress(`Re-analyzing ${i + 1}/${lib.length}: ${lib[i].title}…`);
       try { const corrected = await reanalyzeSingle(lib[i]); updated = updated.map(x => x.id === lib[i].id ? corrected : x); saveLib(updated); }
@@ -556,28 +600,23 @@ export default function App() {
           const b64 = await fileToBase64(file);
           videoPart = { inlineData: { mimeType: file.type, data: b64 } };
         }
-
         setAnalyzeInfo(`Extracting frames from "${file.name}"…`);
         let autoFrames: FrameExtraction[] = []; let duration = 30;
         try { const fr = await callGeminiDirect(frameExtractionSystem(), [{ text: "Extract 8 key frames:" }, videoPart]); autoFrames = fr?.frames || []; duration = fr?.duration_seconds || 30; } catch {}
-
         setAnalyzeInfo(`Detecting hook moment…`);
         let hookData: any = {};
         try { hookData = await callGeminiDirect(hookDetectionSystem(), [{ text: `Frames: ${JSON.stringify(autoFrames)}. Context: ${cfg.context}. Find hook:` }, videoPart]); } catch {}
-
         const manualParts: any[] = [];
         if (cfg.manual_frames.length > 0) {
           setAnalyzeInfo(`Processing ${cfg.manual_frames.length} manual frames…`);
           for (const mf of cfg.manual_frames) { const b64 = await fileToBase64(mf); manualParts.push({ text: `Manual frame: ${mf.name}` }); manualParts.push({ inlineData: { mimeType: mf.type, data: b64 } }); }
         }
-
         setAnalyzeInfo(`Analyzing "${file.name}"…`);
         const refParts = buildReferenceParts();
         const dna = await callGeminiDirect(
           analyzeSystem(lib, cfg, autoFrames, duration, manualParts.length > 0, refParts.length > 0),
           [...refParts, ...(manualParts.length > 0 ? [{ text: "### MANUAL FRAMES:" }, ...manualParts] : []), { text: `HOOK DATA: ${JSON.stringify(hookData)}` }, { text: "### AD VIDEO:" }, videoPart, { text: "Extract Creative DNA." }]
         );
-
         saveLib([...lib, { ...dna, id: Date.now() + Math.random(), tier: cfg.tier, ad_type: cfg.ad_type, upload_context: cfg.context, file_name: file.name, added_at: new Date().toISOString(), iteration_of: cfg.iteration_of, auto_frames: autoFrames, manual_frames: cfg.manual_frames.map(f => f.name) }]);
         setAnalyzeInfo("");
       }
@@ -589,8 +628,13 @@ export default function App() {
     if (!briefCtx.trim()) { setBriefErr("Enter a brief context first."); return; }
     if (lib.length === 0) { setBriefErr("Add at least one ad to the DNA Library first."); return; }
     setGenerating(true); setBriefErr(""); setConcepts([]); setBriefAnalysis(null);
-    try { const result = await callGeminiDirect(briefSystem(lib, briefCtx, segment), [{ text: "Generate 3 MOC ad concepts grounded in the DNA library." }]); setConcepts(result.concepts ?? []); setBriefAnalysis(result.analysis ?? null); setExpandedConcept(0); }
-    catch (err: any) { setBriefErr(err.message); }
+    try {
+      const result = await callGeminiDirect(
+        briefSystem(lib, briefCtx, segment, iterateFrom.trim() || undefined),
+        [{ text: "Generate 3 MOC ad concepts grounded in the DNA library." }]
+      );
+      setConcepts(result.concepts ?? []); setBriefAnalysis(result.analysis ?? null); setExpandedConcept(0);
+    } catch (err: any) { setBriefErr(err.message); }
     finally { setGenerating(false); }
   };
 
@@ -605,397 +649,550 @@ export default function App() {
     finally { setRenderingScene(p => ({ ...p, [k]: false })); }
   };
 
-  const cloudLabel: Record<typeof cloudStatus, string> = { idle: "", saving: "Saving…", saved: "Saved to GitHub ✓", error: "Cloud save failed — local backup kept" };
-  const cloudColor: Record<typeof cloudStatus, string> = { idle: "", saving: "#1a56db", saved: "#16a34a", error: "#dc2626" };
+  // ─── Cloud status label ──────────────────────────────────────────────────────
+  const cloudLabel = { idle: "", saving: "Saving…", saved: "Saved to GitHub ✓", error: "Cloud save failed" }[cloudStatus];
+  const cloudColor = { idle: D.textDim, saving: D.blue, saved: D.green, error: D.red }[cloudStatus];
 
+  // ─── Stats for topbar ────────────────────────────────────────────────────────
+  const winners = lib.filter(d => d.tier === "winner").length;
+  const topVel = lib.reduce((best, d) => {
+    const v = velocityPerDay(d.spend_tier ?? "", d.spend_window_days);
+    if (!v) return best;
+    const num = parseInt(v.replace(/[^0-9]/g, ""));
+    return num > best ? num : best;
+  }, 0);
+  const networkSet = new Set(lib.flatMap(d => d.spend_networks ?? []));
+
+  // ─── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div style={css.app}>
+    <div style={{ background: D.bg, minHeight: "100vh", color: D.text, fontFamily: "system-ui, sans-serif", fontSize: 13 }}>
       {showModal && <UploadModal onConfirm={handleModalConfirm} onCancel={() => setShowModal(false)} />}
       <input ref={fileRef} type="file" accept="video/*,image/*" multiple style={{ display: "none" }} onChange={handleUpload} />
       <input ref={importRef} type="file" accept=".json" style={{ display: "none" }} onChange={importLibrary} />
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div><h1 style={css.logo}>Levelly</h1><p style={css.sub}>MOC Creative Intelligence Platform</p></div>
-        {cloudStatus !== "idle" && <span style={{ fontSize: 11, color: cloudColor[cloudStatus], marginTop: 6 }}>{cloudLabel[cloudStatus]}</span>}
+      {/* ── Topbar ── */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 20px", borderBottom: `0.5px solid ${D.border}`, position: "sticky", top: 0, background: D.bg, zIndex: 100 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 28, height: 28, borderRadius: "50%", background: D.blueDark, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 500, color: "#fff", flexShrink: 0 }}>L</div>
+          <span style={{ fontSize: 15, fontWeight: 500 }}>Levelly</span>
+          <span style={{ fontSize: 12, color: D.textMuted }}>MOC Creative Intelligence</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          {cloudStatus !== "idle" && <span style={{ fontSize: 10, color: cloudColor }}>{cloudLabel}</span>}
+          {cloudStatus === "idle" && lib.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 5, background: D.surface, border: `0.5px solid ${D.border2}`, borderRadius: 20, padding: "3px 10px" }}>
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: D.green }} />
+              <span style={{ fontSize: 10, color: D.blue }}>Saved to GitHub</span>
+            </div>
+          )}
+        </div>
       </div>
 
-      <div style={css.tabs}>
-        {(["Library", "Brief Studio"] as const).map(t => (
-          <button key={t} style={css.tab(tab === t)} onClick={() => setTab(t)}>{t}</button>
+      {/* ── Stats row ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", borderBottom: `0.5px solid ${D.border}` }}>
+        {[
+          { n: lib.length, label: "CREATIVES", color: D.text },
+          { n: winners, label: "WINNERS", color: D.blue },
+          { n: topVel > 0 ? `$${topVel >= 1000 ? Math.round(topVel/1000)+"K" : topVel}` : "—", label: "TOP VELOCITY", color: D.gold },
+          { n: networkSet.size || "—", label: "NETWORKS", color: D.green },
+        ].map(({ n, label, color }, i) => (
+          <div key={label} style={{ padding: "14px 20px", borderRight: i < 3 ? `0.5px solid ${D.border}` : "none" }}>
+            <div style={{ fontSize: 24, fontWeight: 500, color }}>{n}</div>
+            <div style={{ fontSize: 9, letterSpacing: "0.08em", color: D.textMuted, marginTop: 2 }}>{label}</div>
+          </div>
         ))}
       </div>
 
-      {tab === "Library" && (
-        <div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap" as const, gap: 8 }}>
-            <p style={{ margin: 0, fontSize: 13, color: "#666" }}>{lib.length} ads · {lib.filter(d => d.tier === "winner").length} winners · {lib.filter(d => d.reanalyzed).length} re-analyzed</p>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const }}>
-              {lib.length > 0 && (<>
-                <button style={css.btnWarning} onClick={handleReanalyzeAll} disabled={reanalyzingAll || analyzing}>{reanalyzingAll ? "Re-analyzing…" : "Re-analyze all"}</button>
-                <button style={css.btnSecondary} onClick={exportLibrary}>Export</button>
-                <button style={css.btnSecondary} onClick={() => { if (confirm("Clear library?")) saveLib([]); }}>Clear</button>
-              </>)}
-              <button style={css.btnSecondary} onClick={() => importRef.current?.click()}>Import</button>
-              <button style={css.btnPrimary} onClick={() => setShowModal(true)} disabled={analyzing || reanalyzingAll}>{analyzing ? "Analyzing…" : "+ Upload"}</button>
+      {/* ── Tabs ── */}
+      <div style={{ display: "flex", gap: 0, borderBottom: `0.5px solid ${D.border}`, padding: "0 20px" }}>
+        {(["Library", "Brief Studio"] as const).map(t => (
+          <button key={t} onClick={() => setTab(t)} style={{ padding: "10px 16px", fontSize: 12, fontWeight: tab === t ? 500 : 400, color: tab === t ? D.text : D.textMuted, background: "none", border: "none", borderBottom: tab === t ? `2px solid ${D.blue}` : "2px solid transparent", cursor: "pointer", marginBottom: -1, transition: "color .15s" }}>
+            {t}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ padding: "20px", maxWidth: 960, margin: "0 auto" }}>
+
+        {/* ════════════════════════════════════ LIBRARY TAB ═══════════════════ */}
+        {tab === "Library" && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap" as const, gap: 8 }}>
+              <p style={{ margin: 0, fontSize: 12, color: D.textMuted }}>{lib.length} ads · {winners} winners · {lib.filter(d => d.reanalyzed).length} re-analyzed</p>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const }}>
+                {lib.length > 0 && (<>
+                  <button style={s.btnSecondary} onClick={handleReanalyzeAll} disabled={reanalyzingAll || analyzing}>{reanalyzingAll ? "Re-analyzing…" : "Re-analyze all"}</button>
+                  <button style={s.btnSecondary} onClick={exportLibrary}>Export</button>
+                  <button style={s.btnSecondary} onClick={() => { if (confirm("Clear library?")) saveLib([]); }}>Clear</button>
+                </>)}
+                <button style={s.btnSecondary} onClick={() => importRef.current?.click()}>Import</button>
+                <button style={s.btnPrimary} onClick={() => setShowModal(true)} disabled={analyzing || reanalyzingAll}>{analyzing ? "Analyzing…" : "+ Upload"}</button>
+              </div>
             </div>
+
+            {(analyzeErr || reanalysisProgress) && <div style={reanalysisProgress ? s.info : s.error}>{analyzeErr || reanalysisProgress}</div>}
+            {analyzeInfo && <div style={s.info}>{analyzeInfo}</div>}
+            {!libraryLoaded && <div style={s.info}>Loading library from GitHub…</div>}
+
+            {lib.length === 0 && !analyzing && libraryLoaded && (
+              <div style={{ ...s.card, textAlign: "center", padding: "3rem", border: `1px dashed ${D.border2}` }}>
+                <p style={{ margin: 0, fontSize: 13, color: D.textMuted }}>Upload MOC ads, competitor ads, or compound mixes to build your Creative DNA library.</p>
+              </div>
+            )}
+
+            {lib.map((d, di) => {
+              const canTag = d.ad_type === "moc" && d.tier !== "inspiration";
+              const hasSpend = !!d.spend_tier;
+              const spendSt = SPEND_TIERS.find(t => t.value === d.spend_tier);
+
+              return (
+                <div key={d.id} style={{ ...s.card, transition: "border-color .15s" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setExpandedDNA(expandedDNA === di ? null : di)}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" as const }}>
+                        <span style={{ fontSize: 14, fontWeight: 500 }}>{d.title}</span>
+                        <span style={s.badge(d.tier)}>{d.tier}</span>
+                        {d.ad_type !== "moc" && <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 7px", borderRadius: 20, background: D.purpleBg, color: D.purple, border: `0.5px solid ${D.purpleBdr}` }}>{d.ad_type}</span>}
+                        {d.is_compound && <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 20, background: D.goldBg, color: D.gold, border: `0.5px solid ${D.goldBdr}` }}>compound</span>}
+                        {d.reanalyzed && <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 20, background: D.greenBg, color: D.green, border: `0.5px solid ${D.greenBdr}` }}>re-analyzed</span>}
+                        {d.iteration_of && <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 20, background: D.surface2, color: D.textMuted, border: `0.5px solid ${D.border2}` }}>iter. of {d.iteration_of}</span>}
+                        {hasSpend && spendSt && <span style={{ fontSize: 9, fontWeight: 500, padding: "2px 8px", borderRadius: 20, background: spendSt.bg, color: spendSt.text, border: `0.5px solid ${spendSt.border}` }}>{spendSt.label}{d.spend_window_days ? ` / ${WINDOW_OPTIONS.find(w => w.value === d.spend_window_days)?.label ?? d.spend_window_days + "d"}` : ""}</span>}
+                        {hasSpend && d.spend_networks && d.spend_networks.length > 0 && <span style={{ fontSize: 9, padding: "2px 7px", borderRadius: 20, background: D.greenBg, color: D.green, border: `0.5px solid ${D.greenBdr}` }}>{d.spend_networks.join(", ")}</span>}
+                      </div>
+                      <p style={{ margin: 0, fontSize: 10, color: D.textDim }}>{d.file_name} · {new Date(d.added_at).toLocaleDateString()}</p>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 10, flexShrink: 0 }}>
+                      <button style={s.btnSecondary} onClick={() => handleReanalyzeSingle(d)} disabled={reanalyzingIds.has(d.id)}>{reanalyzingIds.has(d.id) ? "…" : "Re-analyze"}</button>
+                      <select value={d.tier} onChange={e => saveLib(lib.map(x => x.id === d.id ? { ...x, tier: e.target.value as DNAEntry["tier"] } : x))} style={{ fontSize: 10, padding: "3px 6px", borderRadius: 6, border: `0.5px solid ${D.border2}`, background: D.surface2, color: D.text }}>
+                        {TIERS.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                      <button style={s.btnDanger} onClick={() => saveLib(lib.filter(x => x.id !== d.id))}>✕</button>
+                    </div>
+                  </div>
+
+                  <div style={{ ...s.gridAuto, marginTop: 10 }}>
+                    {[
+                      { label: "Hook type", value: d.hook_type },
+                      { label: "Hook at", value: d.hook_timing_seconds != null ? `${d.hook_timing_seconds}s` : "—" },
+                      { label: "Biome", value: d.biome },
+                      { label: "Pacing", value: d.pacing },
+                      { label: "Loss event", value: d.loss_event_type },
+                      { label: "Swarm peak", value: d.swarm_peak_moment_seconds != null ? `${d.swarm_peak_moment_seconds}s` : "—" },
+                    ].map(({ label, value }) => (
+                      <div key={label} style={s.metric}>
+                        <div style={{ fontSize: 9, color: D.textDim, textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 2 }}>{label}</div>
+                        <div style={{ fontSize: 12, fontWeight: 500, color: D.text }}>{value ?? "—"}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {expandedDNA === di && (
+                    <div style={{ marginTop: 14, borderTop: `0.5px solid ${D.border}`, paddingTop: 14 }}>
+                      {canTag && <SpendTagger entry={d} onSave={fields => saveLib(lib.map(x => x.id === d.id ? { ...x, ...fields } : x))} />}
+
+                      {d.unit_evolution_chain?.length > 0 && (
+                        <div style={{ marginBottom: 10, marginTop: 14 }}>
+                          <span style={s.label}>Unit evolution chain</span>
+                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const, alignItems: "center" }}>
+                            {d.unit_evolution_chain.map((step, i) => (
+                              <span key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                <span style={{ fontSize: 11, padding: "2px 8px", background: D.blueBg, color: D.blue, borderRadius: 20, border: `0.5px solid ${D.blueDark}` }}>{step}</span>
+                                {i < d.unit_evolution_chain.length - 1 && <span style={{ color: D.textDim, fontSize: 11 }}>→</span>}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {d.emotional_beats?.length > 0 && (
+                        <div style={{ marginBottom: 10 }}>
+                          <span style={s.label}>Emotional beats</span>
+                          <div style={{ display: "flex", flexDirection: "column" as const, gap: 3 }}>
+                            {d.emotional_beats.map((b, i) => (
+                              <div key={i} style={{ fontSize: 11, padding: "5px 10px", background: D.surface2, borderRadius: 6, display: "flex", gap: 10 }}>
+                                <span style={{ fontWeight: 500, color: D.blue, minWidth: 32 }}>{b.timestamp_seconds}s</span>
+                                <span style={{ color: D.text }}>{b.event}</span>
+                                <span style={{ color: D.textDim, fontStyle: "italic", marginLeft: "auto" }}>{b.emotion}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {d.gate_sequence?.length > 0 && (
+                        <div style={{ marginBottom: 10 }}>
+                          <span style={s.label}>Gate sequence</span>
+                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const }}>
+                            {d.gate_sequence.map((g, i) => (
+                              <span key={i} style={{ fontSize: 11, padding: "2px 8px", background: g.toLowerCase().includes("death") ? D.redBg : D.blueBg, color: g.toLowerCase().includes("death") ? D.red : D.blue, borderRadius: 20, border: `0.5px solid ${g.toLowerCase().includes("death") ? "#6e2020" : D.blueDark}` }}>{g}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {d.champions_visible?.length > 0 && (
+                        <div style={{ marginBottom: 10 }}>
+                          <span style={s.label}>Champions / bosses</span>
+                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const }}>
+                            {d.champions_visible.map((c, i) => <span key={i} style={{ fontSize: 11, padding: "2px 8px", background: D.purpleBg, color: D.purple, borderRadius: 20, border: `0.5px solid ${D.purpleBdr}` }}>{c}</span>)}
+                          </div>
+                        </div>
+                      )}
+
+                      {d.biome_visual_notes && (
+                        <div style={{ marginBottom: 10 }}>
+                          <span style={s.label}>Biome visual notes</span>
+                          <p style={{ margin: 0, fontSize: 12, color: D.textMuted, fontStyle: "italic" }}>{d.biome_visual_notes}</p>
+                        </div>
+                      )}
+
+                      {d.creative_gaps_structured && (
+                        <div style={{ marginBottom: 10 }}>
+                          <span style={s.label}>Creative gaps</span>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                            {[
+                              { label: "Hook strength", value: d.creative_gaps_structured.hook_strength },
+                              { label: "Mechanic clarity", value: d.creative_gaps_structured.mechanic_clarity },
+                              { label: "Emotional payoff", value: d.creative_gaps_structured.emotional_payoff },
+                            ].map(({ label, value }) => (
+                              <div key={label} style={{ padding: "8px 10px", background: D.goldBg, borderRadius: 8, border: `0.5px solid ${D.goldBdr}` }}>
+                                <div style={{ fontSize: 9, fontWeight: 600, color: D.gold, textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 3 }}>{label}</div>
+                                <p style={{ margin: 0, fontSize: 11, color: "#c9a227" }}>{value}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {d.strategic_notes && (
+                        <div style={{ marginBottom: 10 }}>
+                          <span style={s.label}>Strategic notes</span>
+                          <p style={{ margin: 0, fontSize: 12, color: D.blue, lineHeight: 1.5 }}>{d.strategic_notes}</p>
+                        </div>
+                      )}
+
+                      {d.is_compound && d.segments && d.segments.length > 0 && (
+                        <div style={{ marginBottom: 10 }}>
+                          <span style={s.label}>Segments ({d.segments.length})</span>
+                          {d.segments.map((seg, si) => (
+                            <div key={si} style={{ padding: "10px 12px", background: D.surface2, borderRadius: 8, border: `0.5px solid ${D.border}`, marginBottom: 6 }}>
+                              <div style={{ fontWeight: 500, fontSize: 12, marginBottom: 4, color: D.text }}>Segment {si + 1}: {seg.biome} ({seg.start_seconds}s – {seg.end_seconds}s)</div>
+                              <div style={{ fontSize: 11, color: D.textMuted }}>Hook: {seg.hook_type} at {seg.hook_timing_seconds}s · {seg.key_mechanic}</div>
+                              {seg.unit_evolution_chain?.length > 0 && <div style={{ fontSize: 11, color: D.textDim, marginTop: 2 }}>Evolution: {seg.unit_evolution_chain.join(" → ")}</div>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {[
+                        { label: "Key mechanic", value: d.key_mechanic },
+                        { label: "Emotional arc", value: d.emotional_arc },
+                        { label: "Why it works", value: d.why_it_works },
+                        { label: "Why it fails", value: d.why_it_fails },
+                        { label: "Frame extraction gaps", value: d.frame_extraction_gaps },
+                        { label: "Replication instructions", value: d.replication_instructions },
+                      ].filter(x => x.value).map(({ label, value }) => (
+                        <div key={label} style={{ marginBottom: 10 }}>
+                          <span style={s.label}>{label}</span>
+                          <p style={{ margin: 0, fontSize: 12, color: D.textMuted, lineHeight: 1.6 }}>{value}</p>
+                        </div>
+                      ))}
+
+                      {d.auto_frames && d.auto_frames.length > 0 && (
+                        <div style={{ marginBottom: 10 }}>
+                          <span style={s.label}>Auto-extracted frames</span>
+                          <div style={{ display: "flex", flexDirection: "column" as const, gap: 3 }}>
+                            {d.auto_frames.map((f, fi) => (
+                              <div key={fi} style={{ fontSize: 11, padding: "5px 10px", background: D.surface2, borderRadius: 6 }}>
+                                <span style={{ fontWeight: 500, color: D.blue, marginRight: 8 }}>{f.timestamp_seconds}s</span>
+                                <span style={{ color: D.textMuted }}>{f.description}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <button style={{ ...s.btnSecondary, marginTop: 10, fontSize: 10 }} onClick={() => setExpandedDNA(expandedDNA === di ? null : di)}>
+                    {expandedDNA === di ? "Collapse" : "Expand details"}
+                  </button>
+                </div>
+              );
+            })}
           </div>
+        )}
 
-          {(analyzeErr || reanalysisProgress) && <div style={reanalysisProgress ? css.info : css.error}>{analyzeErr || reanalysisProgress}</div>}
-          {analyzeInfo && <div style={css.info}>{analyzeInfo}</div>}
-          {!libraryLoaded && <div style={css.info}>Loading library from GitHub…</div>}
-          {analyzing && !analyzeInfo && <div style={{ ...css.cardGray, textAlign: "center", padding: "2rem" }}><p style={{ margin: 0, fontSize: 13, color: "#666" }}>Extracting creative DNA…</p></div>}
+        {/* ════════════════════════════════ BRIEF STUDIO TAB ══════════════════ */}
+        {tab === "Brief Studio" && (
+          <div>
+            <div style={s.card}>
+              {/* Brief textarea */}
+              <span style={s.label}>Brief context</span>
+              <div style={{ border: `0.5px solid ${D.border2}`, borderRadius: 8, overflow: "hidden", marginBottom: 14 }}>
+                <textarea style={{ ...s.textarea, background: D.surface2, padding: "10px 12px" }} placeholder="Describe the ad. Levelly will match it to winning DNA patterns from the library…" value={briefCtx} onChange={e => setBriefCtx(e.target.value)} />
+              </div>
 
-          {lib.length === 0 && !analyzing && libraryLoaded && (
-            <div style={{ ...css.card, textAlign: "center", padding: "3rem", border: "1px dashed #ddd" }}>
-              <p style={{ margin: 0, fontSize: 14, color: "#888" }}>Upload MOC ads, competitor ads, or compound mixes to build your Creative DNA library.</p>
+              {/* Iterate from ref */}
+              <div style={{ marginBottom: 14, padding: "12px 14px", background: D.surface2, borderRadius: 8, border: `0.5px solid ${D.border}` }}>
+                <span style={{ ...s.label, marginBottom: 4 }}>Iterate from</span>
+                <p style={{ margin: "0 0 8px", fontSize: 10, color: D.textDim }}>Optional. Levelly builds on this creative using MOC DNA as the primary guide.</p>
+                <input
+                  style={s.input}
+                  placeholder="Library ID or creative name — e.g. CT43, CC21"
+                  value={iterateFrom}
+                  onChange={e => setIterateFrom(e.target.value)}
+                />
+                {iterateFrom.trim() && (
+                  <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, background: D.purpleBg, border: `0.5px solid ${D.purpleBdr}`, borderRadius: 6, padding: "4px 10px" }}>
+                      <div style={{ width: 16, height: 16, borderRadius: 3, background: D.purpleBdr, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, color: "#fff" }}>ref</div>
+                      <span style={{ fontSize: 11, color: D.purple }}>{iterateFrom.trim()}</span>
+                      <span style={{ fontSize: 10, color: D.textDim }}>· MOC DNA primary</span>
+                      <button onClick={() => setIterateFrom("")} style={{ fontSize: 9, color: D.textDim, background: "none", border: "none", cursor: "pointer", padding: "0 2px" }}>✕</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Segment + network row */}
+              <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" as const }}>
+                <div>
+                  <span style={s.label}>Target segment</span>
+                  <div style={{ display: "flex", gap: 5 }}>
+                    {SEGMENTS_LIST.map(seg => (
+                      <button key={seg} onClick={() => setSegment(seg)} style={s.chip(segment === seg)}>
+                        {seg}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ marginLeft: "auto", textAlign: "right" as const }}>
+                  <p style={{ margin: "0 0 6px", fontSize: 10, color: D.textDim }}>{lib.length} DNA entries · {winners} winners</p>
+                  <button
+                    style={{ ...s.btnPrimary, display: "flex", alignItems: "center", gap: 6, opacity: generating ? 0.6 : 1 }}
+                    onClick={handleGenerateBrief}
+                    disabled={generating}
+                  >
+                    {generating ? (
+                      <>
+                        <span style={{ width: 10, height: 10, borderRadius: "50%", border: `1.5px solid ${D.border2}`, borderTopColor: "#fff", display: "inline-block", animation: "spin 0.6s linear infinite" }} />
+                        Generating…
+                      </>
+                    ) : "Generate 3 concepts ↗"}
+                  </button>
+                </div>
+              </div>
+              {briefErr && <div style={s.error}>{briefErr}</div>}
             </div>
-          )}
 
-          {lib.map((d, di) => {
-            const canTag = d.ad_type === "moc" && d.tier !== "inspiration";
-            const hasSpend = !!d.spend_tier;
-
-            return (
-              <div key={d.id} style={css.card}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setExpandedDNA(expandedDNA === di ? null : di)}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3, flexWrap: "wrap" as const }}>
-                      <span style={{ fontSize: 14, fontWeight: 600 }}>{d.title}</span>
-                      <span style={css.badge(d.tier)}>{d.tier}</span>
-                      {d.ad_type !== "moc" && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 6, background: "#faf5ff", color: "#7c3aed", border: "1px solid #ddd6fe" }}>{d.ad_type}</span>}
-                      {d.is_compound && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, background: "#fef9c3", color: "#854d0e", border: "1px solid #fde047" }}>compound</span>}
-                      {d.reanalyzed && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0" }}>re-analyzed</span>}
-                      {d.iteration_of && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, background: "#f8f8f8", color: "#666", border: "1px solid #e0e0e0" }}>iter. of {d.iteration_of}</span>}
-                      {hasSpend && (() => { const st = SPEND_TIERS.find(t => t.value === d.spend_tier); return st ? <span style={{ fontSize: 10, fontWeight: 500, padding: "2px 8px", borderRadius: 99, background: st.bg, color: st.text, border: `1px solid ${st.border}` }}>{st.label}{d.spend_window_days ? ` / ${WINDOW_OPTIONS.find(w => w.value === d.spend_window_days)?.label ?? d.spend_window_days + "d"}` : ""}</span> : null; })()}
-                      {hasSpend && d.spend_networks && d.spend_networks.length > 0 && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, background: "#EAF3DE", color: "#3B6D11", border: "1px solid #97C459" }}>{d.spend_networks.join(", ")}</span>}
-                    </div>
-                    <p style={{ margin: 0, fontSize: 11, color: "#aaa" }}>{d.file_name} · {new Date(d.added_at).toLocaleDateString()}</p>
+            {/* Strategy block */}
+            {briefAnalysis && (
+              <div style={{ ...s.card, background: D.surface2, borderColor: D.border2 }}>
+                <span style={s.label}>Creative strategy</span>
+                <p style={{ margin: "0 0 12px", fontSize: 12, lineHeight: 1.7, color: D.text }}>{briefAnalysis.strategy}</p>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  <div>
+                    <span style={s.label}>DNA sources used</span>
+                    <p style={{ margin: 0, fontSize: 11, color: D.textMuted }}>{briefAnalysis.dna_sources?.join(", ") || briefAnalysis.patterns_used}</p>
                   </div>
-                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 10 }}>
-                    <button style={{ ...css.btnSecondary, fontSize: 11, padding: "4px 10px" }} onClick={() => handleReanalyzeSingle(d)} disabled={reanalyzingIds.has(d.id)}>{reanalyzingIds.has(d.id) ? "…" : "Re-analyze"}</button>
-                    <select value={d.tier} onChange={e => saveLib(lib.map(x => x.id === d.id ? { ...x, tier: e.target.value as DNAEntry["tier"] } : x))} style={{ fontSize: 11, padding: "3px 6px", borderRadius: 6, border: "1px solid #e0e0e0" }}>
-                      {TIERS.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                    <button style={css.btnDanger} onClick={() => saveLib(lib.filter(x => x.id !== d.id))}>✕</button>
+                  <div>
+                    <span style={s.label}>Segment insight</span>
+                    <p style={{ margin: 0, fontSize: 11, color: D.textMuted }}>{briefAnalysis.segment_insight}</p>
                   </div>
                 </div>
+              </div>
+            )}
 
-                <div style={{ ...css.gridAuto, marginTop: 10 }}>
-                  {[
-                    { label: "Hook type", value: d.hook_type },
-                    { label: "Hook at", value: d.hook_timing_seconds != null ? `${d.hook_timing_seconds}s` : "—" },
-                    { label: "Biome", value: d.biome },
-                    { label: "Pacing", value: d.pacing },
-                    { label: "Loss event", value: d.loss_event_type },
-                    { label: "Swarm peak", value: d.swarm_peak_moment_seconds != null ? `${d.swarm_peak_moment_seconds}s` : "—" },
-                  ].map(({ label, value }) => (
-                    <div key={label} style={css.metric}>
-                      <div style={{ fontSize: 9, color: "#999", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>{label}</div>
-                      <div style={{ fontSize: 12, fontWeight: 600 }}>{value ?? "—"}</div>
+            {/* Concept cards */}
+            {concepts.map((c, ci) => (
+              <div key={ci} style={s.card}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", cursor: "pointer" }} onClick={() => setExpandedConcept(expandedConcept === ci ? null : ci)}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" as const }}>
+                      <span style={{ fontSize: 15, fontWeight: 500 }}>{c.title}</span>
+                      {c.is_data_backed && <span style={{ fontSize: 9, padding: "2px 7px", background: D.goldBg, color: D.gold, border: `0.5px solid ${D.goldBdr}`, borderRadius: 20, fontWeight: 600 }}>Data-backed</span>}
+                      {(c as any).dna_source && <span style={{ fontSize: 9, padding: "2px 7px", background: D.greenBg, color: D.green, border: `0.5px solid ${D.greenBdr}`, borderRadius: 20 }}>based on {(c as any).dna_source}</span>}
+                      {iterateFrom.trim() && <span style={{ fontSize: 9, padding: "2px 7px", background: D.purpleBg, color: D.purple, border: `0.5px solid ${D.purpleBdr}`, borderRadius: 20 }}>iterates from {iterateFrom.trim()}</span>}
+                      <span style={s.badge("scalable")}>{c.target_segment}</span>
                     </div>
-                  ))}
+                    <p style={{ margin: 0, fontSize: 12, color: D.textMuted }}>{c.objective}</p>
+                  </div>
+                  {c.quality_score && (
+                    <div style={{ textAlign: "right" as const, marginLeft: 16, flexShrink: 0 }}>
+                      <div style={{ fontSize: 24, fontWeight: 500, color: scoreColor(c.quality_score.overall) }}>{c.quality_score.overall}</div>
+                      <div style={{ fontSize: 9, color: D.textDim }}>quality</div>
+                    </div>
+                  )}
                 </div>
 
-                {expandedDNA === di && (
-                  <div style={{ marginTop: 14, borderTop: "1px solid #f0f0f0", paddingTop: 14 }}>
+                {expandedConcept === ci && (
+                  <div style={{ marginTop: 16, borderTop: `0.5px solid ${D.border}`, paddingTop: 16 }}>
 
-                    {/* Spend tagger — only for MOC non-inspiration */}
-                    {canTag && (
-                      <SpendTagger
-                        entry={d}
-                        onSave={fields => saveLib(lib.map(x => x.id === d.id ? { ...x, ...fields } : x))}
-                      />
+                    {/* Hook timing callout */}
+                    {(c as any).hook_timing_seconds != null && (
+                      <div style={{ marginBottom: 12, padding: "8px 12px", background: D.blueBg, borderRadius: 8, fontSize: 11, color: D.blue, border: `0.5px solid ${D.blueDark}` }}>
+                        Hook at <strong>{(c as any).hook_timing_seconds}s</strong> — {c.performance_hooks?.[0]?.type || "Challenge"}
+                      </div>
                     )}
 
-                    {d.unit_evolution_chain?.length > 0 && (
-                      <div style={{ marginBottom: 10, marginTop: 14 }}>
-                        <span style={css.label}>Unit evolution chain</span>
+                    {/* Unit evolution */}
+                    {(c as any).unit_evolution_chain?.length > 0 && (
+                      <div style={{ marginBottom: 14 }}>
+                        <span style={s.label}>Unit evolution chain</span>
                         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const, alignItems: "center" }}>
-                          {d.unit_evolution_chain.map((step, i) => (
+                          {(c as any).unit_evolution_chain.map((step: string, i: number) => (
                             <span key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                              <span style={{ fontSize: 11, padding: "2px 8px", background: "#eff6ff", color: "#1e40af", borderRadius: 6, border: "1px solid #bfdbfe" }}>{step}</span>
-                              {i < d.unit_evolution_chain.length - 1 && <span style={{ color: "#aaa", fontSize: 12 }}>→</span>}
+                              <span style={{ fontSize: 11, padding: "2px 8px", background: D.blueBg, color: D.blue, borderRadius: 20, border: `0.5px solid ${D.blueDark}` }}>{step}</span>
+                              {i < (c as any).unit_evolution_chain.length - 1 && <span style={{ color: D.textDim }}>→</span>}
                             </span>
                           ))}
                         </div>
                       </div>
                     )}
 
-                    {d.emotional_beats?.length > 0 && (
-                      <div style={{ marginBottom: 10 }}>
-                        <span style={css.label}>Emotional beats</span>
-                        <div style={{ display: "flex", flexDirection: "column" as const, gap: 3 }}>
-                          {d.emotional_beats.map((b, i) => (
-                            <div key={i} style={{ fontSize: 12, padding: "5px 10px", background: "#f8f8f8", borderRadius: 6, display: "flex", gap: 10 }}>
-                              <span style={{ fontWeight: 600, color: "#1a56db", minWidth: 32 }}>{b.timestamp_seconds}s</span>
-                              <span style={{ color: "#444" }}>{b.event}</span>
-                              <span style={{ color: "#aaa", fontStyle: "italic", marginLeft: "auto" }}>{b.emotion}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {d.gate_sequence?.length > 0 && (
-                      <div style={{ marginBottom: 10 }}>
-                        <span style={css.label}>Gate sequence</span>
-                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const }}>
-                          {d.gate_sequence.map((g, i) => (
-                            <span key={i} style={{ fontSize: 11, padding: "2px 8px", background: g.toLowerCase().includes("death") ? "#fef2f2" : "#eff6ff", color: g.toLowerCase().includes("death") ? "#dc2626" : "#1e40af", borderRadius: 6, border: `1px solid ${g.toLowerCase().includes("death") ? "#fca5a5" : "#bfdbfe"}` }}>{g}</span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {d.champions_visible?.length > 0 && (
-                      <div style={{ marginBottom: 10 }}>
-                        <span style={css.label}>Champions / bosses</span>
-                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const }}>
-                          {d.champions_visible.map((c, i) => <span key={i} style={{ fontSize: 11, padding: "2px 8px", background: "#faf5ff", color: "#7c3aed", borderRadius: 6, border: "1px solid #ddd6fe" }}>{c}</span>)}
-                        </div>
-                      </div>
-                    )}
-
-                    {d.biome_visual_notes && (
-                      <div style={{ marginBottom: 10 }}>
-                        <span style={css.label}>Biome visual notes</span>
-                        <p style={{ margin: 0, fontSize: 12, color: "#666", fontStyle: "italic" }}>{d.biome_visual_notes}</p>
-                      </div>
-                    )}
-
-                    {d.creative_gaps_structured && (
-                      <div style={{ marginBottom: 10 }}>
-                        <span style={css.label}>Creative gaps</span>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                    {/* Visual identity */}
+                    {c.visual_identity && (
+                      <div style={{ marginBottom: 14 }}>
+                        <span style={s.label}>Visual identity</span>
+                        <div style={s.gridAuto}>
                           {[
-                            { label: "Hook strength", value: d.creative_gaps_structured.hook_strength },
-                            { label: "Mechanic clarity", value: d.creative_gaps_structured.mechanic_clarity },
-                            { label: "Emotional payoff", value: d.creative_gaps_structured.emotional_payoff },
-                          ].map(({ label, value }) => (
-                            <div key={label} style={{ padding: "8px 10px", background: "#fef9c3", borderRadius: 8, border: "1px solid #fde047" }}>
-                              <div style={{ fontSize: 9, fontWeight: 600, color: "#854d0e", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 3 }}>{label}</div>
-                              <p style={{ margin: 0, fontSize: 11, color: "#78350f" }}>{value}</p>
+                            { l: "Environment", v: c.visual_identity.environment },
+                            { l: "Lighting", v: c.visual_identity.lighting },
+                            { l: "Cannon", v: c.visual_identity.cannon_type },
+                            { l: "Player", v: `${c.visual_identity.player_champion} (${c.visual_identity.player_mob_color})` },
+                            { l: "Enemy", v: `${c.visual_identity.enemy_champion} (${c.visual_identity.enemy_mob_color})` },
+                            { l: "Gates", v: c.visual_identity.gate_values?.join(", ") },
+                          ].map(({ l, v }) => (
+                            <div key={l} style={s.metric}>
+                              <div style={{ fontSize: 9, color: D.textDim, textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 2 }}>{l}</div>
+                              <div style={{ fontSize: 11, fontWeight: 500, color: D.text }}>{v ?? "—"}</div>
                             </div>
                           ))}
                         </div>
                       </div>
                     )}
 
-                    {d.strategic_notes && (
-                      <div style={{ marginBottom: 10 }}>
-                        <span style={css.label}>Strategic notes</span>
-                        <p style={{ margin: 0, fontSize: 13, color: "#185FA5", lineHeight: 1.5 }}>{d.strategic_notes}</p>
+                    {/* Network adaptations */}
+                    {c.network_adaptations && Object.keys(c.network_adaptations).length > 0 && (
+                      <div style={{ marginBottom: 14 }}>
+                        <span style={{ ...s.label, marginBottom: 8 }}>Network adaptations</span>
+                        <div style={{ display: "flex", flexDirection: "column" as const, gap: 6 }}>
+                          {(["AppLovin", "Facebook", "Google", "TikTok"] as const).filter(net => c.network_adaptations?.[net]).map(net => {
+                            const colors: Record<string, { bg: string; text: string; border: string }> = {
+                              AppLovin: { bg: D.blueBg, text: D.blue, border: D.blueDark },
+                              Facebook: { bg: D.surface2, text: D.textMuted, border: D.border2 },
+                              Google:   { bg: D.greenBg, text: D.green, border: D.greenBdr },
+                              TikTok:   { bg: D.purpleBg, text: D.purple, border: D.purpleBdr },
+                            };
+                            const nc = colors[net];
+                            return (
+                              <div key={net} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 11, lineHeight: 1.5 }}>
+                                <span style={{ padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 500, flexShrink: 0, marginTop: 1, background: nc.bg, color: nc.text, border: `0.5px solid ${nc.border}` }}>{net}</span>
+                                <span style={{ color: D.textMuted }}>{c.network_adaptations![net]}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
 
-                    {d.is_compound && d.segments && d.segments.length > 0 && (
-                      <div style={{ marginBottom: 10 }}>
-                        <span style={css.label}>Segments ({d.segments.length})</span>
-                        {d.segments.map((seg, si) => (
-                          <div key={si} style={{ padding: "10px 12px", background: "#f8f8f8", borderRadius: 8, border: "1px solid #f0f0f0", marginBottom: 6 }}>
-                            <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 4 }}>Segment {si + 1}: {seg.biome} ({seg.start_seconds}s – {seg.end_seconds}s)</div>
-                            <div style={{ fontSize: 11, color: "#666" }}>Hook: {seg.hook_type} at {seg.hook_timing_seconds}s · {seg.key_mechanic}</div>
-                            {seg.unit_evolution_chain?.length > 0 && <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>Evolution: {seg.unit_evolution_chain.join(" → ")}</div>}
+                    {/* Scene renders */}
+                    <div style={{ marginBottom: 14 }}>
+                      <span style={s.label}>Scene renders</span>
+                      <div style={s.grid3}>
+                        {(["start", "middle", "end"] as const).map(scene => {
+                          const imgUrl = c[`visual_${scene}` as keyof Concept] as string | undefined;
+                          const loading = renderingScene[`${ci}-${scene}`];
+                          return (
+                            <div key={scene} style={s.sceneWrap} onClick={() => !imgUrl && !loading && handleRenderScene(ci, scene)}>
+                              {imgUrl
+                                ? <img src={imgUrl} alt={scene} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                : loading
+                                  ? <p style={{ margin: 0, fontSize: 11, color: D.textMuted }}>Rendering…</p>
+                                  : <div style={{ textAlign: "center", padding: 12 }}>
+                                      <p style={{ margin: 0, fontSize: 10, fontWeight: 500, textTransform: "uppercase" as const, color: D.textDim }}>{scene}</p>
+                                      <p style={{ margin: "4px 0 0", fontSize: 9, color: D.textDim }}>Click to render</p>
+                                    </div>
+                              }
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Production script */}
+                    {c.production_script?.length > 0 && (
+                      <div style={{ marginBottom: 14 }}>
+                        <span style={s.label}>Production script</span>
+                        <div style={{ border: `0.5px solid ${D.border}`, borderRadius: 8, overflow: "hidden" }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "60px 1fr 1fr 1fr", padding: "6px 12px", background: D.surface2, borderBottom: `0.5px solid ${D.border}` }}>
+                            {["Time", "Action", "Visual", "Audio"].map(h => <span key={h} style={{ fontSize: 9, fontWeight: 600, color: D.textDim, textTransform: "uppercase" as const, letterSpacing: "0.07em" }}>{h}</span>)}
                           </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {[
-                      { label: "Key mechanic", value: d.key_mechanic },
-                      { label: "Emotional arc", value: d.emotional_arc },
-                      { label: "Why it works", value: d.why_it_works },
-                      { label: "Why it fails", value: d.why_it_fails },
-                      { label: "Frame extraction gaps", value: d.frame_extraction_gaps },
-                      { label: "Replication instructions", value: d.replication_instructions },
-                    ].filter(x => x.value).map(({ label, value }) => (
-                      <div key={label} style={{ marginBottom: 10 }}>
-                        <span style={css.label}>{label}</span>
-                        <p style={{ margin: 0, fontSize: 13, color: "#444", lineHeight: 1.5 }}>{value}</p>
-                      </div>
-                    ))}
-
-                    {d.auto_frames && d.auto_frames.length > 0 && (
-                      <div style={{ marginBottom: 10 }}>
-                        <span style={css.label}>Auto-extracted frames</span>
-                        <div style={{ display: "flex", flexDirection: "column" as const, gap: 3 }}>
-                          {d.auto_frames.map((f, fi) => (
-                            <div key={fi} style={{ fontSize: 11, padding: "5px 10px", background: "#f8f8f8", borderRadius: 6 }}>
-                              <span style={{ fontWeight: 600, color: "#1a56db", marginRight: 8 }}>{f.timestamp_seconds}s</span>
-                              <span style={{ color: "#444" }}>{f.description}</span>
+                          {c.production_script.map((step, si) => (
+                            <div key={si} style={{ display: "grid", gridTemplateColumns: "60px 1fr 1fr 1fr", padding: "8px 12px", borderBottom: si < c.production_script.length - 1 ? `0.5px solid ${D.border}` : "none", background: si % 2 === 0 ? D.surface : D.surface2 }}>
+                              <span style={{ fontSize: 11, fontWeight: 500, color: D.blue }}>{step.time}</span>
+                              <span style={{ fontSize: 11, paddingRight: 8, lineHeight: 1.4, color: D.text }}>{step.action}</span>
+                              <span style={{ fontSize: 11, color: D.textMuted, paddingRight: 8, lineHeight: 1.4, fontStyle: "italic" }}>{step.visual_cue}</span>
+                              <span style={{ fontSize: 11, color: D.textDim, lineHeight: 1.4 }}>{step.audio_cue}</span>
                             </div>
                           ))}
                         </div>
+                      </div>
+                    )}
+
+                    {/* Performance hooks */}
+                    {c.performance_hooks?.length > 0 && (
+                      <div style={{ marginBottom: 14 }}>
+                        <span style={s.label}>Performance hooks</span>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 10 }}>
+                          {c.performance_hooks.map((h, hi) => (
+                            <div key={hi} style={{ ...s.card, margin: 0, padding: "10px 14px" }}>
+                              <span style={{ fontSize: 9, fontWeight: 600, padding: "2px 7px", borderRadius: 20, background: hi === 0 ? D.goldBg : hi === 1 ? D.greenBg : D.blueBg, color: hi === 0 ? D.gold : hi === 1 ? D.green : D.blue, display: "inline-block", marginBottom: 6 }}>{h.type}</span>
+                              <p style={{ margin: 0, fontSize: 12, fontStyle: "italic", color: D.textMuted }}>"{h.text}"</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Quality score */}
+                    {c.quality_score && (
+                      <div>
+                        <span style={s.label}>Quality score</span>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(100px,1fr))", gap: 8, marginBottom: 8 }}>
+                          {[
+                            { l: "Pattern fidelity", v: c.quality_score.pattern_fidelity },
+                            { l: "MOC DNA", v: c.quality_score.moc_dna },
+                            { l: "Emotional arc", v: c.quality_score.emotional_arc },
+                            { l: "Visual clarity", v: c.quality_score.visual_clarity },
+                            { l: "Segment fit", v: c.quality_score.segment_fit },
+                          ].map(({ l, v }) => (
+                            <div key={l} style={s.metric}>
+                              <div style={{ fontSize: 9, color: D.textDim, textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 3 }}>{l}</div>
+                              <div style={{ fontSize: 18, fontWeight: 500, color: scoreColor(v) }}>{v}</div>
+                            </div>
+                          ))}
+                        </div>
+                        {c.quality_score.notes && <p style={{ margin: 0, fontSize: 11, color: D.textMuted, fontStyle: "italic" }}>{c.quality_score.notes}</p>}
                       </div>
                     )}
                   </div>
                 )}
-                <button style={{ ...css.btnSecondary, marginTop: 10, fontSize: 11 }} onClick={() => setExpandedDNA(expandedDNA === di ? null : di)}>
-                  {expandedDNA === di ? "Collapse" : "Expand details"}
-                </button>
               </div>
-            );
-          })}
-        </div>
-      )}
-
-      {tab === "Brief Studio" && (
-        <div>
-          <div style={css.card}>
-            <span style={css.label}>Brief context</span>
-            <textarea style={css.textarea} placeholder="Describe the ad. Levelly will match it to winning DNA patterns from the library..." value={briefCtx} onChange={e => setBriefCtx(e.target.value)} />
-            <div style={{ display: "flex", gap: 14, marginTop: 12, alignItems: "flex-end", flexWrap: "wrap" as const }}>
-              <div>
-                <span style={css.label}>Target segment</span>
-                <select value={segment} onChange={e => setSegment(e.target.value)} style={{ fontSize: 13, padding: "6px 10px", borderRadius: 8, border: "1px solid #e0e0e0" }}>
-                  {SEGMENTS_LIST.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-              <div style={{ marginLeft: "auto", textAlign: "right" as const }}>
-                <p style={{ margin: "0 0 6px", fontSize: 11, color: "#999" }}>{lib.length} DNA entries · {lib.filter(d => d.tier === "winner").length} winners</p>
-                <button style={css.btnPrimary} onClick={handleGenerateBrief} disabled={generating}>{generating ? "Generating…" : "Generate 3 concepts"}</button>
-              </div>
-            </div>
-            {briefErr && <div style={css.error}>{briefErr}</div>}
+            ))}
           </div>
+        )}
+      </div>
 
-          {briefAnalysis && (
-            <div style={css.cardGray}>
-              <span style={css.label}>Creative strategy</span>
-              <p style={{ margin: "0 0 10px", fontSize: 13, lineHeight: 1.6 }}>{briefAnalysis.strategy}</p>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div><span style={css.label}>DNA sources used</span><p style={{ margin: 0, fontSize: 12, color: "#666" }}>{(briefAnalysis as any).dna_sources?.join(", ") || briefAnalysis.patterns_used}</p></div>
-                <div><span style={css.label}>Segment insight</span><p style={{ margin: 0, fontSize: 12, color: "#666" }}>{briefAnalysis.segment_insight}</p></div>
-              </div>
-            </div>
-          )}
-
-          {concepts.map((c, ci) => (
-            <div key={ci} style={css.card}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", cursor: "pointer" }} onClick={() => setExpandedConcept(expandedConcept === ci ? null : ci)}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" as const }}>
-                    <span style={{ fontSize: 15, fontWeight: 600 }}>{c.title}</span>
-                    {c.is_data_backed && <span style={{ fontSize: 10, padding: "2px 7px", background: "#fef3c7", color: "#92400e", border: "1px solid #fcd34d", borderRadius: 6, fontWeight: 600 }}>Data-backed</span>}
-                    {(c as any).dna_source && <span style={{ fontSize: 10, padding: "2px 7px", background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0", borderRadius: 6 }}>based on {(c as any).dna_source}</span>}
-                    <span style={css.badge("scalable")}>{c.target_segment}</span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: 13, color: "#666" }}>{c.objective}</p>
-                </div>
-                {c.quality_score && (
-                  <div style={{ textAlign: "right" as const, marginLeft: 16, flexShrink: 0 }}>
-                    <div style={{ fontSize: 24, fontWeight: 700, color: scoreColor(c.quality_score.overall) }}>{c.quality_score.overall}</div>
-                    <div style={{ fontSize: 10, color: "#aaa" }}>quality</div>
-                  </div>
-                )}
-              </div>
-
-              {expandedConcept === ci && (
-                <div style={{ marginTop: 16, borderTop: "1px solid #f0f0f0", paddingTop: 16 }}>
-                  {(c as any).hook_timing_seconds != null && (
-                    <div style={{ marginBottom: 12, padding: "8px 12px", background: "#eff6ff", borderRadius: 8, fontSize: 12, color: "#1a56db" }}>
-                      Hook at <strong>{(c as any).hook_timing_seconds}s</strong> — {c.performance_hooks?.[0]?.type || "Challenge"}
-                    </div>
-                  )}
-                  {(c as any).unit_evolution_chain?.length > 0 && (
-                    <div style={{ marginBottom: 14 }}>
-                      <span style={css.label}>Unit evolution chain</span>
-                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const, alignItems: "center" }}>
-                        {(c as any).unit_evolution_chain.map((step: string, i: number) => (
-                          <span key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                            <span style={{ fontSize: 11, padding: "2px 8px", background: "#eff6ff", color: "#1e40af", borderRadius: 6, border: "1px solid #bfdbfe" }}>{step}</span>
-                            {i < (c as any).unit_evolution_chain.length - 1 && <span style={{ color: "#aaa" }}>→</span>}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {c.visual_identity && (
-                    <div style={{ marginBottom: 14 }}>
-                      <span style={css.label}>Visual identity</span>
-                      <div style={css.gridAuto}>
-                        {[
-                          { l: "Environment", v: c.visual_identity.environment }, { l: "Lighting", v: c.visual_identity.lighting },
-                          { l: "Cannon", v: c.visual_identity.cannon_type },
-                          { l: "Player", v: `${c.visual_identity.player_champion} (${c.visual_identity.player_mob_color})` },
-                          { l: "Enemy", v: `${c.visual_identity.enemy_champion} (${c.visual_identity.enemy_mob_color})` },
-                          { l: "Gates", v: c.visual_identity.gate_values?.join(", ") },
-                        ].map(({ l, v }) => (
-                          <div key={l} style={css.metric}>
-                            <div style={{ fontSize: 9, color: "#999", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>{l}</div>
-                            <div style={{ fontSize: 11, fontWeight: 600 }}>{v ?? "—"}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  <div style={{ marginBottom: 14 }}>
-                    <span style={css.label}>Scene renders</span>
-                    <div style={css.grid3}>
-                      {(["start", "middle", "end"] as const).map(scene => {
-                        const imgUrl = c[`visual_${scene}` as keyof Concept] as string | undefined;
-                        const loading = renderingScene[`${ci}-${scene}`];
-                        return (
-                          <div key={scene} style={css.sceneWrap} onClick={() => !imgUrl && !loading && handleRenderScene(ci, scene)}>
-                            {imgUrl ? <img src={imgUrl} alt={scene} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                              : loading ? <p style={{ margin: 0, fontSize: 11, color: "#888" }}>Rendering…</p>
-                              : <div style={{ textAlign: "center", padding: 12 }}><p style={{ margin: 0, fontSize: 11, fontWeight: 600, textTransform: "uppercase", color: "#aaa" }}>{scene}</p><p style={{ margin: "4px 0 0", fontSize: 10, color: "#bbb" }}>Click to render</p></div>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  {c.production_script?.length > 0 && (
-                    <div style={{ marginBottom: 14 }}>
-                      <span style={css.label}>Production script</span>
-                      <div style={{ border: "1px solid #f0f0f0", borderRadius: 8, overflow: "hidden" }}>
-                        <div style={{ display: "grid", gridTemplateColumns: "60px 1fr 1fr 1fr", padding: "6px 12px", background: "#f8f8f8", borderBottom: "1px solid #f0f0f0" }}>
-                          {["Time", "Action", "Visual", "Audio"].map(h => <span key={h} style={{ fontSize: 9, fontWeight: 600, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.07em" }}>{h}</span>)}
-                        </div>
-                        {c.production_script.map((step, si) => (
-                          <div key={si} style={{ display: "grid", gridTemplateColumns: "60px 1fr 1fr 1fr", padding: "8px 12px", borderBottom: si < c.production_script.length - 1 ? "1px solid #f8f8f8" : "none", background: si % 2 === 0 ? "#fff" : "#fafafa" }}>
-                            <span style={{ fontSize: 11, fontWeight: 600, color: "#1a56db" }}>{step.time}</span>
-                            <span style={{ fontSize: 12, paddingRight: 8, lineHeight: 1.4 }}>{step.action}</span>
-                            <span style={{ fontSize: 12, color: "#666", paddingRight: 8, lineHeight: 1.4, fontStyle: "italic" }}>{step.visual_cue}</span>
-                            <span style={{ fontSize: 12, color: "#888", lineHeight: 1.4 }}>{step.audio_cue}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {c.performance_hooks?.length > 0 && (
-                    <div style={{ marginBottom: 14 }}>
-                      <span style={css.label}>Performance hooks</span>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 10 }}>
-                        {c.performance_hooks.map((h, hi) => (
-                          <div key={hi} style={{ ...css.card, margin: 0, padding: "10px 14px" }}>
-                            <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 6, background: hi === 0 ? "#fef3c7" : hi === 1 ? "#dcfce7" : "#eff6ff", color: hi === 0 ? "#92400e" : hi === 1 ? "#166534" : "#1e40af", display: "inline-block", marginBottom: 6 }}>{h.type}</span>
-                            <p style={{ margin: 0, fontSize: 12, fontStyle: "italic", color: "#666" }}>"{h.text}"</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {c.quality_score && (
-                    <div>
-                      <span style={css.label}>Quality score</span>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(100px,1fr))", gap: 8, marginBottom: 8 }}>
-                        {[{ l: "Pattern fidelity", v: c.quality_score.pattern_fidelity }, { l: "MOC DNA", v: c.quality_score.moc_dna }, { l: "Emotional arc", v: c.quality_score.emotional_arc }, { l: "Visual clarity", v: c.quality_score.visual_clarity }, { l: "Segment fit", v: c.quality_score.segment_fit }].map(({ l, v }) => (
-                          <div key={l} style={css.metric}>
-                            <div style={{ fontSize: 9, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 3 }}>{l}</div>
-                            <div style={{ fontSize: 18, fontWeight: 700, color: scoreColor(v) }}>{v}</div>
-                          </div>
-                        ))}
-                      </div>
-                      {c.quality_score.notes && <p style={{ margin: 0, fontSize: 12, color: "#888", fontStyle: "italic" }}>{c.quality_score.notes}</p>}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        * { box-sizing: border-box; }
+        select option { background: ${D.surface}; color: ${D.text}; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: ${D.bg}; }
+        ::-webkit-scrollbar-thumb { background: ${D.border2}; border-radius: 3px; }
+      `}</style>
     </div>
   );
 }
