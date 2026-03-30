@@ -1,6 +1,38 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { buildReferenceContext, buildReferenceParts, MOC_REFERENCES } from "./refImages";
 
+// ─── Ref image helpers ────────────────────────────────────────────────────────
+function pickRelevantRefs(vi: VisualIdentity): any[] {
+  const biome = vi.environment?.toLowerCase() || "";
+  const player = vi.player_champion?.toLowerCase() || "";
+  const enemy = vi.enemy_champion?.toLowerCase() || "";
+  const populated = MOC_REFERENCES.filter(r => !r.base64.startsWith("REPLACE_"));
+  if (populated.length === 0) return [];
+  const scored = populated.map(ref => {
+    const lbl = ref.label.toLowerCase(); let score = 0;
+    if (lbl.includes(biome)) score += 3;
+    if (player && lbl.includes(player)) score += 2;
+    if (enemy && lbl.includes(enemy)) score += 2;
+    if (ref.category === "gate") score += 1;
+    return { ref, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  const selected: typeof populated = [];
+  const biomeRef = scored.find(s => s.ref.category === "biome" && s.score > 0)?.ref;
+  const champRef = scored.find(s => s.ref.category === "champion" && s.score > 0)?.ref;
+  const gateRef = scored.find(s => s.ref.category === "gate")?.ref;
+  if (biomeRef) selected.push(biomeRef);
+  if (champRef && champRef !== biomeRef) selected.push(champRef);
+  if (gateRef && !selected.includes(gateRef)) selected.push(gateRef);
+  for (const { ref } of scored) { if (selected.length >= 3) break; if (!selected.includes(ref)) selected.push(ref); }
+  const parts: any[] = [{ text: "### MOC VISUAL REFERENCES — match this exact art style and game aesthetic precisely:" }];
+  selected.forEach(ref => {
+    parts.push({ text: `[${ref.category.toUpperCase()}]: ${ref.label.split(".")[0]}` });
+    parts.push({ inlineData: { mimeType: "image/jpeg", data: ref.base64 } });
+  });
+  return parts;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface EmotionalBeat { timestamp_seconds: number; event: string; emotion: string; }
 interface DNASegment {
@@ -252,8 +284,36 @@ const briefSystem = (lib: DNAEntry[], ctx: string, seg: string, iterateFrom?: st
 };
 const imagePromptFn = (concept: Concept, scene: "start"|"middle"|"end", visualSeed?: string) => {
   const vi = concept.visual_identity;
-  const scenes = { start:"Opening: player cannon at bottom, small mob just fired, first gate ahead, enemy base at top.", middle:"Mid-battle: massive mob swarm filling screen after multiplier gates.", end:"Dramatic fail: player mob nearly gone, enemy/boss still standing." }[scene];
-  return `Mob Control gameplay screenshot — match references EXACTLY.\n${scenes}\nENV:${vi.environment}|LIGHTING:${vi.lighting}|PLAYER:${vi.player_champion}|ENEMY:${vi.enemy_champion}\nPLAYER MOB:${vi.player_mob_color} blobs|ENEMY MOB:${vi.enemy_mob_color} blobs\nGATES:${vi.gate_values?.join(",")}|CANNON:${vi.cannon_type}|MOOD:${vi.mood_notes}\n${visualSeed?`CONSISTENCY:${visualSeed}`:""}\n${BIOME_GUIDE}\nRULES:cinematic top-down,cannon bottom center,gates large+readable,NO text/UI/watermarks.`;
+  const scenes = {
+    start: "Opening scene: player cannon at the bottom center of screen, small mob just launched upward, first gate ahead in the middle of the path, enemy base visible at the top with a full health bar.",
+    middle: "Mid-battle scene: massive swarm of player mobs fills the screen after passing multiplier gates. Mob count is overwhelming. Cannon still at bottom.",
+    end: "Dramatic almost-win / fail scene: player mob count nearly gone, enemy boss still standing with a sliver of health. Intense, tense moment.",
+  }[scene];
+  const biomeExclusion = `STRICT BIOME RULE: This is a ${vi.environment} environment ONLY. ` + {
+    "Bunker": "Grey concrete walls, ceiling pipes, industrial tunnel. NO lava, NO neon, NO outdoor sky, NO trees.",
+    "Desert": "Tan sand dunes, bright sky. NO concrete, NO neon, NO fog, NO lava.",
+    "Foggy Forest": "Grey misty fog, dark pine trees, grey road. NO snow on ground, NO lava, NO neon.",
+    "Volcanic": "Red/orange lava flows, black rocks. NO concrete bunker, NO neon, NO trees.",
+    "Water": "Grey bridge/path over clear blue water. NO sand, NO fog, NO lava.",
+    "Cyber-City": "Grey metal paths, orange/blue neon tech structures. NO lava, NO sand, NO trees.",
+    "Snow": "White snow on ground, icy structures, blue-white lighting. NO fog, NO lava.",
+    "Meadow": "Green hills, grey brick bridge, blue sky. NO concrete, NO lava, NO neon.",
+    "Toxic": "Purple paths, green slime pools, glowing crystals. NO lava, NO sand, NO concrete.",
+  }[vi.environment] || "Render only this specific biome.";
+  return [
+    "Mob Control mobile game screenshot — you MUST match the reference images above EXACTLY in art style, 3D rendering quality, and game aesthetic.",
+    scenes,
+    biomeExclusion,
+    `LIGHTING: ${vi.lighting}`,
+    `PLAYER CHAMPION: ${vi.player_champion} | ENEMY CHAMPION / BOSS: ${vi.enemy_champion}`,
+    `PLAYER MOBS: ${vi.player_mob_color} round blob creatures | ENEMY MOBS: ${vi.enemy_mob_color} round blob creatures`,
+    `GATES ON PATH: ${vi.gate_values?.join(", ")} — render as large coloured rectangles with text, exactly as shown in references`,
+    `CANNON TYPE: ${vi.cannon_type} at bottom center of screen`,
+    `MOOD: ${vi.mood_notes}`,
+    visualSeed ? `VISUAL CONSISTENCY: ${visualSeed}` : "",
+    "COMPOSITION RULES: Cinematic top-down 3/4 angle. Cannon at bottom center. Path/road goes up the center. Gates are large and readable. NO game UI, NO score text, NO watermarks, NO logos.",
+    "ART STYLE: Match the exact 3D cartoon render style from the reference images. Same colour palette, same lighting style, same mob design language.",
+  ].filter(Boolean).join("\n");
 };
 
 // ─── Upload Modal ─────────────────────────────────────────────────────────────
@@ -675,9 +735,21 @@ export default function App() {
   const handleRenderScene = async (ci: number, scene: "start"|"middle"|"end") => {
     const k = `${ci}-${scene}`; setRenderingScene(p => ({ ...p, [k]: true }));
     try {
-      const concept = concepts[ci]; const refParts = pickRelevantRefs(concept.visual_identity);
-      const visualSeed = scene !== "start" && concept.visual_start ? "Match start scene environment and art style exactly." : undefined;
-      const url = await callImageDirect(imagePromptFn(concept, scene, visualSeed), refParts);
+      const concept = concepts[ci];
+      const refParts = pickRelevantRefs(concept.visual_identity);
+      // Pass the previous rendered scene as an actual image reference for visual continuity
+      const prevImageParts: any[] = [];
+      if (scene === "middle" && concept.visual_start) {
+        prevImageParts.push({ text: "### PREVIOUS SCENE (start) — match the visual style, environment, assets, and lighting of this image exactly:" });
+        prevImageParts.push({ inlineData: { mimeType: "image/png", data: concept.visual_start.replace("data:image/png;base64,", "") } });
+      }
+      if (scene === "end" && (concept.visual_middle || concept.visual_start)) {
+        const prevImg = concept.visual_middle || concept.visual_start!;
+        prevImageParts.push({ text: "### PREVIOUS SCENE — match the visual style, environment, assets, and lighting of this image exactly:" });
+        prevImageParts.push({ inlineData: { mimeType: "image/png", data: prevImg.replace("data:image/png;base64,", "") } });
+      }
+      const visualSeed = prevImageParts.length > 0 ? "Match the visual style, biome, lighting, mob design, and art style of the previous scene image provided above." : undefined;
+      const url = await callImageDirect(imagePromptFn(concept, scene, visualSeed), [...refParts, ...prevImageParts]);
       setConcepts(p => p.map((c, i) => i === ci ? { ...c, [`visual_${scene}`]: url } : c));
     } catch (err: any) { alert(`Render failed: ${err.message}`); }
     finally { setRenderingScene(p => ({ ...p, [k]: false })); }
