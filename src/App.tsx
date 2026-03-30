@@ -74,9 +74,6 @@ const SEGMENTS_LIST = ["Whale", "Dolphin", "Minnow", "Non-Payer"];
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 const GEMINI_TEXT_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
 const GEMINI_IMAGE_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${GEMINI_KEY}`;
-const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY || "";
-const CLAUDE_URL = "https://api.anthropic.com/v1/messages";
-const CLAUDE_MODEL = "claude-sonnet-4-6";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const D = {
@@ -133,19 +130,6 @@ async function callGeminiDirect(systemPrompt: string, contentParts: any[]): Prom
   return parseJSON(raw);
 }
 
-async function callClaude(systemPrompt: string, userMessage: string): Promise<any> {
-  const r = await fetch(CLAUDE_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 4000, system: systemPrompt, messages: [{ role: "user", content: userMessage }] }),
-  });
-  const text = await r.text();
-  if (!r.ok) throw new Error(`Claude ${r.status}: ${text}`);
-  const data = JSON.parse(text);
-  const raw = data.content?.[0]?.text ?? "{}";
-  return parseJSON(raw);
-}
-
 function parseJSON(text: string): any {
   const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
   const start = cleaned.indexOf("{"); const end = cleaned.lastIndexOf("}");
@@ -154,6 +138,7 @@ function parseJSON(text: string): any {
   try {
     return JSON.parse(jsonStr);
   } catch {
+    // Second attempt: remove control characters that break JSON.parse
     const sanitized = jsonStr.replace(/[\u0000-\u001F\u007F]/g, (c) => {
       if (c === "\n") return "\\n";
       if (c === "\r") return "\\r";
