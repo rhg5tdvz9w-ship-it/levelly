@@ -77,7 +77,8 @@ interface PerformanceHook { type: string; text: string; }
 interface QualityScore { pattern_fidelity: number; moc_dna: number; emotional_arc: number; visual_clarity: number; segment_fit: number; overall: number; notes: string; }
 interface NetworkAdaptations { AppLovin?: string; Facebook?: string; Google?: string; TikTok?: string; }
 interface Concept {
-  title: string; is_data_backed: boolean; objective: string; target_segment: string;
+  title: string; is_data_backed: boolean; is_experimental?: boolean; experimental_note?: string;
+  objective: string; target_segment: string;
   player_motivation: string; visual_identity: VisualIdentity; layout: string;
   production_script: ScriptStep[]; performance_hooks: PerformanceHook[];
   engagement_hooks: string; quality_score: QualityScore;
@@ -246,6 +247,24 @@ async function uploadToGeminiFileAPI(file: File, onStatus: (m: string) => void):
 async function fileToBase64(file: File): Promise<string> {
   return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res((r.result as string).split(",")[1]); r.onerror = rej; r.readAsDataURL(file); });
 }
+function pickRelevantRefs(vi: VisualIdentity): any[] {
+  const biome = vi.environment?.toLowerCase() || ""; const player = vi.player_champion?.toLowerCase() || ""; const enemy = vi.enemy_champion?.toLowerCase() || "";
+  const populated = MOC_REFERENCES.filter(r => !r.base64.startsWith("REPLACE_"));
+  if (populated.length === 0) return [];
+  const scored = populated.map(ref => { const lbl = ref.label.toLowerCase(); let score = 0; if (lbl.includes(biome)) score += 3; if (player && lbl.includes(player)) score += 2; if (enemy && lbl.includes(enemy)) score += 2; if (ref.category === "gate") score += 1; return { ref, score }; });
+  scored.sort((a, b) => b.score - a.score);
+  const selected: typeof populated = [];
+  const biomeRef = scored.find(s => s.ref.category === "biome" && s.score > 0)?.ref;
+  const champRef = scored.find(s => s.ref.category === "champion" && s.score > 0)?.ref;
+  const gateRef = scored.find(s => s.ref.category === "gate")?.ref;
+  if (biomeRef) selected.push(biomeRef);
+  if (champRef && champRef !== biomeRef) selected.push(champRef);
+  if (gateRef && !selected.includes(gateRef)) selected.push(gateRef);
+  for (const { ref } of scored) { if (selected.length >= 3) break; if (!selected.includes(ref)) selected.push(ref); }
+  const parts: any[] = [{ text: "### MOC VISUAL REFERENCES:" }];
+  selected.forEach(ref => { parts.push({ text: `[${ref.category.toUpperCase()}]: ${ref.label.split(".")[0]}` }); parts.push({ inlineData: { mimeType: "image/jpeg", data: ref.base64 } }); });
+  return parts;
+}
 
 // ─── Prompts (unchanged from v4) ──────────────────────────────────────────────
 const BIOME_GUIDE = `BIOMES: Foggy Forest(grey/white fog,dark pine,grey road), Desert(tan sand,blue sky), Water(grey bridge over blue water), Bunker(grey concrete tunnel), Cyber-City(grey metal,orange tech), Volcanic(red/orange lava,black rocks), Snow(white snow ground), Toxic(purple paths,green slime), Meadow(green hills,grey brick bridge), Unknown`;
@@ -264,37 +283,45 @@ const briefSystem = (lib: DNAEntry[], ctx: string, seg: string, iterateFrom?: st
   const refBlock = iterateFrom ? `\nITERATE FROM: "${iterateFrom}" — starting point only, DNA is primary.\n` : "";
   return `World-Class Lead Creative Producer for Mob Control. Ground EVERY concept in DNA library.\nWINNER LIBRARY(${winners.length}):\n${JSON.stringify(winners.map(d=>({title:d.title,hook_type:d.hook_type,hook_timing_seconds:d.hook_timing_seconds,gate_sequence:d.gate_sequence.slice(0,5),unit_evolution_chain:d.unit_evolution_chain,key_mechanic:d.key_mechanic,biome:d.biome,loss_event_type:d.loss_event_type,spend_tier:d.spend_tier,spend_networks:d.spend_networks,replication_instructions:d.replication_instructions?.slice(0,200)})),null,2)}\nBRIEF:${ctx}|SEGMENT:${seg}${refBlock}\nSEGMENT DATA:Whale(>$50/mo,45-59yo,Winning/Rankings),Dolphin($10-50/mo,Winning+Fun),Minnow(<$10/mo,Fun+Winning),Non-Payer(Fun+Challenges)\nBIOMES:Desert,Foggy Forest,Water,Bunker,Cyber-City,Volcanic,Snow,Toxic,Meadow\n9-STEP:Pressure→Investment→Validate→Investment2→Payoff→False Safety→Pressure++→Almost Win→Fail\nNETWORK RULES:AppLovin=skeleton/challenge+custom side cam+blue palette;Facebook=blue/red swap+desert+default cam;Google=strengthen almost-win(boss 1HP)+foggy forest\nReturn ONLY JSON:{"analysis":{"patterns_used":string,"dna_sources":[string],"segment_insight":string,"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"objective":string,"target_segment":string,"player_motivation":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"layout":string,"hook_timing_seconds":number,"unit_evolution_chain":[string],"network_adaptations":{"AppLovin":string,"Facebook":string,"Google":string},"production_script":[{"time":string,"action":string,"visual_cue":string,"audio_cue":string}],"performance_hooks":[{"type":string,"text":string}],"engagement_hooks":string,"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}]}`;
 };
-const imagePromptFn = (concept: Concept, scene: "start"|"middle"|"end", visualSeed?: string) => {
+const imagePromptFn = (concept: Concept, scene: "start"|"middle"|"end", assetSeed?: string) => {
   const vi = concept.visual_identity;
-  const scenes = {
-    start: "Opening scene: player cannon at the bottom center of screen, small mob just launched upward, first gate ahead in the middle of the path, enemy base visible at the top with a full health bar.",
-    middle: "Mid-battle scene: massive swarm of player mobs fills the screen after passing multiplier gates. Mob count is overwhelming. Cannon still at bottom.",
-    end: "Dramatic almost-win / fail scene: player mob count nearly gone, enemy boss still standing with a sliver of health. Intense, tense moment.",
+  const sceneDesc = {
+    start: "OPENING SCENE: Player cannon sits at the bottom center of screen. A small wave of player mobs has just launched upward toward the first gate on the path. Enemy base is visible far at the top with a full health bar. Very few mobs visible — this is the start.",
+    middle: "MID-BATTLE SCENE: A massive swarm of player mobs completely fills the center lane after passing several multiplier gates. The mob count is overwhelming and dense. Cannon still at bottom center. Multiple gates still visible ahead.",
+    end: "DRAMATIC ALMOST-WIN / FAIL SCENE: Player mob count has been nearly wiped out — only a tiny cluster remains. The enemy boss is still standing with a very thin sliver of health (almost dead). Maximum tension. The moment just before defeat.",
   }[scene];
-  const biomeExclusion = `STRICT BIOME RULE: This is a ${vi.environment} environment ONLY. ` + {
-    "Bunker": "Grey concrete walls, ceiling pipes, industrial tunnel. NO lava, NO neon, NO outdoor sky, NO trees.",
-    "Desert": "Tan sand dunes, bright sky. NO concrete, NO neon, NO fog, NO lava.",
-    "Foggy Forest": "Grey misty fog, dark pine trees, grey road. NO snow on ground, NO lava, NO neon.",
-    "Volcanic": "Red/orange lava flows, black rocks. NO concrete bunker, NO neon, NO trees.",
-    "Water": "Grey bridge/path over clear blue water. NO sand, NO fog, NO lava.",
-    "Cyber-City": "Grey metal paths, orange/blue neon tech structures. NO lava, NO sand, NO trees.",
-    "Snow": "White snow on ground, icy structures, blue-white lighting. NO fog, NO lava.",
-    "Meadow": "Green hills, grey brick bridge, blue sky. NO concrete, NO lava, NO neon.",
-    "Toxic": "Purple paths, green slime pools, glowing crystals. NO lava, NO sand, NO concrete.",
-  }[vi.environment] || "Render only this specific biome.";
+
+  const biomeRules: Record<string, string> = {
+    "Bunker": "ENVIRONMENT: Grey concrete walls on both sides, industrial metal ceiling with pipes, fluorescent lighting strips, dark tunnel perspective. ABSOLUTELY NO: lava, neon lights, outdoor sky, trees, sand, space.",
+    "Desert": "ENVIRONMENT: Tan/beige sand dunes on both sides of path, bright warm sunlight, blue sky, sparse dry brush. ABSOLUTELY NO: concrete walls, neon, fog, lava, indoor spaces.",
+    "Foggy Forest": "ENVIRONMENT: Dense grey/white atmospheric fog fills background, dark green pine trees barely visible through mist, grey asphalt road surface. FOG IS NOT SNOW — no white ground cover. ABSOLUTELY NO: lava, neon, bunker walls, open sky.",
+    "Volcanic": "ENVIRONMENT: Red/orange glowing lava flows on both sides, dark black cracked rocks, dramatic orange sky glow. ABSOLUTELY NO: concrete bunker, neon lights, trees, sand.",
+    "Water": "ENVIRONMENT: Grey bridge or elevated path over clear blue water visible on both sides. No sand, no fog, no trees adjacent. ABSOLUTELY NO: lava, neon, concrete walls.",
+    "Cyber-City": "ENVIRONMENT: Grey metal industrial path, orange and blue neon tech structures on both sides, futuristic city backdrop. ABSOLUTELY NO: lava, sand, trees, concrete bunker tunnel.",
+    "Meadow": "ENVIRONMENT: Rolling green hills on both sides, scattered leafy trees, grey brick bridge/path, bright blue sky with clouds. ABSOLUTELY NO: lava, neon, concrete, fog.",
+    "Snow": "ENVIRONMENT: White snow covering the ground and surroundings, icy frozen structures, blue-white cold lighting. ABSOLUTELY NO: lava, neon, sand, fog.",
+    "Toxic": "ENVIRONMENT: Purple crystalline ground paths, green glowing slime pools on sides, luminescent toxic crystals. ABSOLUTELY NO: lava, concrete, sand, neon tech.",
+  };
+  const biomeRule = biomeRules[vi.environment] || `ENVIRONMENT: ${vi.environment} biome. Render only this specific environment.`;
+
   return [
-    "Mob Control mobile game screenshot — you MUST match the reference images above EXACTLY in art style, 3D rendering quality, and game aesthetic.",
-    scenes,
-    biomeExclusion,
+    "You are generating a Mob Control mobile game screenshot. You MUST match the MOC reference images above in art style, 3D render quality, colour palette, and game aesthetic EXACTLY.",
+    "",
+    sceneDesc,
+    "",
+    biomeRule,
+    "",
+    `PLAYER CHAMPION AT BOTTOM: ${vi.player_champion || "standard cannon"} — ${vi.cannon_type}`,
+    `ENEMY BOSS AT TOP: ${vi.enemy_champion || "Yellow Normie boss"}`,
+    `PLAYER MOBS: ${vi.player_mob_color} round blob creatures — small, cartoonish, 3D`,
+    `ENEMY MOBS: ${vi.enemy_mob_color} round blob creatures`,
+    `GATES ON PATH: ${(vi.gate_values||[]).join(", ")} — render as large coloured flat rectangles spanning the lane width, with bold white text showing the value (x2, +1 etc.), exactly as in reference images`,
     `LIGHTING: ${vi.lighting}`,
-    `PLAYER CHAMPION: ${vi.player_champion} | ENEMY CHAMPION / BOSS: ${vi.enemy_champion}`,
-    `PLAYER MOBS: ${vi.player_mob_color} round blob creatures | ENEMY MOBS: ${vi.enemy_mob_color} round blob creatures`,
-    `GATES ON PATH: ${vi.gate_values?.join(", ")} — render as large coloured rectangles with text, exactly as shown in references`,
-    `CANNON TYPE: ${vi.cannon_type} at bottom center of screen`,
     `MOOD: ${vi.mood_notes}`,
-    visualSeed ? `VISUAL CONSISTENCY: ${visualSeed}` : "",
-    "COMPOSITION RULES: Cinematic top-down 3/4 angle. Cannon at bottom center. Path/road goes up the center. Gates are large and readable. NO game UI, NO score text, NO watermarks, NO logos.",
-    "ART STYLE: Match the exact 3D cartoon render style from the reference images. Same colour palette, same lighting style, same mob design language.",
+    assetSeed ? `ASSET CONSISTENCY: ${assetSeed}` : "",
+    "",
+    "COMPOSITION: Cinematic 3/4 top-down angle looking up the path. Cannon at bottom center. Path/lane runs straight up the center of the screen. Gates are large and clearly readable. NO game HUD, NO score text, NO UI elements, NO watermarks, NO logos.",
+    "ART STYLE: Match the exact 3D cartoon render style from reference images — same colour saturation, same mob blob design, same gate rectangle style, same cannon design language.",
   ].filter(Boolean).join("\n");
 };
 
@@ -960,10 +987,18 @@ export default function App() {
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" as const }}>
                     <span style={{ fontSize: 15, fontWeight: 500 }}>{c.title}</span>
                     {c.is_data_backed && <span style={pill(D.goldBg, D.gold, D.goldBdr)}>Data-backed</span>}
+                    {(c as any).is_experimental && (
+                      <span style={pill("#2a1a2e", "#f472b6", "#9d174d")}>
+                        ⚠ Experimental — no spend data
+                      </span>
+                    )}
                     {(c as any).dna_source && <span style={pill(D.greenBg, D.green, D.greenBdr)}>based on {(c as any).dna_source}</span>}
                     {iterateFrom.trim() && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)}>iterates from {iterateFrom.trim()}</span>}
                     <span style={pill(TIER_STYLE["scalable"].bg, TIER_STYLE["scalable"].text, TIER_STYLE["scalable"].border)}>{c.target_segment}</span>
                   </div>
+                  {(c as any).is_experimental && (c as any).experimental_note && (
+                    <p style={{ margin: "0 0 4px", fontSize: 11, color: "#f472b6", fontStyle: "italic" }}>{(c as any).experimental_note}</p>
+                  )}
                   <p style={{ margin: 0, fontSize: 12, color: D.textMuted }}>{c.objective}</p>
                 </div>
                 {c.quality_score && (
@@ -1021,6 +1056,21 @@ export default function App() {
                   )}
                   <div style={{ marginBottom: 14 }}>
                     <span style={label}>Scene renders</span>
+                    {(c as any).is_experimental && (
+                      <div style={{ marginBottom: 8, padding: "7px 12px", background: "#2a1a2e", border: "0.5px solid #9d174d", borderRadius: 7, fontSize: 11, color: "#f472b6" }}>
+                        ⚠ Experimental biome — no spend data to validate this visual direction. Use for inspiration only.
+                      </div>
+                    )}
+                    {!PROVEN_BIOMES.includes(c.visual_identity?.environment) && !(c as any).is_experimental && (
+                      <div style={{ marginBottom: 8, padding: "7px 12px", background: D.goldBg, border: `0.5px solid ${D.goldBdr}`, borderRadius: 7, fontSize: 11, color: D.gold }}>
+                        Tip: render Start first, then Middle, then End — each scene uses the previous as a visual anchor.
+                      </div>
+                    )}
+                    {PROVEN_BIOMES.includes(c.visual_identity?.environment) && (
+                      <div style={{ marginBottom: 8, padding: "7px 12px", background: D.greenBg, border: `0.5px solid ${D.greenBdr}`, borderRadius: 7, fontSize: 11, color: D.green }}>
+                        Proven biome — render Start first for best consistency across all 3 scenes.
+                      </div>
+                    )}
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
                       {(["start","middle","end"] as const).map(scene => {
                         const imgUrl = c[`visual_${scene}` as keyof Concept] as string | undefined;
