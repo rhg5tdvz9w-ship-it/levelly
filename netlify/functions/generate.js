@@ -58,7 +58,21 @@ async function callGeminiImage(prompt) {
 async function callClaudeBrief(library, briefContext, segment, iterateFrom) {
   if (!ANTHROPIC_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
 
-  var winners = (library || []).filter(function(d) { return d.tier === "winner"; });
+  var winners = (library || []).filter(function(d) { return d.tier === "winner"; }).map(function(d) {
+    return {
+      title: d.title,
+      hook_type: d.hook_type,
+      hook_timing_seconds: d.hook_timing_seconds,
+      gate_sequence: (d.gate_sequence || []).slice(0, 6),
+      unit_evolution_chain: (d.unit_evolution_chain || []),
+      key_mechanic: d.key_mechanic,
+      biome: d.biome,
+      loss_event_type: d.loss_event_type,
+      spend_tier: d.spend_tier || null,
+      spend_networks: d.spend_networks || [],
+      replication_instructions: (d.replication_instructions || "").slice(0, 200)
+    };
+  });
 
   var refBlock = iterateFrom
     ? '\nITERATE FROM: "' + iterateFrom + '" — this is the creative starting point. Study its patterns from the DNA library if it exists there. MOC DNA rules below are still the PRIMARY output driver — the ref tells you WHERE TO START, not where to end up.\n'
