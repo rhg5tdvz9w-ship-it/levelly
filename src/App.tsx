@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { buildReferenceContext, buildReferenceParts, MOC_REFERENCES } from "./refImages";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -36,6 +36,13 @@ interface DNAEntry {
   performance_score?: number;
   iteration_of?: string;
   strategic_notes?: string;
+  // Spend & performance data
+  creative_id?: string;
+  spend_tier?: string;
+  spend_window_days?: number | null;
+  spend_notes?: string;
+  spend_networks?: string;
+  spend_data_source?: string;
   // Single-ad fields
   title: string;
   hook_type: string;
@@ -528,14 +535,68 @@ function UploadModal({ onConfirm, onCancel }: { onConfirm: (cfg: UploadConfig) =
 // ─── App ─────────────────────────────────────────────────────────────────────
 export default function App() {
   const [tab, setTab] = useState<"Library" | "Brief Studio">("Library");
-  const [lib, setLib] = useState<DNAEntry[]>(() => {
-    try { return JSON.parse(localStorage.getItem("levelly_dna_library") || "[]"); }
-    catch { return []; }
-  });
-  const saveLib = (updated: DNAEntry[]) => {
+
+  // ── Library state — starts empty, loads from GitHub on mount ──────────────
+  const [lib, setLib] = useState<DNAEntry[]>([]);
+  const [libraryLoaded, setLibraryLoaded] = useState(false);
+  const [cloudStatus, setCloudStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+
+  // Load from GitHub on startup, fall back to localStorage if GitHub fails
+  useEffect(() => {
+    fetch("/api/load-library")
+      .then(res => {
+        if (!res.ok) throw new Error(`Load failed: ${res.status}`);
+        return res.json();
+      })
+      .then((data: DNAEntry[]) => {
+        // If GitHub has data, use it; otherwise fall back to localStorage
+        if (Array.isArray(data) && data.length > 0) {
+          setLib(data);
+        } else {
+          // GitHub file is empty — try localStorage as fallback
+          try {
+            const local = localStorage.getItem("levelly_dna_library");
+            if (local) setLib(JSON.parse(local));
+          } catch {}
+        }
+        setLibraryLoaded(true);
+      })
+      .catch(() => {
+        // GitHub load failed entirely — fall back to localStorage
+        try {
+          const local = localStorage.getItem("levelly_dna_library");
+          if (local) setLib(JSON.parse(local));
+        } catch {}
+        setLibraryLoaded(true);
+      });
+  }, []);
+
+  // Save to GitHub + localStorage whenever library changes (after initial load)
+  const saveLib = useCallback((updated: DNAEntry[]) => {
     setLib(updated);
+
+    // Always save to localStorage as immediate backup
     try { localStorage.setItem("levelly_dna_library", JSON.stringify(updated)); } catch {}
-  };
+
+    // Save to GitHub (async, non-blocking)
+    if (libraryLoaded) {
+      setCloudStatus("saving");
+      fetch("/api/save-library", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updated),
+      })
+        .then(res => {
+          if (!res.ok) throw new Error(`Save failed: ${res.status}`);
+          setCloudStatus("saved");
+          setTimeout(() => setCloudStatus("idle"), 2000);
+        })
+        .catch(() => {
+          setCloudStatus("error");
+          setTimeout(() => setCloudStatus("idle"), 3000);
+        });
+    }
+  }, [libraryLoaded]);
 
   const [showModal, setShowModal] = useState(false);
   const [uploadConfig, setUploadConfig] = useState<UploadConfig | null>(null);
@@ -614,7 +675,7 @@ export default function App() {
       } catch (err) {
         console.warn(`Failed to re-analyze ${lib[i].title}:`, err);
       }
-      await new Promise(r => setTimeout(r, 1000)); // rate limit buffer
+      await new Promise(r => setTimeout(r, 1000));
     }
     setReanalyzingAll(false); setReanalysisProgress("");
   };
@@ -639,7 +700,6 @@ export default function App() {
           videoPart = { inlineData: { mimeType: file.type, data: b64 } };
         }
 
-        // Call 1: frame extraction
         setAnalyzeInfo(`Extracting frames from "${file.name}"…`);
         let autoFrames: FrameExtraction[] = []; let duration = 30;
         try {
@@ -648,7 +708,6 @@ export default function App() {
           duration = frameResult?.duration_seconds || 30;
         } catch (err) { console.warn("Frame extraction failed:", err); }
 
-        // Call 2: hook detection
         setAnalyzeInfo(`Detecting hook moment…`);
         let hookData: any = {};
         try {
@@ -658,7 +717,6 @@ export default function App() {
           ]);
         } catch (err) { console.warn("Hook detection failed:", err); }
 
-        // Manual frames
         const manualParts: any[] = [];
         if (cfg.manual_frames.length > 0) {
           setAnalyzeInfo(`Processing ${cfg.manual_frames.length} manual frames…`);
@@ -669,7 +727,6 @@ export default function App() {
           }
         }
 
-        // Call 3: full analysis
         setAnalyzeInfo(`Analyzing "${file.name}"…`);
         const refParts = buildReferenceParts();
         const analysisParts: any[] = [
@@ -721,14 +778,31 @@ export default function App() {
     finally { setRenderingScene(p => ({ ...p, [k]: false })); }
   };
 
+  // Cloud status indicator label
+  const cloudLabel: Record<typeof cloudStatus, string> = {
+    idle: "", saving: "Saving…", saved: "Saved to GitHub ✓", error: "Cloud save failed — local backup kept",
+  };
+  const cloudColor: Record<typeof cloudStatus, string> = {
+    idle: "", saving: "#1a56db", saved: "#16a34a", error: "#dc2626",
+  };
+
   return (
     <div style={css.app}>
       {showModal && <UploadModal onConfirm={handleModalConfirm} onCancel={() => setShowModal(false)} />}
       <input ref={fileRef} type="file" accept="video/*,image/*" multiple style={{ display: "none" }} onChange={handleUpload} />
       <input ref={importRef} type="file" accept=".json" style={{ display: "none" }} onChange={importLibrary} />
 
-      <h1 style={css.logo}>Levelly</h1>
-      <p style={css.sub}>MOC Creative Intelligence Platform</p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <h1 style={css.logo}>Levelly</h1>
+          <p style={css.sub}>MOC Creative Intelligence Platform</p>
+        </div>
+        {cloudStatus !== "idle" && (
+          <span style={{ fontSize: 11, color: cloudColor[cloudStatus], marginTop: 6 }}>
+            {cloudLabel[cloudStatus]}
+          </span>
+        )}
+      </div>
 
       <div style={css.tabs}>
         {(["Library", "Brief Studio"] as const).map(t => (
@@ -759,9 +833,10 @@ export default function App() {
             <div style={reanalysisProgress ? css.info : css.error}>{analyzeErr || reanalysisProgress}</div>
           )}
           {analyzeInfo && <div style={css.info}>{analyzeInfo}</div>}
+          {!libraryLoaded && <div style={css.info}>Loading library from GitHub…</div>}
           {analyzing && !analyzeInfo && <div style={{ ...css.cardGray, textAlign: "center", padding: "2rem" }}><p style={{ margin: 0, fontSize: 13, color: "#666" }}>Extracting creative DNA…</p></div>}
 
-          {lib.length === 0 && !analyzing && (
+          {lib.length === 0 && !analyzing && libraryLoaded && (
             <div style={{ ...css.card, textAlign: "center", padding: "3rem", border: "1px dashed #ddd" }}>
               <p style={{ margin: 0, fontSize: 14, color: "#888" }}>Upload MOC ads, competitor ads, or compound mixes to build your Creative DNA library.</p>
             </div>
@@ -779,6 +854,7 @@ export default function App() {
                     {d.reanalyzed && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0" }}>re-analyzed</span>}
                     {d.performance_score && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, background: "#eff6ff", color: "#1e40af", border: "1px solid #bfdbfe" }}>IPM {d.performance_score}</span>}
                     {d.iteration_of && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, background: "#f8f8f8", color: "#666", border: "1px solid #e0e0e0" }}>iter. of {d.iteration_of}</span>}
+                    {d.spend_tier && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, background: "#fef3c7", color: "#92400e", border: "1px solid #fcd34d" }}>{d.spend_tier === "sub100K" ? "<$100K" : `>${d.spend_tier}`}</span>}
                   </div>
                   <p style={{ margin: 0, fontSize: 11, color: "#aaa" }}>{d.file_name} · {new Date(d.added_at).toLocaleDateString()}</p>
                 </div>
@@ -865,6 +941,18 @@ export default function App() {
                     <div style={{ marginBottom: 10 }}>
                       <span style={css.label}>Biome visual notes</span>
                       <p style={{ margin: 0, fontSize: 12, color: "#666", fontStyle: "italic" }}>{d.biome_visual_notes}</p>
+                    </div>
+                  )}
+
+                  {(d.spend_tier || d.spend_networks || d.spend_notes) && (
+                    <div style={{ marginBottom: 10 }}>
+                      <span style={css.label}>Spend data</span>
+                      <div style={{ padding: "8px 12px", background: "#fef9c3", borderRadius: 8, border: "1px solid #fde047", fontSize: 12 }}>
+                        {d.spend_tier && <div><strong>Tier:</strong> {d.spend_tier === "sub100K" ? "<$100K" : `>${d.spend_tier}`}{d.spend_window_days ? ` in ${d.spend_window_days}d` : ""}</div>}
+                        {d.spend_networks && <div><strong>Networks:</strong> {d.spend_networks}</div>}
+                        {d.spend_notes && <div style={{ color: "#78350f", marginTop: 4 }}>{d.spend_notes}</div>}
+                        {d.spend_data_source && <div style={{ color: "#aaa", fontSize: 11, marginTop: 2 }}>⚠ Data source: {d.spend_data_source}</div>}
+                      </div>
                     </div>
                   )}
 
