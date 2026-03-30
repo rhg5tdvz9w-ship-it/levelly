@@ -137,7 +137,7 @@ async function callClaude(systemPrompt: string, userMessage: string): Promise<an
   const r = await fetch(CLAUDE_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 2500, system: systemPrompt, messages: [{ role: "user", content: userMessage }] }),
+    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 4000, system: systemPrompt, messages: [{ role: "user", content: userMessage }] }),
   });
   const text = await r.text();
   if (!r.ok) throw new Error(`Claude ${r.status}: ${text}`);
@@ -149,8 +149,19 @@ async function callClaude(systemPrompt: string, userMessage: string): Promise<an
 function parseJSON(text: string): any {
   const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
   const start = cleaned.indexOf("{"); const end = cleaned.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new Error("No JSON: " + cleaned.slice(0, 200));
-  return JSON.parse(cleaned.slice(start, end + 1));
+  if (start === -1 || end === -1) throw new Error("No JSON object found in response");
+  const jsonStr = cleaned.slice(start, end + 1);
+  try {
+    return JSON.parse(jsonStr);
+  } catch {
+    const sanitized = jsonStr.replace(/[\u0000-\u001F\u007F]/g, (c) => {
+      if (c === "\n") return "\\n";
+      if (c === "\r") return "\\r";
+      if (c === "\t") return "\\t";
+      return "";
+    });
+    return JSON.parse(sanitized);
+  }
 }
 
 async function callImageDirect(prompt: string, refParts: any[]): Promise<string> {
