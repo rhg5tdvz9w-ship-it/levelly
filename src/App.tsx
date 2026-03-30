@@ -624,19 +624,38 @@ export default function App() {
     finally { setAnalyzing(false); setAnalyzeInfo(""); setUploadConfig(null); if (fileRef.current) fileRef.current.value = ""; }
   }, [lib, uploadConfig]);
 
-  const handleGenerateBrief = async () => {
-    if (!briefCtx.trim()) { setBriefErr("Enter a brief context first."); return; }
-    if (lib.length === 0) { setBriefErr("Add at least one ad to the DNA Library first."); return; }
-    setGenerating(true); setBriefErr(""); setConcepts([]); setBriefAnalysis(null);
-    try {
-      const result = await callGeminiDirect(
-        briefSystem(lib, briefCtx, segment, iterateFrom.trim() || undefined),
-        [{ text: "Generate 3 MOC ad concepts grounded in the DNA library." }]
-      );
-      setConcepts(result.concepts ?? []); setBriefAnalysis(result.analysis ?? null); setExpandedConcept(0);
-    } catch (err: any) { setBriefErr(err.message); }
-    finally { setGenerating(false); }
-  };
+const handleGenerateBrief = async () => {
+  if (!briefCtx.trim()) { setBriefErr("Enter a brief context first."); return; }
+  if (lib.length === 0) { setBriefErr("Add at least one ad first."); return; }
+  setGenerating(true); setBriefErr(""); setConcepts([]); setBriefAnalysis(null);
+  try {
+    const res = await fetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        task: "brief",
+        payload: {
+          library: lib,
+          briefContext: briefCtx,
+          segment,
+          iterateFrom: iterateFrom.trim() || undefined,
+        },
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error(err.error ?? `HTTP ${res.status}`);
+    }
+    const result = await res.json();
+    setConcepts(result.concepts ?? []);
+    setBriefAnalysis(result.analysis ?? null);
+    setExpandedConcept(0);
+  } catch (err: any) {
+    setBriefErr(err.message);
+  } finally {
+    setGenerating(false);
+  }
+};
 
   const handleRenderScene = async (ci: number, scene: "start" | "middle" | "end") => {
     const k = `${ci}-${scene}`; setRenderingScene(p => ({ ...p, [k]: true }));
