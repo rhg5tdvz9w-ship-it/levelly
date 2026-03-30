@@ -60,8 +60,18 @@ interface BriefAnalysis { patterns_used: string; segment_insight: string; strate
 // ─── Constants ────────────────────────────────────────────────────────────────
 const TIERS = ["winner", "scalable", "failed", "inspiration"] as const;
 const PROVEN_BIOMES = ["Desert", "Foggy Forest", "Water", "Bunker", "Meadow"];
+const SEGMENTS_LIST = ["Whale", "Dolphin", "Minnow", "Non-Payer"];
+const NETWORK_OPTIONS = ["AppLovin", "Facebook", "TikTok", "Google", "Voodoo Ads", "Unity"];
 
-const SPEND_TIERS = [const PROVEN_BIOMES = ["Desert", "Foggy Forest", "Water", "Bunker", "Meadow"];
+const CREATIVE_STATUS = [
+  { value: "briefed",  label: "Briefed",  bg: "#1a2a4a", text: "#58a6ff", border: "#1f6feb" },
+  { value: "produced", label: "Produced", bg: "#1e1a2e", text: "#d2a8ff", border: "#8957e5" },
+  { value: "running",  label: "Running",  bg: "#2a1a0a", text: "#f0c53a", border: "#9e6a03" },
+  { value: "scaling",  label: "Scaling",  bg: "#1a2a1a", text: "#3fb950", border: "#238636" },
+  { value: "fatigued", label: "Fatigued", bg: "#2a1010", text: "#f85149", border: "#6e2020" },
+] as const;
+
+const SPEND_TIERS = [
   { value: "sub100K", label: "<$100K", bg: "#1a2a1a", text: "#3fb950", border: "#238636" },
   { value: "100K",    label: ">$100K", bg: "#1a2a1a", text: "#3fb950", border: "#238636" },
   { value: "300K",    label: ">$300K", bg: "#1a2a4a", text: "#58a6ff", border: "#1f6feb" },
@@ -72,8 +82,25 @@ const WINDOW_OPTIONS = [
   { value: 7, label: "7d" }, { value: 14, label: "14d" }, { value: 30, label: "30d" },
   { value: 60, label: "60d" }, { value: 90, label: "90d" }, { value: 180, label: "6mo" }, { value: 365, label: "1yr+" },
 ];
-const NETWORK_OPTIONS = ["AppLovin", "Facebook", "TikTok", "Google", "Voodoo Ads", "Unity"];
-const SEGMENTS_LIST = ["Whale", "Dolphin", "Minnow", "Non-Payer"];
+
+// Known iteration lineage chains
+const LINEAGE_CHAINS: Record<string, string[]> = {
+  "CT43":  ["CT43", "9876", "CX18"],
+  "9876":  ["CT43", "9876", "CX18"],
+  "CX18":  ["CT43", "9876", "CX18"],
+  "CN28":  ["CN28", "CN28p", "CR17"],
+  "CN28p": ["CN28", "CN28p", "CR17"],
+  "CR17":  ["CN28", "CN28p", "CR17"],
+  "CZ66":  ["CZ66", "CZ65"],
+  "CZ65":  ["CZ66", "CZ65"],
+  "CC21":  ["CC21", "CB57"],
+  "CB57":  ["CC21", "CB57"],
+  "10218": ["CT43", "CX18", "10218", "10324"],
+  "10324": ["10218", "CR17", "10324"],
+  "CR86":  ["CT43", "CR86"],
+  "CR85":  ["CR86", "CR85"],
+};
+
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 const GEMINI_TEXT_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
 const GEMINI_IMAGE_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${GEMINI_KEY}`;
@@ -138,15 +165,10 @@ function parseJSON(text: string): any {
   const start = cleaned.indexOf("{"); const end = cleaned.lastIndexOf("}");
   if (start === -1 || end === -1) throw new Error("No JSON object found in response");
   const jsonStr = cleaned.slice(start, end + 1);
-  try {
-    return JSON.parse(jsonStr);
-  } catch {
-    // Second attempt: remove control characters that break JSON.parse
+  try { return JSON.parse(jsonStr); }
+  catch {
     const sanitized = jsonStr.replace(/[\u0000-\u001F\u007F]/g, (c) => {
-      if (c === "\n") return "\\n";
-      if (c === "\r") return "\\r";
-      if (c === "\t") return "\\t";
-      return "";
+      if (c === "\n") return "\\n"; if (c === "\r") return "\\r"; if (c === "\t") return "\\t"; return "";
     });
     return JSON.parse(sanitized);
   }
@@ -187,7 +209,7 @@ async function fileToBase64(file: File): Promise<string> {
   return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res((r.result as string).split(",")[1]); r.onerror = rej; r.readAsDataURL(file); });
 }
 
-// ─── Ref image helpers — single declaration ───────────────────────────────────
+// ─── Ref image helpers ────────────────────────────────────────────────────────
 function pickRelevantRefs(vi: VisualIdentity): any[] {
   const biome = vi.environment?.toLowerCase() || "";
   const player = vi.player_champion?.toLowerCase() || "";
@@ -211,7 +233,7 @@ function pickRelevantRefs(vi: VisualIdentity): any[] {
   if (champRef && champRef !== biomeRef) selected.push(champRef);
   if (gateRef && !selected.includes(gateRef)) selected.push(gateRef);
   for (const { ref } of scored) { if (selected.length >= 3) break; if (!selected.includes(ref)) selected.push(ref); }
-  const parts: any[] = [{ text: "### MOC VISUAL REFERENCES — match this exact art style and game aesthetic precisely:" }];
+  const parts: any[] = [{ text: "### MOC VISUAL REFERENCES — match this exact art style and game aesthetic:" }];
   selected.forEach(ref => {
     parts.push({ text: `[${ref.category.toUpperCase()}]: ${ref.label.split(".")[0]}` });
     parts.push({ inlineData: { mimeType: "image/jpeg", data: ref.base64 } });
@@ -220,61 +242,36 @@ function pickRelevantRefs(vi: VisualIdentity): any[] {
 }
 
 // ─── Prompts ──────────────────────────────────────────────────────────────────
-const BIOME_GUIDE = `BIOMES: Foggy Forest(grey/white atmospheric fog,dark pines,grey road — NOT snow), Desert(tan sand,blue sky), Water(grey bridge over blue water), Bunker(grey concrete tunnel,pipes,industrial), Cyber-City(grey metal,orange/blue neon), Volcanic(red/orange lava,black rocks), Snow(white snow ground), Toxic(purple paths,green slime), Meadow(green hills,grey brick bridge)`;
-const CHAMPION_GUIDE = `CHAMPIONS: Captain Kaboom(SMALL skeleton pirate,mushroom hat,dual pistols), Gold Golem(LARGE golden muscular humanoid), Caveman(blue-skin,blonde,club), Mobzilla(purple/yellow robotic T-Rex), Nexus(blue/white/orange mech,orange sword), Red Hulk(large red humanoid), Kraken(red octopus), Femme Zombie(crawling female zombie boss), Yellow Normie(small yellow round — BOSS ENEMY), Unknown`;
+const BIOME_GUIDE = `BIOMES: Foggy Forest(grey/white atmospheric fog,dark pines,grey road—NOT snow), Desert(tan sand,blue sky), Water(grey bridge over blue water), Bunker(grey concrete tunnel,pipes,industrial), Cyber-City(grey metal,orange/blue neon), Volcanic(red/orange lava,black rocks), Snow(white snow ground), Toxic(purple paths,green slime), Meadow(green hills,grey brick bridge)`;
+const CHAMPION_GUIDE = `CHAMPIONS: Captain Kaboom(SMALL skeleton pirate,mushroom hat,dual pistols), Gold Golem(LARGE golden muscular humanoid), Caveman(blue-skin,blonde,club), Mobzilla(purple/yellow robotic T-Rex), Nexus(blue/white/orange mech,orange sword), Red Hulk(large red humanoid), Kraken(red octopus), Femme Zombie(crawling female zombie boss), Yellow Normie(small yellow round—BOSS ENEMY), Unknown`;
 const GATE_GUIDE = `GATES: Multiplication(X value rect), Addition(+ value rect), Death(RED rect+SKULL kills ALL), Dynamic(combine when structures broken). Report ONLY gates you see.`;
-const HOOK_GUIDE = `HOOK: EXACT SECOND thumb stops scrolling. NEVER 0 unless frame-0 drama. hook_timing_seconds = REAL SECOND (2,4,8) NEVER fraction.`;
+const HOOK_GUIDE = `HOOK: EXACT SECOND thumb stops scrolling. NEVER 0 unless frame-0 drama. hook_timing_seconds=REAL SECOND (2,4,8) NEVER fraction.`;
 const TIMESTAMP_RULES = `TIMESTAMPS: Real seconds only (0,2,5,8,14,22). NEVER fractions (0.03,0.28). 30s video midpoint=15.`;
 
 const frameExtractionSystem = () => `Precise video timestamp analyst. Extract 8 key moments.\n${TIMESTAMP_RULES}\nReturn ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":number,"description":string,"significance":"hook|gate|upgrade|swarm|boss|loss|win|fail|transition"}]}`;
 const hookDetectionSystem = () => `Expert mobile ad hook analyst.\n${HOOK_GUIDE}\n${TIMESTAMP_RULES}\nReturn ONLY JSON: {"hook_timing_seconds":number,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_description":string}`;
 
 const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtraction[], duration: number, hasManual: boolean, hasRefs: boolean) =>
-  `World-Class Creative Intelligence Analyst for Mob Control ads. NEVER guess.\nAD TYPE:${config.ad_type} TIER:${config.tier}${config.iteration_of ? ` ITERATION_OF:${config.iteration_of}` : ""}\nCONTEXT:${config.context||"none"}\nDURATION:${duration}s\nLIBRARY:${lib.length>0?JSON.stringify(lib.map(d=>({title:d.title,tier:d.tier,hook_type:d.hook_type,hook_timing_seconds:d.hook_timing_seconds}))):"empty"}\n${hasRefs?buildReferenceContext():""}\nFRAMES:${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s]${f.description}(${f.significance})`).join("\n"):"none"}\n${hasManual?"MANUAL FRAMES provided above.":""}\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\n${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}\nReturn ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"emotional_arc":string,"emotional_beats":[{"timestamp_seconds":number,"event":string,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
+  `World-Class Creative Intelligence Analyst for Mob Control ads. NEVER guess.\nAD TYPE:${config.ad_type} TIER:${config.tier}${config.iteration_of?` ITERATION_OF:${config.iteration_of}`:""}\nCONTEXT:${config.context||"none"}\nDURATION:${duration}s\nLIBRARY:${lib.length>0?JSON.stringify(lib.map(d=>({title:d.title,tier:d.tier,hook_type:d.hook_type,hook_timing_seconds:d.hook_timing_seconds}))):"empty"}\n${hasRefs?buildReferenceContext():""}\nFRAMES:${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s]${f.description}(${f.significance})`).join("\n"):"none"}\n${hasManual?"MANUAL FRAMES provided above.":""}\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\n${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}\nReturn ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"emotional_arc":string,"emotional_beats":[{"timestamp_seconds":number,"event":string,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
 
 const reanalysisSystem = (entry: DNAEntry) =>
-  `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps fractions→real 3.gate hallucinations 4.unit_evolution_chain 5.emotional_beats 6.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
+  `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate hallucinations 4.unit_evolution_chain 5.emotional_beats 6.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
 
 const briefSystem = (lib: DNAEntry[], ctx: string, seg: string, iterateFrom?: string) => {
   const winners = lib.filter(d => d.tier === "winner");
-  const refBlock = iterateFrom ? `\nITERATE FROM: "${iterateFrom}" — use as creative starting point. DNA rules are primary.\n` : "";
-  return `You are a World-Class Lead Creative Producer for Mob Control (MOC) by Voodoo. Every concept must be grounded in proven spend data from the DNA library.
+  const activeWinners = winners.filter(d => d.creative_status !== "fatigued");
+  const refBlock = iterateFrom ? `\nITERATE FROM: "${iterateFrom}" — creative starting point, DNA rules are primary.\n` : "";
+  return `You are a World-Class Lead Creative Producer for Mob Control (MOC) by Voodoo. Ground EVERY concept in proven spend data.
 
-WINNER DNA LIBRARY (${winners.length} entries):
-${JSON.stringify(winners.map(d => ({ title: d.title, hook_type: d.hook_type, hook_timing_seconds: d.hook_timing_seconds, gate_sequence: (d.gate_sequence||[]).slice(0,5), unit_evolution_chain: d.unit_evolution_chain, key_mechanic: d.key_mechanic, biome: d.biome, loss_event_type: d.loss_event_type, spend_tier: d.spend_tier||null, spend_networks: d.spend_networks||[], replication_instructions: (d.replication_instructions||"").slice(0,200) })), null, 2)}
+WINNER DNA LIBRARY (${activeWinners.length} active entries — fatigued entries excluded):
+${JSON.stringify(activeWinners.map(d => ({ title: d.title, hook_type: d.hook_type, hook_timing_seconds: d.hook_timing_seconds, gate_sequence: (d.gate_sequence||[]).slice(0,5), unit_evolution_chain: d.unit_evolution_chain, key_mechanic: d.key_mechanic, biome: d.biome, loss_event_type: d.loss_event_type, spend_tier: d.spend_tier||null, spend_networks: d.spend_networks||[], replication_instructions: (d.replication_instructions||"").slice(0,200) })), null, 2)}
 
 BRIEF: ${ctx} | SEGMENT: ${seg}${refBlock}
 
-SEGMENT DATA:
-- Whale (>$50/mo, 45-59yo): Motivation = Winning / Rankings
-- Dolphin ($10-50/mo): Motivation = Winning + Fun
-- Minnow (<$10/mo): Motivation = Fun + Winning
-- Non-Payer: Motivation = Fun + Challenges
-
-PROVEN SWAP RULES (confirmed by spend data — use for network adaptations):
-- BIOME SWAP: Same mechanics + different biome = different network. CC21 (beige/AppLovin $11K/d) → CB57 (foggy forest/Facebook+Google $5.6K/d). Biome determines social fit.
-- COLOUR SWAP: Blue/red palette + desert = Facebook top signal. CZ66 ($3.3K/d) → CZ65 ($7K+/d top-1 FB). Classic blue/red in desert is strongest Facebook combo.
-- HOOK SWAP: Same gameplay + hook character change = network shift. CR86 (skeleton/Facebook) → CR85 (knight/AppLovin). Hook character determines network independently.
-- CAMERA RULE: Custom side cam → AppLovin/Google. Default cam → Facebook/TikTok/multi-network.
-
-NETWORK-FIRST DECISION TREE:
-- AppLovin: skeleton or knight kick hook + custom side cam + standard blue + 3+ evolution steps + gate-break arc. Biomes: Desert, Foggy Forest. Weight: CC21 ($11K/d), 8810 ($11K/d), CT43 ($5.6K/d), CR17 ($5.6K/d).
-- Facebook: colour refresh OR biome swap on proven formula + default cam + almost-win boss 1-5HP. Weight: CZ65 ($7K+/d top-1), CB57 ($5.6K/d), CX18 ($3.3K/d). Blue/red + desert = strongest FB signal.
-- Google: strong almost-win + foggy forest or water. Weight: CB57, CT43, CX18, CZ94.
-- Multi-network: default cam + novel mechanic or compound. Weight: CX18, 10218, DB24.
-
-9-STEP CURVE: Pressure→Investment→Validate→Investment2→Payoff→False Safety→Pressure++→Almost Win→Fail
-
-BIOME RULES:
-- Concepts 1-3: use ONLY proven biomes with spend data and reference images: Desert, Foggy Forest, Water, Bunker, Meadow.
-- Concept 4 (optional): you MAY suggest one concept with a new biome (Cyber-City, Volcanic, Snow, Toxic) BUT set is_experimental: true and explain in experimental_note that it has no spend data.
-- Never use experimental biomes for primary concepts.
-
-INSTRUCTIONS:
-- Cite which DNA entry each concept is based on (dna_source field)
-- Replicate exact gate sequences and unit evolution chains from winners
-- Hook timing must NOT be 0
-- Network adaptations must reference specific swap rules above (e.g. "apply biome swap rule CC21→CB57: keep same mechanics, switch to foggy forest for Facebook")
+PROVEN SWAP RULES: BIOME SWAP(CC21/AppLovin→CB57/FB+Google), COLOUR SWAP(CZ66→CZ65 $7K+/d top-1 FB, blue/red+desert=strongest FB), HOOK SWAP(CR86 skeleton/FB→CR85 knight/AppLovin), CAMERA(custom side cam→AppLovin/Google, default→FB/TikTok)
+NETWORK RULES: AppLovin=skeleton/knight+custom cam+blue+3+evolution. Facebook=colour/biome swap+default cam+almost-win 1-5HP. Google=strong almost-win+foggy forest/water.
+9-STEP CURVE: Pressure→Investment→Validate→Investment2→Payoff→FalseSafety→Pressure++→AlmostWin→Fail
+BIOMES (concepts 1-3): Desert, Foggy Forest, Water, Bunker, Meadow ONLY. Concept 4 may use experimental biome with is_experimental:true.
 
 Return ONLY valid JSON:
 {"analysis":{"patterns_used":string,"dna_sources":[string],"segment_insight":string,"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"is_experimental":boolean,"experimental_note":string|null,"objective":string,"target_segment":string,"player_motivation":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"layout":string,"hook_timing_seconds":number,"unit_evolution_chain":[string],"network_adaptations":{"AppLovin":string,"Facebook":string,"Google":string},"production_script":[{"time":string,"action":string,"visual_cue":string,"audio_cue":string}],"performance_hooks":[{"type":string,"text":string}],"engagement_hooks":string,"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}]}`;
@@ -282,41 +279,31 @@ Return ONLY valid JSON:
 
 const imagePromptFn = (concept: Concept, scene: "start"|"middle"|"end", continuityNote?: string) => {
   const vi = concept.visual_identity;
-  const sceneDesc = {
-    start: "OPENING SCENE: Player cannon at bottom center. Small wave of player mobs just launched upward toward the first gate. Enemy base visible far at top with full health bar. Very few mobs — start of the ad.",
-    middle: "MID-BATTLE SCENE: Massive swarm of player mobs completely fills the center lane after passing multiplier gates. Overwhelming mob count. Cannon still at bottom center. Multiple gates still ahead.",
-    end: "DRAMATIC ALMOST-WIN / FAIL SCENE: Player mob count nearly wiped out — only a tiny cluster remains. Enemy boss still standing with a paper-thin sliver of health. Maximum tension — the moment just before defeat.",
-  }[scene];
+  const sceneDesc = { start: "OPENING: Player cannon at bottom center. Small mob wave just launched toward first gate. Enemy base visible far at top with full health bar. Very few mobs — start of the ad.", middle: "MID-BATTLE: Massive swarm of player mobs completely fills the center lane after passing multiplier gates. Overwhelming mob count. Cannon still at bottom center. Multiple gates ahead.", end: "DRAMATIC ALMOST-WIN / FAIL: Player mob count nearly wiped out — only a tiny cluster remains. Enemy boss still standing with paper-thin health sliver. Maximum tension before defeat." }[scene];
   const biomeRules: Record<string, string> = {
-    "Bunker": "ENVIRONMENT: Grey concrete walls both sides, metal ceiling with industrial pipes, fluorescent strips, dark tunnel perspective. ABSOLUTELY NO: lava, neon, outdoor sky, trees, sand, space.",
-    "Desert": "ENVIRONMENT: Tan/beige sand dunes both sides, bright warm sunlight, blue sky, sparse dry brush. ABSOLUTELY NO: concrete walls, neon, fog, lava, indoor spaces.",
-    "Foggy Forest": "ENVIRONMENT: Dense grey/white atmospheric fog fills background, dark green pine trees barely visible through mist, grey asphalt road. THE FOG IS NOT SNOW — no white ground. ABSOLUTELY NO: lava, neon, bunker walls, open sky.",
-    "Volcanic": "ENVIRONMENT: Red/orange glowing lava flows both sides, dark black cracked rocks, dramatic orange glow. ABSOLUTELY NO: concrete bunker, neon, trees, sand.",
-    "Water": "ENVIRONMENT: Grey elevated bridge/path over clear blue water visible both sides. ABSOLUTELY NO: lava, neon, concrete walls, sand.",
-    "Cyber-City": "ENVIRONMENT: Grey metal industrial path, orange and blue neon tech structures both sides, futuristic city backdrop. ABSOLUTELY NO: lava, sand, trees, concrete bunker tunnel.",
-    "Meadow": "ENVIRONMENT: Rolling green hills both sides, scattered leafy trees, grey brick bridge/path, bright blue sky. ABSOLUTELY NO: lava, neon, concrete, fog.",
-    "Snow": "ENVIRONMENT: White snow covering ground and surroundings, icy frozen structures, blue-white cold lighting. ABSOLUTELY NO: lava, neon, sand, fog.",
-    "Toxic": "ENVIRONMENT: Purple crystalline ground paths, green glowing slime pools both sides, luminescent toxic crystals. ABSOLUTELY NO: lava, concrete, sand, neon tech.",
+    "Bunker": "ENVIRONMENT: Grey concrete walls both sides, metal ceiling with industrial pipes, fluorescent strips, dark tunnel. NO lava, NO neon, NO outdoor sky, NO trees, NO sand, NO space.",
+    "Desert": "ENVIRONMENT: Tan/beige sand dunes both sides, bright warm sunlight, blue sky, sparse dry brush. NO concrete walls, NO neon, NO fog, NO lava.",
+    "Foggy Forest": "ENVIRONMENT: Dense grey/white atmospheric fog fills background, dark green pine trees barely visible through mist, grey asphalt road. FOG IS NOT SNOW. NO lava, NO neon, NO bunker walls.",
+    "Volcanic": "ENVIRONMENT: Red/orange glowing lava flows both sides, dark black cracked rocks, orange glow. NO concrete, NO neon, NO trees, NO sand.",
+    "Water": "ENVIRONMENT: Grey elevated bridge/path over clear blue water visible both sides. NO lava, NO neon, NO concrete walls, NO sand.",
+    "Cyber-City": "ENVIRONMENT: Grey metal industrial path, orange and blue neon tech structures both sides, futuristic city backdrop. NO lava, NO sand, NO trees, NO concrete bunker.",
+    "Meadow": "ENVIRONMENT: Rolling green hills both sides, scattered leafy trees, grey brick bridge/path, bright blue sky. NO lava, NO neon, NO concrete, NO fog.",
+    "Snow": "ENVIRONMENT: White snow covering ground and surroundings, icy frozen structures, blue-white cold lighting. NO lava, NO neon, NO sand, NO fog.",
+    "Toxic": "ENVIRONMENT: Purple crystalline ground paths, green glowing slime pools both sides, luminescent toxic crystals. NO lava, NO concrete, NO sand, NO neon tech.",
   };
   const biomeRule = biomeRules[vi.environment] || `ENVIRONMENT: ${vi.environment} biome only.`;
   return [
-    "You are generating a Mob Control mobile game screenshot. MATCH the MOC reference images above EXACTLY in art style, 3D render quality, colour palette, and game aesthetic.",
-    "",
-    sceneDesc,
-    "",
-    biomeRule,
-    "",
-    `PLAYER CANNON: ${vi.cannon_type} — ${vi.player_champion || "standard cannon"} — positioned at bottom center of screen`,
-    `ENEMY BOSS: ${vi.enemy_champion || "Yellow Normie boss"} — visible at top of screen`,
+    "Mob Control mobile game screenshot. MATCH the MOC reference images above EXACTLY in art style, 3D render quality, colour palette, and game aesthetic.",
+    "", sceneDesc, "", biomeRule, "",
+    `PLAYER CANNON: ${vi.cannon_type} — ${vi.player_champion||"standard cannon"} — bottom center of screen`,
+    `ENEMY BOSS: ${vi.enemy_champion||"Yellow Normie boss"} — visible at top`,
     `PLAYER MOBS: ${vi.player_mob_color} round blob creatures — small, cartoonish, 3D`,
     `ENEMY MOBS: ${vi.enemy_mob_color} round blob creatures`,
-    `GATES: ${(vi.gate_values||[]).join(", ")} — large flat coloured rectangles spanning the full lane width, bold white text showing value (x2, +1 etc.)`,
-    `LIGHTING: ${vi.lighting}`,
-    `MOOD: ${vi.mood_notes}`,
+    `GATES: ${(vi.gate_values||[]).join(", ")} — large flat coloured rectangles spanning full lane width, bold white text showing value`,
+    `LIGHTING: ${vi.lighting} | MOOD: ${vi.mood_notes}`,
     continuityNote ? `ASSET CONTINUITY: ${continuityNote}` : "",
-    "",
-    "COMPOSITION: Cinematic 3/4 top-down angle looking up the path. Cannon at bottom center. Path runs straight up center of screen. Gates large and clearly readable. NO game HUD, NO score text, NO UI elements, NO watermarks, NO logos.",
-    "ART STYLE: Match the exact 3D cartoon render style from reference images — same colour saturation, same mob blob design, same gate rectangle style, same cannon design language.",
+    "", "COMPOSITION: Cinematic 3/4 top-down angle. Cannon bottom center. Path up center of screen. Gates large and readable. NO HUD, NO score text, NO UI, NO watermarks.",
+    "ART STYLE: Match exact 3D cartoon render style from reference images — same colour saturation, same mob blob design, same gate rectangle style.",
   ].filter(Boolean).join("\n");
 };
 
@@ -324,53 +311,43 @@ const imagePromptFn = (concept: Concept, scene: "start"|"middle"|"end", continui
 function UploadModal({ onConfirm, onCancel }: { onConfirm: (cfg: UploadConfig) => void; onCancel: () => void }) {
   const [tier, setTier] = useState<UploadConfig["tier"]>("winner");
   const [adType, setAdType] = useState<UploadConfig["ad_type"]>("moc");
-  const [context, setContext] = useState("");
-  const [manualFrames, setManualFrames] = useState<File[]>([]);
-  const [iterOf, setIterOf] = useState("");
+  const [context, setContext] = useState(""); const [manualFrames, setManualFrames] = useState<File[]>([]); const [iterOf, setIterOf] = useState("");
   const frameRef = useRef<HTMLInputElement>(null);
   const refCount = MOC_REFERENCES.filter(r => !r.base64.startsWith("REPLACE_")).length;
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={onCancel}>
-      <div style={{ background: D.surface, borderRadius: 14, padding: "1.5rem", width: "90%", maxWidth: 520, border: `0.5px solid ${D.border2}`, maxHeight: "90vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
-        <h2 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 500, color: D.text }}>Upload ads</h2>
-        <p style={{ margin: "0 0 20px", fontSize: 12, color: D.textMuted }}>Configure before choosing files.</p>
-        <div style={{ marginBottom: 14 }}>
+    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000 }} onClick={onCancel}>
+      <div style={{ background:D.surface,borderRadius:14,padding:"1.5rem",width:"90%",maxWidth:520,border:`0.5px solid ${D.border2}`,maxHeight:"90vh",overflowY:"auto" }} onClick={e=>e.stopPropagation()}>
+        <h2 style={{ margin:"0 0 4px",fontSize:16,fontWeight:500,color:D.text }}>Upload ads</h2>
+        <p style={{ margin:"0 0 20px",fontSize:12,color:D.textMuted }}>Configure before choosing files.</p>
+        <div style={{ marginBottom:14 }}>
           <span style={labelStyle}>Ad type</span>
-          <div style={{ display: "flex", gap: 6 }}>
+          <div style={{ display:"flex",gap:6 }}>
             {(["moc","competitor","compound"] as const).map(t => (
-              <button key={t} onClick={() => setAdType(t)} style={{ flex: 1, padding: "7px 0", fontSize: 11, fontWeight: 500, borderRadius: 8, border: `1.5px solid ${adType===t?D.blueDark:D.border2}`, background: adType===t?D.blueBg:"transparent", color: adType===t?D.blue:D.textMuted, cursor: "pointer" }}>
-                {t === "moc" ? "MOC" : t === "competitor" ? "Competitor" : "Compound/Mix"}
+              <button key={t} onClick={()=>setAdType(t)} style={{ flex:1,padding:"7px 0",fontSize:11,fontWeight:500,borderRadius:8,border:`1.5px solid ${adType===t?D.blueDark:D.border2}`,background:adType===t?D.blueBg:"transparent",color:adType===t?D.blue:D.textMuted,cursor:"pointer" }}>
+                {t==="moc"?"MOC":t==="competitor"?"Competitor":"Compound/Mix"}
               </button>
             ))}
           </div>
         </div>
-        <div style={{ marginBottom: 14 }}>
+        <div style={{ marginBottom:14 }}>
           <span style={labelStyle}>Performance tier</span>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const }}>
-            {TIERS.map(t => (
-              <button key={t} onClick={() => setTier(t)} style={{ padding: "5px 12px", fontSize: 11, fontWeight: 500, borderRadius: 20, border: `1.5px solid ${tier===t?TIER_STYLE[t].border:D.border2}`, background: tier===t?TIER_STYLE[t].bg:"transparent", color: tier===t?TIER_STYLE[t].text:D.textMuted, cursor: "pointer" }}>{t}</button>
-            ))}
+          <div style={{ display:"flex",gap:6,flexWrap:"wrap" as const }}>
+            {TIERS.map(t => <button key={t} onClick={()=>setTier(t)} style={{ padding:"5px 12px",fontSize:11,fontWeight:500,borderRadius:20,border:`1.5px solid ${tier===t?TIER_STYLE[t].border:D.border2}`,background:tier===t?TIER_STYLE[t].bg:"transparent",color:tier===t?TIER_STYLE[t].text:D.textMuted,cursor:"pointer" }}>{t}</button>)}
           </div>
         </div>
-        <div style={{ marginBottom: 14 }}>
-          <span style={labelStyle}>Iteration of</span>
-          <input style={inputStyle} placeholder="e.g. CT43" value={iterOf} onChange={e => setIterOf(e.target.value)} />
-        </div>
-        <div style={{ marginBottom: 14 }}>
-          <span style={labelStyle}>Context for Gemini</span>
-          <textarea style={{ ...inputStyle, minHeight: 72, resize: "vertical", background: D.bg }} placeholder="Describe biome, hook, key mechanics…" value={context} onChange={e => setContext(e.target.value)} />
-        </div>
-        <div style={{ marginBottom: 16 }}>
+        <div style={{ marginBottom:14 }}><span style={labelStyle}>Iteration of</span><input style={inputStyle} placeholder="e.g. CT43" value={iterOf} onChange={e=>setIterOf(e.target.value)} /></div>
+        <div style={{ marginBottom:14 }}><span style={labelStyle}>Context for Gemini</span><textarea style={{ ...inputStyle,minHeight:72,resize:"vertical",background:D.bg }} placeholder="Describe biome, hook, key mechanics…" value={context} onChange={e=>setContext(e.target.value)} /></div>
+        <div style={{ marginBottom:16 }}>
           <span style={labelStyle}>Manual storyboard frames (optional)</span>
-          <input ref={frameRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => setManualFrames(Array.from(e.target.files ?? []))} />
-          <button style={btnSec} onClick={() => frameRef.current?.click()}>{manualFrames.length > 0 ? `${manualFrames.length} frame(s) selected` : "+ Add frames"}</button>
+          <input ref={frameRef} type="file" accept="image/*" multiple style={{ display:"none" }} onChange={e=>setManualFrames(Array.from(e.target.files??[]))} />
+          <button style={btnSec} onClick={()=>frameRef.current?.click()}>{manualFrames.length>0?`${manualFrames.length} frame(s) selected`:"+ Add frames"}</button>
         </div>
-        <div style={{ marginBottom: 16, padding: "8px 12px", background: D.surface2, borderRadius: 8, fontSize: 10, color: D.textMuted, border: `0.5px solid ${D.border}` }}>
-          {refCount > 0 ? `✓ ${refCount} MOC refs` : "⚠ No refs"} → Frame extraction → Hook detection → {manualFrames.length > 0 ? `✓ ${manualFrames.length} manual frames` : "No manual frames"} → DNA analysis
+        <div style={{ marginBottom:16,padding:"8px 12px",background:D.surface2,borderRadius:8,fontSize:10,color:D.textMuted,border:`0.5px solid ${D.border}` }}>
+          {refCount>0?`✓ ${refCount} MOC refs`:"⚠ No refs"} → Frame extraction → Hook detection → {manualFrames.length>0?`✓ ${manualFrames.length} manual frames`:"No manual frames"} → DNA analysis
         </div>
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        <div style={{ display:"flex",gap:10,justifyContent:"flex-end" }}>
           <button style={btnSec} onClick={onCancel}>Cancel</button>
-          <button style={btnPri} onClick={() => onConfirm({ tier, ad_type: adType, context, manual_frames: manualFrames, iteration_of: iterOf || undefined })}>Choose video →</button>
+          <button style={btnPri} onClick={()=>onConfirm({ tier,ad_type:adType,context,manual_frames:manualFrames,iteration_of:iterOf||undefined })}>Choose video →</button>
         </div>
       </div>
     </div>
@@ -379,109 +356,67 @@ function UploadModal({ onConfirm, onCancel }: { onConfirm: (cfg: UploadConfig) =
 
 // ─── Spend Tagger ─────────────────────────────────────────────────────────────
 function SpendTagger({ entry, onSave }: { entry: DNAEntry; onSave: (fields: Partial<DNAEntry>) => void }) {
-  const [tier, setTier] = useState(entry.spend_tier ?? "");
-  const [days, setDays] = useState<number | null>(entry.spend_window_days ?? null);
-  const [networks, setNetworks] = useState<string[]>(entry.spend_networks ?? []);
-  const [notes, setNotes] = useState(entry.spend_notes ?? "");
-  const [iterOf, setIterOf] = useState(entry.iteration_of ?? "");
-  const [parentId, setParentId] = useState(entry.parent_id ?? "");
-  const [creativeStatus, setCreativeStatus] = useState(entry.creative_status ?? "");
+  const [tier, setTier] = useState(entry.spend_tier??"");
+  const [days, setDays] = useState<number|null>(entry.spend_window_days??null);
+  const [networks, setNetworks] = useState<string[]>(entry.spend_networks??[]);
+  const [notes, setNotes] = useState(entry.spend_notes??"");
+  const [iterOf, setIterOf] = useState(entry.iteration_of??"");
+  const [parentId, setParentId] = useState(entry.parent_id??"");
+  const [creativeStatus, setCreativeStatus] = useState(entry.creative_status??"");
   const [saved, setSaved] = useState(false);
   const vel = velocityPerDay(tier, days);
   function save() {
-    onSave({
-      spend_tier: tier || undefined,
-      spend_window_days: days,
-      spend_networks: networks.length > 0 ? networks : undefined,
-      spend_notes: notes || undefined,
-      iteration_of: iterOf || undefined,
-      parent_id: parentId || undefined,
-      creative_status: (creativeStatus || undefined) as DNAEntry["creative_status"],
-    });
-    setSaved(true); setTimeout(() => setSaved(false), 2000);
+    onSave({ spend_tier:tier||undefined, spend_window_days:days, spend_networks:networks.length>0?networks:undefined, spend_notes:notes||undefined, iteration_of:iterOf||undefined, parent_id:parentId||undefined, creative_status:(creativeStatus||undefined) as DNAEntry["creative_status"] });
+    setSaved(true); setTimeout(()=>setSaved(false),2000);
   }
   return (
-    <div style={{ marginTop: 14, padding: "14px 16px", background: D.surface2, borderRadius: 10, border: `0.5px solid ${D.border}` }}>
-      <span style={{ ...labelStyle, marginBottom: 12 }}>Spend data</span>
-
-      <div style={{ marginBottom: 12 }}>
-        <span style={{ fontSize: 10, color: D.textDim, display: "block", marginBottom: 6 }}>Creative status</span>
-        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" as const }}>
+    <div style={{ marginTop:14,padding:"14px 16px",background:D.surface2,borderRadius:10,border:`0.5px solid ${D.border}` }}>
+      <span style={{ ...labelStyle,marginBottom:12 }}>Spend data</span>
+      <div style={{ marginBottom:12 }}>
+        <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Creative status</span>
+        <div style={{ display:"flex",gap:5,flexWrap:"wrap" as const }}>
           {CREATIVE_STATUS.map(s => (
-            <button key={s.value} onClick={() => setCreativeStatus(creativeStatus === s.value ? "" : s.value)}
-              style={{ padding: "4px 10px", fontSize: 11, fontWeight: 500, borderRadius: 20, cursor: "pointer",
-                border: `1.5px solid ${creativeStatus === s.value ? s.border : D.border2}`,
-                background: creativeStatus === s.value ? s.bg : "transparent",
-                color: creativeStatus === s.value ? s.text : D.textMuted }}>
+            <button key={s.value} onClick={()=>setCreativeStatus(creativeStatus===s.value?"":s.value)}
+              style={{ padding:"4px 10px",fontSize:11,fontWeight:500,borderRadius:20,cursor:"pointer",border:`1.5px solid ${creativeStatus===s.value?s.border:D.border2}`,background:creativeStatus===s.value?s.bg:"transparent",color:creativeStatus===s.value?s.text:D.textMuted }}>
               {s.label}
             </button>
           ))}
         </div>
       </div>
-
-      <div style={{ marginBottom: 12 }}>
-        <span style={{ fontSize: 10, color: D.textDim, display: "block", marginBottom: 6 }}>Parent creative (lineage)</span>
-        <input style={{ ...inputStyle, fontSize: 11, padding: "5px 8px" }}
-          placeholder="e.g. CT43 (the creative this was iterated from)"
-          value={parentId} onChange={e => setParentId(e.target.value)} />
+      <div style={{ marginBottom:12 }}>
+        <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Parent creative (lineage)</span>
+        <input style={{ ...inputStyle,fontSize:11,padding:"5px 8px" }} placeholder="e.g. CT43 (the creative this was iterated from)" value={parentId} onChange={e=>setParentId(e.target.value)} />
       </div>
-
-      <div style={{ marginBottom: 12 }}>
-        <span style={{ fontSize: 10, color: D.textDim, display: "block", marginBottom: 6 }}>Spend tier</span>
-        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" as const }}>
-          {SPEND_TIERS.map(t => (
-            <button key={t.value} onClick={() => setTier(tier === t.value ? "" : t.value)}
-              style={{ padding: "4px 10px", fontSize: 11, fontWeight: 500, borderRadius: 20, cursor: "pointer",
-                border: `1.5px solid ${tier === t.value ? t.border : D.border2}`,
-                background: tier === t.value ? t.bg : "transparent",
-                color: tier === t.value ? t.text : D.textMuted }}>
-              {t.label}
-            </button>
-          ))}
+      <div style={{ marginBottom:12 }}>
+        <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Spend tier</span>
+        <div style={{ display:"flex",gap:5,flexWrap:"wrap" as const }}>
+          {SPEND_TIERS.map(t => <button key={t.value} onClick={()=>setTier(tier===t.value?"":t.value)} style={{ padding:"4px 10px",fontSize:11,fontWeight:500,borderRadius:20,cursor:"pointer",border:`1.5px solid ${tier===t.value?t.border:D.border2}`,background:tier===t.value?t.bg:"transparent",color:tier===t.value?t.text:D.textMuted }}>{t.label}</button>)}
         </div>
       </div>
-
-      {tier && tier !== "sub100K" && (
-        <div style={{ marginBottom: 12 }}>
-          <span style={{ fontSize: 10, color: D.textDim, display: "block", marginBottom: 6 }}>Time to reach that spend</span>
-          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" as const }}>
-            {WINDOW_OPTIONS.map(w => (
-              <button key={w.value} onClick={() => setDays(days === w.value ? null : w.value)}
-                style={{ padding: "4px 10px", fontSize: 11, borderRadius: 20, cursor: "pointer",
-                  border: `1.5px solid ${days === w.value ? D.blueDark : D.border2}`,
-                  background: days === w.value ? D.blueBg : "transparent",
-                  color: days === w.value ? D.blue : D.textMuted }}>
-                {w.label}
-              </button>
-            ))}
+      {tier&&tier!=="sub100K"&&(
+        <div style={{ marginBottom:12 }}>
+          <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Time to reach that spend</span>
+          <div style={{ display:"flex",gap:5,flexWrap:"wrap" as const }}>
+            {WINDOW_OPTIONS.map(w => <button key={w.value} onClick={()=>setDays(days===w.value?null:w.value)} style={{ padding:"4px 10px",fontSize:11,borderRadius:20,cursor:"pointer",border:`1.5px solid ${days===w.value?D.blueDark:D.border2}`,background:days===w.value?D.blueBg:"transparent",color:days===w.value?D.blue:D.textMuted }}>{w.label}</button>)}
           </div>
-          {vel && <div style={{ marginTop: 6, fontSize: 11, color: D.blue, fontWeight: 500 }}>{vel}</div>}
+          {vel&&<div style={{ marginTop:6,fontSize:11,color:D.blue,fontWeight:500 }}>{vel}</div>}
         </div>
       )}
-
-      <div style={{ marginBottom: 12 }}>
-        <span style={{ fontSize: 10, color: D.textDim, display: "block", marginBottom: 6 }}>Networks</span>
-        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" as const }}>
-          {NETWORK_OPTIONS.map(n => (
-            <button key={n} onClick={() => setNetworks(p => p.includes(n) ? p.filter(x => x !== n) : [...p, n])}
-              style={chipStyle(networks.includes(n), "green")}>{n}</button>
-          ))}
+      <div style={{ marginBottom:12 }}>
+        <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Networks</span>
+        <div style={{ display:"flex",gap:5,flexWrap:"wrap" as const }}>
+          {NETWORK_OPTIONS.map(n => <button key={n} onClick={()=>setNetworks(p=>p.includes(n)?p.filter(x=>x!==n):[...p,n])} style={chipStyle(networks.includes(n),"green")}>{n}</button>)}
         </div>
       </div>
-
-      <div style={{ marginBottom: 12 }}>
-        <span style={{ fontSize: 10, color: D.textDim, display: "block", marginBottom: 6 }}>Iteration of</span>
-        <input style={{ ...inputStyle, fontSize: 11, padding: "5px 8px" }}
-          placeholder="e.g. CT43, CZ66" value={iterOf} onChange={e => setIterOf(e.target.value)} />
+      <div style={{ marginBottom:12 }}>
+        <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Iteration of</span>
+        <input style={{ ...inputStyle,fontSize:11,padding:"5px 8px" }} placeholder="e.g. CT43, CZ66" value={iterOf} onChange={e=>setIterOf(e.target.value)} />
       </div>
-
-      <div style={{ marginBottom: 12 }}>
-        <span style={{ fontSize: 10, color: D.textDim, display: "block", marginBottom: 6 }}>Notes</span>
-        <textarea style={{ ...inputStyle, minHeight: 52, resize: "vertical", fontSize: 11, background: D.bg } as React.CSSProperties}
-          placeholder="e.g. peaked week 2, Meta only…" value={notes} onChange={e => setNotes(e.target.value)} />
+      <div style={{ marginBottom:12 }}>
+        <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Notes</span>
+        <textarea style={{ ...inputStyle,minHeight:52,resize:"vertical",fontSize:11,background:D.bg } as React.CSSProperties} placeholder="e.g. peaked week 2, Meta only…" value={notes} onChange={e=>setNotes(e.target.value)} />
       </div>
-
-      <button onClick={save} style={{ ...btnPri, padding: "6px 14px", fontSize: 11 }}>{saved ? "Saved ✓" : "Save"}</button>
+      <button onClick={save} style={{ ...btnPri,padding:"6px 14px",fontSize:11 }}>{saved?"Saved ✓":"Save"}</button>
     </div>
   );
 }
@@ -492,142 +427,145 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
   lib: DNAEntry[]; saveLib: (l: DNAEntry[]) => void;
   reanalyzingIds: Set<number>; handleReanalyzeSingle: (e: DNAEntry) => void;
 }) {
-  const canTag = d.ad_type === "moc" && d.tier !== "inspiration";
-  const spendSt = SPEND_TIERS.find(t => t.value === d.spend_tier);
-  const statusSt = CREATIVE_STATUS.find(s => s.value === d.creative_status);
-  const isFatigued = d.creative_status === "fatigued";
-  const lineageChain = d.parent_id ? LINEAGE_CHAINS[d.parent_id] : d.creative_id ? LINEAGE_CHAINS[d.creative_id] : null;
-  const creativeIdForChain = d.title.match(/\b(CT43|9876|CX18|CN28p?|CR17|CZ6[56]|CC21|CB57|10218|10324|CR8[56]|DB24|CV73|8810|8924)\b/)?.[0];
-  const chain = lineageChain || (creativeIdForChain ? LINEAGE_CHAINS[creativeIdForChain] : null);
+  const canTag = d.ad_type==="moc" && d.tier!=="inspiration";
+  const spendSt = SPEND_TIERS.find(t=>t.value===d.spend_tier);
+  const statusSt = CREATIVE_STATUS.find(s=>s.value===d.creative_status);
+  const isFatigued = d.creative_status==="fatigued";
+
+  // Auto-detect lineage chain from title or parent_id
+  const knownIds = ["CT43","9876","CX18","CN28p","CN28","CR17","CZ66","CZ65","CC21","CB57","10218","10324","CR86","CR85","DB24"];
+  const detectedId = d.parent_id || knownIds.find(id => d.title.includes(id));
+  const chain = detectedId ? LINEAGE_CHAINS[detectedId] : null;
+
   return (
-    <div style={{ borderBottom: `0.5px solid ${D.border}`, padding: "14px 16px", opacity: isFatigued ? 0.6 : 1, transition: "opacity .15s" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setExpandedDNA(expandedDNA===di?null:di)}>
-          <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" as const }}>
-            {isFatigued && <span style={{ fontSize: 9, padding: "1px 6px", background: D.redBg, color: D.red, border: `0.5px solid #6e2020`, borderRadius: 20 }}>fatigued</span>}
-            {d.title}
+    <div style={{ borderBottom:`0.5px solid ${D.border}`,padding:"14px 16px",opacity:isFatigued?0.55:1,transition:"opacity .15s" }}>
+      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
+        <div style={{ flex:1,cursor:"pointer" }} onClick={()=>setExpandedDNA(expandedDNA===di?null:di)}>
+          <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap" as const }}>
+            {isFatigued&&<span style={{ fontSize:9,padding:"1px 6px",background:D.redBg,color:D.red,border:`0.5px solid #6e2020`,borderRadius:20 }}>fatigued</span>}
+            <span style={{ fontSize:13,fontWeight:500 }}>{d.title}</span>
           </div>
-          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" as const, marginBottom: 3 }}>
-            <span style={pill(TIER_STYLE[d.tier].bg, TIER_STYLE[d.tier].text, TIER_STYLE[d.tier].border)}>{d.tier}</span>
-            {statusSt && <span style={pill(statusSt.bg, statusSt.text, statusSt.border)}>{statusSt.label}</span>}
-            {d.ad_type !== "moc" && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)}>{d.ad_type}</span>}
-            {d.is_compound && <span style={pill(D.goldBg, D.gold, D.goldBdr)}>compound</span>}
-            {d.reanalyzed && <span style={pill(D.greenBg, D.green, D.greenBdr)}>re-analyzed</span>}
-            {d.iteration_of && <span style={pill(D.surface2, D.textMuted, D.border2)}>iter. of {d.iteration_of}</span>}
-            {spendSt && <span style={pill(spendSt.bg, spendSt.text, spendSt.border)}>{spendSt.label}{d.spend_window_days ? ` / ${WINDOW_OPTIONS.find(w=>w.value===d.spend_window_days)?.label??d.spend_window_days+"d"}` : ""}</span>}
-            {d.spend_networks && d.spend_networks.length>0 && <span style={pill(D.greenBg, D.green, D.greenBdr)}>{d.spend_networks.join(", ")}</span>}
+          <div style={{ display:"flex",gap:5,flexWrap:"wrap" as const,marginBottom:3 }}>
+            <span style={pill(TIER_STYLE[d.tier].bg,TIER_STYLE[d.tier].text,TIER_STYLE[d.tier].border)}>{d.tier}</span>
+            {statusSt&&!isFatigued&&<span style={pill(statusSt.bg,statusSt.text,statusSt.border)}>{statusSt.label}</span>}
+            {d.ad_type!=="moc"&&<span style={pill(D.purpleBg,D.purple,D.purpleBdr)}>{d.ad_type}</span>}
+            {d.is_compound&&<span style={pill(D.goldBg,D.gold,D.goldBdr)}>compound</span>}
+            {d.reanalyzed&&<span style={pill(D.greenBg,D.green,D.greenBdr)}>re-analyzed</span>}
+            {d.iteration_of&&<span style={pill(D.surface2,D.textMuted,D.border2)}>iter. of {d.iteration_of}</span>}
+            {spendSt&&<span style={pill(spendSt.bg,spendSt.text,spendSt.border)}>{spendSt.label}{d.spend_window_days?` / ${WINDOW_OPTIONS.find(w=>w.value===d.spend_window_days)?.label??d.spend_window_days+"d"}`:""}</span>}
+            {d.spend_networks&&d.spend_networks.length>0&&<span style={pill(D.greenBg,D.green,D.greenBdr)}>{d.spend_networks.join(", ")}</span>}
           </div>
-          {chain && (
-            <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 3, flexWrap: "wrap" as const }}>
-              <span style={{ fontSize: 9, color: D.textDim, letterSpacing: "0.07em" }}>LINEAGE</span>
-              {chain.map((id, i) => {
-                const isCurrentEntry = d.title.includes(id) || d.iteration_of === id || d.parent_id === id;
+          {chain&&(
+            <div style={{ display:"flex",alignItems:"center",gap:4,marginBottom:4,flexWrap:"wrap" as const }}>
+              <span style={{ fontSize:9,color:D.textDim,letterSpacing:"0.07em",marginRight:2 }}>LINEAGE</span>
+              {chain.map((id,i)=>{
+                const isCurrent = d.title.includes(id)||(d.parent_id&&(d.parent_id===id||d.iteration_of===id));
                 return (
-                  <span key={i} style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                    <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 20, fontWeight: isCurrentEntry ? 600 : 400, background: isCurrentEntry ? D.blueBg : D.surface2, color: isCurrentEntry ? D.blue : D.textDim, border: `0.5px solid ${isCurrentEntry ? D.blueDark : D.border2}` }}>{id}</span>
-                    {i < chain.length - 1 && <span style={{ fontSize: 9, color: D.textDim }}>→</span>}
+                  <span key={i} style={{ display:"flex",alignItems:"center",gap:3 }}>
+                    <span style={{ fontSize:9,padding:"1px 6px",borderRadius:20,fontWeight:isCurrent?600:400,background:isCurrent?D.blueBg:D.surface2,color:isCurrent?D.blue:D.textDim,border:`0.5px solid ${isCurrent?D.blueDark:D.border2}` }}>{id}</span>
+                    {i<chain.length-1&&<span style={{ fontSize:9,color:D.textDim }}>→</span>}
                   </span>
                 );
               })}
             </div>
           )}
-          <div style={{ fontSize: 10, color: D.textDim }}>{d.file_name} · {new Date(d.added_at).toLocaleDateString()}</div>
+          <div style={{ fontSize:10,color:D.textDim }}>{d.file_name} · {new Date(d.added_at).toLocaleDateString()}</div>
         </div>
-        <div style={{ display: "flex", gap: 5, alignItems: "center", marginLeft: 10, flexShrink: 0 }}>
-          <button style={{ ...btnSec, fontSize: 10, padding: "4px 8px" }} onClick={() => handleReanalyzeSingle(d)} disabled={reanalyzingIds.has(d.id)}>{reanalyzingIds.has(d.id)?"…":"Re-analyze"}</button>
-          <select value={d.tier} onChange={e => saveLib(lib.map(x => x.id===d.id?{...x,tier:e.target.value as DNAEntry["tier"]}:x))} style={{ fontSize: 10, padding: "3px 6px", borderRadius: 6, border: `0.5px solid ${D.border2}`, background: D.surface2, color: D.text }}>
-            {TIERS.map(t => <option key={t} value={t}>{t}</option>)}
+        <div style={{ display:"flex",gap:5,alignItems:"center",marginLeft:10,flexShrink:0 }}>
+          <button style={{ ...btnSec,fontSize:10,padding:"4px 8px" }} onClick={()=>handleReanalyzeSingle(d)} disabled={reanalyzingIds.has(d.id)}>{reanalyzingIds.has(d.id)?"…":"Re-analyze"}</button>
+          <select value={d.tier} onChange={e=>saveLib(lib.map(x=>x.id===d.id?{...x,tier:e.target.value as DNAEntry["tier"]}:x))} style={{ fontSize:10,padding:"3px 6px",borderRadius:6,border:`0.5px solid ${D.border2}`,background:D.surface2,color:D.text }}>
+            {TIERS.map(t=><option key={t} value={t}>{t}</option>)}
           </select>
-          <button style={btnDel} onClick={() => saveLib(lib.filter(x => x.id!==d.id))}>✕</button>
+          <button style={btnDel} onClick={()=>saveLib(lib.filter(x=>x.id!==d.id))}>✕</button>
         </div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 5, marginTop: 10 }}>
-        {[{ l:"Hook type",v:d.hook_type},{l:"Hook at",v:d.hook_timing_seconds!=null?`${d.hook_timing_seconds}s`:"—"},{l:"Biome",v:d.biome},{l:"Pacing",v:d.pacing},{l:"Loss event",v:d.loss_event_type},{l:"Swarm peak",v:d.swarm_peak_moment_seconds!=null?`${d.swarm_peak_moment_seconds}s`:"—"}].map(({l,v}) => (
-          <div key={l} style={metricStyle}><div style={metricLabel}>{l}</div><div style={{ fontSize: 11, fontWeight: 500, color: D.text }}>{v??"—"}</div></div>
+      <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginTop:10 }}>
+        {[{l:"Hook type",v:d.hook_type},{l:"Hook at",v:d.hook_timing_seconds!=null?`${d.hook_timing_seconds}s`:"—"},{l:"Biome",v:d.biome},{l:"Pacing",v:d.pacing},{l:"Loss event",v:d.loss_event_type},{l:"Swarm peak",v:d.swarm_peak_moment_seconds!=null?`${d.swarm_peak_moment_seconds}s`:"—"}].map(({l,v})=>(
+          <div key={l} style={metricStyle}><div style={metricLabel}>{l}</div><div style={{ fontSize:11,fontWeight:500,color:D.text }}>{v??"—"}</div></div>
         ))}
       </div>
-      {expandedDNA === di && (
-        <div style={{ marginTop: 14, borderTop: `0.5px solid ${D.border}`, paddingTop: 14 }}>
-          {canTag && <SpendTagger entry={d} onSave={fields => saveLib(lib.map(x => x.id===d.id?{...x,...fields}:x))} />}
-          {d.unit_evolution_chain?.length>0 && (
-            <div style={{ marginBottom: 10, marginTop: 14 }}>
+      {expandedDNA===di&&(
+        <div style={{ marginTop:14,borderTop:`0.5px solid ${D.border}`,paddingTop:14 }}>
+          {canTag&&<SpendTagger entry={d} onSave={fields=>saveLib(lib.map(x=>x.id===d.id?{...x,...fields}:x))} />}
+          {d.unit_evolution_chain?.length>0&&(
+            <div style={{ marginBottom:10,marginTop:14 }}>
               <span style={labelStyle}>Unit evolution chain</span>
-              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const, alignItems: "center" }}>
-                {d.unit_evolution_chain.map((step,i) => (
-                  <span key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    <span style={{ fontSize: 10, padding: "2px 7px", background: D.blueBg, color: D.blue, borderRadius: 20, border: `0.5px solid ${D.blueDark}` }}>{step}</span>
-                    {i<d.unit_evolution_chain.length-1 && <span style={{ color: D.textDim, fontSize: 10 }}>→</span>}
+              <div style={{ display:"flex",gap:4,flexWrap:"wrap" as const,alignItems:"center" }}>
+                {d.unit_evolution_chain.map((step,i)=>(
+                  <span key={i} style={{ display:"flex",alignItems:"center",gap:4 }}>
+                    <span style={{ fontSize:10,padding:"2px 7px",background:D.blueBg,color:D.blue,borderRadius:20,border:`0.5px solid ${D.blueDark}` }}>{step}</span>
+                    {i<d.unit_evolution_chain.length-1&&<span style={{ color:D.textDim,fontSize:10 }}>→</span>}
                   </span>
                 ))}
               </div>
             </div>
           )}
-          {d.emotional_beats?.length>0 && (
-            <div style={{ marginBottom: 10 }}>
+          {d.emotional_beats?.length>0&&(
+            <div style={{ marginBottom:10 }}>
               <span style={labelStyle}>Emotional beats</span>
-              <div style={{ display: "flex", flexDirection: "column" as const, gap: 3 }}>
-                {d.emotional_beats.map((b,i) => (
-                  <div key={i} style={{ fontSize: 11, padding: "5px 8px", background: D.surface2, borderRadius: 6, display: "flex", gap: 8 }}>
-                    <span style={{ fontWeight: 500, color: D.blue, minWidth: 28 }}>{b.timestamp_seconds}s</span>
-                    <span style={{ color: D.text }}>{b.event}</span>
-                    <span style={{ color: D.textDim, fontStyle: "italic", marginLeft: "auto" }}>{b.emotion}</span>
+              <div style={{ display:"flex",flexDirection:"column" as const,gap:3 }}>
+                {d.emotional_beats.map((b,i)=>(
+                  <div key={i} style={{ fontSize:11,padding:"5px 8px",background:D.surface2,borderRadius:6,display:"flex",gap:8 }}>
+                    <span style={{ fontWeight:500,color:D.blue,minWidth:28 }}>{b.timestamp_seconds}s</span>
+                    <span style={{ color:D.text }}>{b.event}</span>
+                    <span style={{ color:D.textDim,fontStyle:"italic",marginLeft:"auto" }}>{b.emotion}</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
-          {d.gate_sequence?.length>0 && (
-            <div style={{ marginBottom: 10 }}>
+          {d.gate_sequence?.length>0&&(
+            <div style={{ marginBottom:10 }}>
               <span style={labelStyle}>Gate sequence</span>
-              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const }}>
-                {d.gate_sequence.map((g,i) => <span key={i} style={{ fontSize: 10, padding: "2px 7px", background: g.toLowerCase().includes("death")?D.redBg:D.blueBg, color: g.toLowerCase().includes("death")?D.red:D.blue, borderRadius: 20, border: `0.5px solid ${g.toLowerCase().includes("death")?"#6e2020":D.blueDark}` }}>{g}</span>)}
+              <div style={{ display:"flex",gap:4,flexWrap:"wrap" as const }}>
+                {d.gate_sequence.map((g,i)=><span key={i} style={{ fontSize:10,padding:"2px 7px",background:g.toLowerCase().includes("death")?D.redBg:D.blueBg,color:g.toLowerCase().includes("death")?D.red:D.blue,borderRadius:20,border:`0.5px solid ${g.toLowerCase().includes("death")?"#6e2020":D.blueDark}` }}>{g}</span>)}
               </div>
             </div>
           )}
-          {d.champions_visible?.length>0 && (
-            <div style={{ marginBottom: 10 }}>
+          {d.champions_visible?.length>0&&(
+            <div style={{ marginBottom:10 }}>
               <span style={labelStyle}>Champions</span>
-              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const }}>
-                {d.champions_visible.map((c,i) => <span key={i} style={{ fontSize: 10, padding: "2px 7px", background: D.purpleBg, color: D.purple, borderRadius: 20, border: `0.5px solid ${D.purpleBdr}` }}>{c}</span>)}
+              <div style={{ display:"flex",gap:4,flexWrap:"wrap" as const }}>
+                {d.champions_visible.map((c,i)=><span key={i} style={{ fontSize:10,padding:"2px 7px",background:D.purpleBg,color:D.purple,borderRadius:20,border:`0.5px solid ${D.purpleBdr}` }}>{c}</span>)}
               </div>
             </div>
           )}
-          {d.creative_gaps_structured && (
-            <div style={{ marginBottom: 10 }}>
+          {d.creative_gaps_structured&&(
+            <div style={{ marginBottom:10 }}>
               <span style={labelStyle}>Creative gaps</span>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-                {[{l:"Hook strength",v:d.creative_gaps_structured.hook_strength},{l:"Mechanic clarity",v:d.creative_gaps_structured.mechanic_clarity},{l:"Emotional payoff",v:d.creative_gaps_structured.emotional_payoff}].map(({l,v}) => (
-                  <div key={l} style={{ padding: "7px 9px", background: D.goldBg, borderRadius: 7, border: `0.5px solid ${D.goldBdr}` }}>
-                    <div style={{ fontSize: 9, fontWeight: 600, color: D.gold, textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 2 }}>{l}</div>
-                    <p style={{ margin: 0, fontSize: 10, color: "#c9a227" }}>{v}</p>
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6 }}>
+                {[{l:"Hook strength",v:d.creative_gaps_structured.hook_strength},{l:"Mechanic clarity",v:d.creative_gaps_structured.mechanic_clarity},{l:"Emotional payoff",v:d.creative_gaps_structured.emotional_payoff}].map(({l,v})=>(
+                  <div key={l} style={{ padding:"7px 9px",background:D.goldBg,borderRadius:7,border:`0.5px solid ${D.goldBdr}` }}>
+                    <div style={{ fontSize:9,fontWeight:600,color:D.gold,textTransform:"uppercase" as const,letterSpacing:"0.07em",marginBottom:2 }}>{l}</div>
+                    <p style={{ margin:0,fontSize:10,color:"#c9a227" }}>{v}</p>
                   </div>
                 ))}
               </div>
             </div>
           )}
-          {d.strategic_notes && <div style={{ marginBottom: 10 }}><span style={labelStyle}>Strategic notes</span><p style={{ margin: 0, fontSize: 11, color: D.blue, lineHeight: 1.5 }}>{d.strategic_notes}</p></div>}
-          {[{l:"Key mechanic",v:d.key_mechanic},{l:"Emotional arc",v:d.emotional_arc},{l:"Why it works",v:d.why_it_works},{l:"Why it fails",v:d.why_it_fails},{l:"Frame gaps",v:d.frame_extraction_gaps},{l:"Replication instructions",v:d.replication_instructions}].filter(x=>x.v).map(({l,v}) => (
-            <div key={l} style={{ marginBottom: 10 }}><span style={labelStyle}>{l}</span><p style={{ margin: 0, fontSize: 11, color: D.textMuted, lineHeight: 1.6 }}>{v}</p></div>
+          {d.strategic_notes&&<div style={{ marginBottom:10 }}><span style={labelStyle}>Strategic notes</span><p style={{ margin:0,fontSize:11,color:D.blue,lineHeight:1.5 }}>{d.strategic_notes}</p></div>}
+          {[{l:"Key mechanic",v:d.key_mechanic},{l:"Emotional arc",v:d.emotional_arc},{l:"Why it works",v:d.why_it_works},{l:"Why it fails",v:d.why_it_fails},{l:"Frame gaps",v:d.frame_extraction_gaps},{l:"Replication instructions",v:d.replication_instructions}].filter(x=>x.v).map(({l,v})=>(
+            <div key={l} style={{ marginBottom:10 }}><span style={labelStyle}>{l}</span><p style={{ margin:0,fontSize:11,color:D.textMuted,lineHeight:1.6 }}>{v}</p></div>
           ))}
-          {d.is_compound && d.segments && d.segments.length>0 && (
-            <div style={{ marginBottom: 10 }}>
+          {d.is_compound&&d.segments&&d.segments.length>0&&(
+            <div style={{ marginBottom:10 }}>
               <span style={labelStyle}>Segments ({d.segments.length})</span>
-              {d.segments.map((seg,si) => (
-                <div key={si} style={{ padding: "9px 11px", background: D.surface2, borderRadius: 7, border: `0.5px solid ${D.border}`, marginBottom: 5 }}>
-                  <div style={{ fontWeight: 500, fontSize: 11, marginBottom: 3, color: D.text }}>Segment {si+1}: {seg.biome} ({seg.start_seconds}s–{seg.end_seconds}s)</div>
-                  <div style={{ fontSize: 10, color: D.textMuted }}>Hook: {seg.hook_type} at {seg.hook_timing_seconds}s · {seg.key_mechanic}</div>
+              {d.segments.map((seg,si)=>(
+                <div key={si} style={{ padding:"9px 11px",background:D.surface2,borderRadius:7,border:`0.5px solid ${D.border}`,marginBottom:5 }}>
+                  <div style={{ fontWeight:500,fontSize:11,marginBottom:3,color:D.text }}>Segment {si+1}: {seg.biome} ({seg.start_seconds}s–{seg.end_seconds}s)</div>
+                  <div style={{ fontSize:10,color:D.textMuted }}>Hook: {seg.hook_type} at {seg.hook_timing_seconds}s · {seg.key_mechanic}</div>
                 </div>
               ))}
             </div>
           )}
-          {d.auto_frames && d.auto_frames.length>0 && (
-            <div style={{ marginBottom: 10 }}>
+          {d.auto_frames&&d.auto_frames.length>0&&(
+            <div style={{ marginBottom:10 }}>
               <span style={labelStyle}>Auto-extracted frames</span>
-              <div style={{ display: "flex", flexDirection: "column" as const, gap: 3 }}>
-                {d.auto_frames.map((f,fi) => (
-                  <div key={fi} style={{ fontSize: 10, padding: "4px 8px", background: D.surface2, borderRadius: 5 }}>
-                    <span style={{ fontWeight: 500, color: D.blue, marginRight: 8 }}>{f.timestamp_seconds}s</span>
-                    <span style={{ color: D.textMuted }}>{f.description}</span>
+              <div style={{ display:"flex",flexDirection:"column" as const,gap:3 }}>
+                {d.auto_frames.map((f,fi)=>(
+                  <div key={fi} style={{ fontSize:10,padding:"4px 8px",background:D.surface2,borderRadius:5 }}>
+                    <span style={{ fontWeight:500,color:D.blue,marginRight:8 }}>{f.timestamp_seconds}s</span>
+                    <span style={{ color:D.textMuted }}>{f.description}</span>
                   </div>
                 ))}
               </div>
@@ -635,7 +573,7 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
           )}
         </div>
       )}
-      <button style={{ ...btnSec, marginTop: 10, fontSize: 10, padding: "4px 9px" }} onClick={() => setExpandedDNA(expandedDNA===di?null:di)}>
+      <button style={{ ...btnSec,marginTop:10,fontSize:10,padding:"4px 9px" }} onClick={()=>setExpandedDNA(expandedDNA===di?null:di)}>
         {expandedDNA===di?"Collapse":"Expand details"}
       </button>
     </div>
@@ -654,13 +592,11 @@ export default function App() {
   const [showModal, setShowModal] = useState(false);
   const [uploadConfig, setUploadConfig] = useState<UploadConfig|null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  const [analyzeErr, setAnalyzeErr] = useState("");
-  const [analyzeInfo, setAnalyzeInfo] = useState("");
+  const [analyzeErr, setAnalyzeErr] = useState(""); const [analyzeInfo, setAnalyzeInfo] = useState("");
   const [reanalyzingIds, setReanalyzingIds] = useState<Set<number>>(new Set());
   const [reanalyzingAll, setReanalyzingAll] = useState(false);
   const [reanalysisProgress, setReanalysisProgress] = useState("");
-  const [briefCtx, setBriefCtx] = useState("");
-  const [segment, setSegment] = useState("Whale");
+  const [briefCtx, setBriefCtx] = useState(""); const [segment, setSegment] = useState("Whale");
   const [iterateFrom, setIterateFrom] = useState("");
   const [generating, setGenerating] = useState(false);
   const [briefErr, setBriefErr] = useState("");
@@ -671,209 +607,139 @@ export default function App() {
   const fileRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
+  useEffect(()=>{
     fetch("/api/load-library")
-      .then(res => { if (!res.ok) throw new Error(); return res.json(); })
-      .then((data: DNAEntry[]) => {
-        if (Array.isArray(data) && data.length>0) setLib(data);
-        else { try { const local = localStorage.getItem("levelly_dna_library"); if (local) setLib(JSON.parse(local)); } catch {} }
-        setLibraryLoaded(true);
-      })
-      .catch(() => {
-        try { const local = localStorage.getItem("levelly_dna_library"); if (local) setLib(JSON.parse(local)); } catch {}
-        setLibraryLoaded(true);
-      });
-  }, []);
+      .then(r=>{ if(!r.ok) throw new Error(); return r.json(); })
+      .then((data: DNAEntry[])=>{ if(Array.isArray(data)&&data.length>0) setLib(data); else { try { const l=localStorage.getItem("levelly_dna_library"); if(l) setLib(JSON.parse(l)); } catch {} } setLibraryLoaded(true); })
+      .catch(()=>{ try { const l=localStorage.getItem("levelly_dna_library"); if(l) setLib(JSON.parse(l)); } catch {} setLibraryLoaded(true); });
+  },[]);
 
-  const saveLib = useCallback((updated: DNAEntry[]) => {
+  const saveLib = useCallback((updated: DNAEntry[])=>{
     setLib(updated);
-    try { localStorage.setItem("levelly_dna_library", JSON.stringify(updated)); } catch {}
-    if (libraryLoaded) {
+    try { localStorage.setItem("levelly_dna_library",JSON.stringify(updated)); } catch {}
+    if(libraryLoaded){
       setCloudStatus("saving");
-      fetch("/api/save-library", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updated) })
-        .then(res => { if (!res.ok) throw new Error(); setCloudStatus("saved"); setTimeout(() => setCloudStatus("idle"), 2000); })
-        .catch(() => { setCloudStatus("error"); setTimeout(() => setCloudStatus("idle"), 3000); });
+      fetch("/api/save-library",{ method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(updated) })
+        .then(r=>{ if(!r.ok) throw new Error(); setCloudStatus("saved"); setTimeout(()=>setCloudStatus("idle"),2000); })
+        .catch(()=>{ setCloudStatus("error"); setTimeout(()=>setCloudStatus("idle"),3000); });
     }
-  }, [libraryLoaded]);
+  },[libraryLoaded]);
 
-  const exportLibrary = () => {
-    const blob = new Blob([JSON.stringify(lib,null,2)], { type:"application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href=url; a.download=`levelly-dna-${new Date().toISOString().slice(0,10)}.json`; a.click();
-    URL.revokeObjectURL(url);
-  };
-  const importLibrary = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const parsed = JSON.parse(reader.result as string);
-        if (!Array.isArray(parsed)) throw new Error();
-        const merged = [...lib];
-        parsed.forEach((entry: DNAEntry) => { if (!merged.find(x=>x.id===entry.id)) merged.push(entry); });
-        saveLib(merged);
-      } catch { alert("Import failed — invalid file format."); }
-    };
-    reader.readAsText(file); e.target.value = "";
-  };
+  const exportLibrary=()=>{ const blob=new Blob([JSON.stringify(lib,null,2)],{type:"application/json"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`levelly-dna-${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url); };
+  const importLibrary=(e: React.ChangeEvent<HTMLInputElement>)=>{ const file=e.target.files?.[0]; if(!file) return; const reader=new FileReader(); reader.onload=()=>{ try { const p=JSON.parse(reader.result as string); if(!Array.isArray(p)) throw new Error(); const m=[...lib]; p.forEach((entry: DNAEntry)=>{ if(!m.find(x=>x.id===entry.id)) m.push(entry); }); saveLib(m); } catch { alert("Import failed."); } }; reader.readAsText(file); e.target.value=""; };
 
-  const reanalyzeSingle = async (entry: DNAEntry): Promise<DNAEntry> => {
-    const corrected = await callGeminiDirect(reanalysisSystem(entry), [{ text:`Re-analyze: ${entry.title}` }]);
-    return { ...entry, ...corrected, id:entry.id, reanalyzed:true, added_at:entry.added_at, file_name:entry.file_name, tier:entry.tier, ad_type:entry.ad_type };
+  const reanalyzeSingle=async(entry: DNAEntry): Promise<DNAEntry>=>{
+    const corrected=await callGeminiDirect(reanalysisSystem(entry),[{text:`Re-analyze: ${entry.title}`}]);
+    return {...entry,...corrected,id:entry.id,reanalyzed:true,added_at:entry.added_at,file_name:entry.file_name,tier:entry.tier,ad_type:entry.ad_type};
   };
-  const handleReanalyzeSingle = async (entry: DNAEntry) => {
-    setReanalyzingIds(prev => new Set(prev).add(entry.id));
-    try { const updated = await reanalyzeSingle(entry); saveLib(lib.map(x=>x.id===entry.id?updated:x)); }
-    catch (err: any) { alert(`Re-analysis failed: ${err.message}`); }
-    finally { setReanalyzingIds(prev => { const s=new Set(prev); s.delete(entry.id); return s; }); }
-  };
-  const handleReanalyzeAll = async () => {
-    if (!confirm(`Re-analyze all ${lib.length} entries?`)) return;
-    setReanalyzingAll(true); let updated = [...lib];
-    for (let i=0; i<lib.length; i++) {
-      setReanalysisProgress(`Re-analyzing ${i+1}/${lib.length}: ${lib[i].title}…`);
-      try { const corrected = await reanalyzeSingle(lib[i]); updated = updated.map(x=>x.id===lib[i].id?corrected:x); saveLib(updated); }
-      catch (err) { console.warn(`Failed: ${lib[i].title}`,err); }
-      await new Promise(r => setTimeout(r, 1000));
-    }
-    setReanalyzingAll(false); setReanalysisProgress("");
-  };
+  const handleReanalyzeSingle=async(entry: DNAEntry)=>{ setReanalyzingIds(p=>new Set(p).add(entry.id)); try { const u=await reanalyzeSingle(entry); saveLib(lib.map(x=>x.id===entry.id?u:x)); } catch(err: any){ alert(`Re-analysis failed: ${err.message}`); } finally { setReanalyzingIds(p=>{ const s=new Set(p); s.delete(entry.id); return s; }); } };
+  const handleReanalyzeAll=async()=>{ if(!confirm(`Re-analyze all ${lib.length} entries?`)) return; setReanalyzingAll(true); let updated=[...lib]; for(let i=0;i<lib.length;i++){ setReanalysisProgress(`Re-analyzing ${i+1}/${lib.length}: ${lib[i].title}…`); try { const c=await reanalyzeSingle(lib[i]); updated=updated.map(x=>x.id===lib[i].id?c:x); saveLib(updated); } catch(err){ console.warn(`Failed: ${lib[i].title}`,err); } await new Promise(r=>setTimeout(r,1000)); } setReanalyzingAll(false); setReanalysisProgress(""); };
 
-  const handleModalConfirm = (cfg: UploadConfig) => { setUploadConfig(cfg); setShowModal(false); fileRef.current?.click(); };
-  const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files??[]); if (!files.length) return;
-    const cfg = uploadConfig||{ tier:"winner" as const, ad_type:"moc" as const, context:"", manual_frames:[] };
+  const handleModalConfirm=(cfg: UploadConfig)=>{ setUploadConfig(cfg); setShowModal(false); fileRef.current?.click(); };
+  const handleUpload=useCallback(async(e: React.ChangeEvent<HTMLInputElement>)=>{
+    const files=Array.from(e.target.files??[]); if(!files.length) return;
+    const cfg=uploadConfig||{tier:"winner" as const,ad_type:"moc" as const,context:"",manual_frames:[]};
     setAnalyzing(true); setAnalyzeErr(""); setAnalyzeInfo("");
     try {
-      for (const file of files) {
+      for(const file of files){
         let videoPart: any;
-        if (file.size > 4*1024*1024) {
-          const {fileUri,mimeType} = await uploadToGeminiFileAPI(file, setAnalyzeInfo);
-          videoPart = { fileData:{mimeType,fileUri} };
-        } else {
-          setAnalyzeInfo(`Processing "${file.name}"…`);
-          videoPart = { inlineData:{ mimeType:file.type, data:await fileToBase64(file) } };
-        }
+        if(file.size>4*1024*1024){ const {fileUri,mimeType}=await uploadToGeminiFileAPI(file,setAnalyzeInfo); videoPart={fileData:{mimeType,fileUri}}; }
+        else { setAnalyzeInfo(`Processing "${file.name}"…`); videoPart={inlineData:{mimeType:file.type,data:await fileToBase64(file)}}; }
         setAnalyzeInfo("Extracting frames…");
-        let autoFrames: FrameExtraction[]=[], duration=30;
-        try { const fr = await callGeminiDirect(frameExtractionSystem(),[{text:"Extract 8 key frames:"},videoPart]); autoFrames=fr?.frames||[]; duration=fr?.duration_seconds||30; } catch {}
+        let autoFrames: FrameExtraction[]=[],duration=30;
+        try { const fr=await callGeminiDirect(frameExtractionSystem(),[{text:"Extract 8 key frames:"},videoPart]); autoFrames=fr?.frames||[]; duration=fr?.duration_seconds||30; } catch {}
         setAnalyzeInfo("Detecting hook…");
         let hookData: any={};
-        try { hookData = await callGeminiDirect(hookDetectionSystem(),[{text:`Frames:${JSON.stringify(autoFrames)}.Context:${cfg.context}.Find hook:`},videoPart]); } catch {}
+        try { hookData=await callGeminiDirect(hookDetectionSystem(),[{text:`Frames:${JSON.stringify(autoFrames)}.Context:${cfg.context}.Find hook:`},videoPart]); } catch {}
         const manualParts: any[]=[];
-        if (cfg.manual_frames.length>0) {
-          setAnalyzeInfo(`Processing ${cfg.manual_frames.length} manual frames…`);
-          for (const mf of cfg.manual_frames) { manualParts.push({text:`Manual:${mf.name}`}); manualParts.push({inlineData:{mimeType:mf.type,data:await fileToBase64(mf)}}); }
-        }
+        if(cfg.manual_frames.length>0){ setAnalyzeInfo(`Processing ${cfg.manual_frames.length} manual frames…`); for(const mf of cfg.manual_frames){ manualParts.push({text:`Manual:${mf.name}`}); manualParts.push({inlineData:{mimeType:mf.type,data:await fileToBase64(mf)}}); } }
         setAnalyzeInfo(`Analyzing "${file.name}"…`);
-        const refParts = buildReferenceParts();
-        const dna = await callGeminiDirect(
-          analyzeSystem(lib,cfg,autoFrames,duration,manualParts.length>0,refParts.length>0),
-          [...refParts,...(manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]
-        );
+        const refParts=buildReferenceParts();
+        const dna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,manualParts.length>0,refParts.length>0),[...refParts,...(manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
         saveLib([...lib,{...dna,id:Date.now()+Math.random(),tier:cfg.tier,ad_type:cfg.ad_type,upload_context:cfg.context,file_name:file.name,added_at:new Date().toISOString(),iteration_of:cfg.iteration_of,auto_frames:autoFrames,manual_frames:cfg.manual_frames.map(f=>f.name)}]);
         setAnalyzeInfo("");
       }
-    } catch (err: any) { setAnalyzeErr(err.message); }
-    finally { setAnalyzing(false); setAnalyzeInfo(""); setUploadConfig(null); if (fileRef.current) fileRef.current.value=""; }
-  }, [lib, uploadConfig]);
+    } catch(err: any){ setAnalyzeErr(err.message); }
+    finally { setAnalyzing(false); setAnalyzeInfo(""); setUploadConfig(null); if(fileRef.current) fileRef.current.value=""; }
+  },[lib,uploadConfig]);
 
-  const handleGenerateBrief = async () => {
-    if (!briefCtx.trim()) { setBriefErr("Enter a brief context first."); return; }
-    if (lib.length===0) { setBriefErr("Add at least one ad first."); return; }
+  const handleGenerateBrief=async()=>{
+    if(!briefCtx.trim()){ setBriefErr("Enter a brief context first."); return; }
+    if(lib.length===0){ setBriefErr("Add at least one ad first."); return; }
     setGenerating(true); setBriefErr(""); setConcepts([]); setBriefAnalysis(null);
+    const winners=lib.filter(d=>d.tier==="winner").map(d=>({ title:d.title,hook_type:d.hook_type,hook_timing_seconds:d.hook_timing_seconds,gate_sequence:(d.gate_sequence||[]).slice(0,5),unit_evolution_chain:d.unit_evolution_chain,key_mechanic:d.key_mechanic,biome:d.biome,loss_event_type:d.loss_event_type,spend_tier:d.spend_tier||null,spend_networks:d.spend_networks||[],replication_instructions:(d.replication_instructions||"").slice(0,180),creative_status:d.creative_status||null }));
+    const callConcept=async(conceptIndex: number,analysisOnly=false)=>{
+      const res=await fetch("/api/generate",{ method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ task:"brief_concept",payload:{ winners,briefContext:briefCtx,segment,iterateFrom:iterateFrom.trim()||undefined,conceptIndex,totalConcepts:4,analysisOnly } }) });
+      if(!res.ok){ const err=await res.json().catch(()=>({error:`HTTP ${res.status}`})); throw new Error(err.error??`HTTP ${res.status}`); }
+      return res.json();
+    };
     try {
-      const result = await callClaude(
-        briefSystem(lib, briefCtx, segment, iterateFrom.trim()||undefined),
-        "Generate MOC ad concepts grounded in the DNA library. Return only JSON."
-      );
-      setConcepts(result.concepts??[]); setBriefAnalysis(result.analysis??null); setExpandedConcept(0);
-    } catch (err: any) { setBriefErr(err.message); }
+      const analysis=await callConcept(0,true); setBriefAnalysis(analysis.analysis??null);
+      for(let i=0;i<4;i++){ const concept=await callConcept(i); setConcepts(prev=>[...prev,concept]); if(i===0) setExpandedConcept(0); }
+    } catch(err: any){ setBriefErr(err.message); }
     finally { setGenerating(false); }
   };
 
-  const handleRenderScene = async (ci: number, scene: "start"|"middle"|"end") => {
-    const k = `${ci}-${scene}`; setRenderingScene(p=>({...p,[k]:true}));
+  const handleRenderScene=async(ci: number,scene: "start"|"middle"|"end")=>{
+    const k=`${ci}-${scene}`; setRenderingScene(p=>({...p,[k]:true}));
     try {
-      const concept = concepts[ci];
-      const vi = concept.visual_identity;
-      const refParts = pickRelevantRefs(vi);
-      const prevParts: any[] = [];
-      // Always anchor to start scene for middle and end
-      if ((scene==="middle"||scene==="end") && concept.visual_start) {
-        prevParts.push({ text:"### START SCENE — match ALL assets, environment, lighting, and art style exactly from this image:" });
-        prevParts.push({ inlineData:{ mimeType:"image/png", data:concept.visual_start.replace("data:image/png;base64,","") } });
-      }
-      // Also include middle scene for end
-      if (scene==="end" && concept.visual_middle) {
-        prevParts.push({ text:"### MIDDLE SCENE — also match this image for additional asset consistency:" });
-        prevParts.push({ inlineData:{ mimeType:"image/png", data:concept.visual_middle.replace("data:image/png;base64,","") } });
-      }
-      const continuityNote = scene!=="start"
-        ? `Match ALL visual assets from the reference scene image(s) above — same cannon model, same mob blob design, same gate style, same environment colours and lighting. Only the GAME STATE changes (${scene==="middle"?"more mobs filling the lane, mid-battle":"very few mobs remaining, dramatic fail moment"}).`
-        : undefined;
-      const url = await callImageDirect(imagePromptFn(concept,scene,continuityNote), [...refParts,...prevParts]);
+      const concept=concepts[ci]; const vi=concept.visual_identity;
+      const refParts=pickRelevantRefs(vi);
+      const prevParts: any[]=[];
+      if((scene==="middle"||scene==="end")&&concept.visual_start){ prevParts.push({text:"### START SCENE — match ALL assets, environment, lighting, and art style exactly:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_start.replace("data:image/png;base64,","")}}); }
+      if(scene==="end"&&concept.visual_middle){ prevParts.push({text:"### MIDDLE SCENE — also match this for additional asset consistency:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_middle.replace("data:image/png;base64,","")}}); }
+      const continuityNote=scene!=="start"?`Match ALL visual assets from the reference scene image(s) above — same cannon model, same mob blob design, same gate style, same environment. Only the GAME STATE changes (${scene==="middle"?"more mobs filling the lane, mid-battle":"very few mobs remaining, dramatic fail moment"}).`:undefined;
+      const url=await callImageDirect(imagePromptFn(concept,scene,continuityNote),[...refParts,...prevParts]);
       setConcepts(p=>p.map((c,i)=>i===ci?{...c,[`visual_${scene}`]:url}:c));
-    } catch (err: any) { alert(`Render failed: ${err.message}`); }
+    } catch(err: any){ alert(`Render failed: ${err.message}`); }
     finally { setRenderingScene(p=>({...p,[k]:false})); }
   };
 
-  const winners = lib.filter(d=>d.tier==="winner").length;
-  const topVel = lib.reduce((best,d) => {
-    const v = velocityPerDay(d.spend_tier??"",d.spend_window_days);
-    if (!v) return best;
-    const num = parseInt(v.replace(/[^0-9]/g,""));
-    return num>best?num:best;
-  }, 0);
-  const networkSet = new Set(lib.flatMap(d=>d.spend_networks??[]));
-  const cloudLabel = {idle:"",saving:"Saving…",saved:"Saved to GitHub ✓",error:"Cloud save failed"}[cloudStatus];
-  const cloudColor = {idle:D.textDim,saving:D.blue,saved:D.green,error:D.red}[cloudStatus];
-  const SB = 48;
+  const winners=lib.filter(d=>d.tier==="winner").length;
+  const activeWinners=lib.filter(d=>d.tier==="winner"&&d.creative_status!=="fatigued").length;
+  const topVel=lib.reduce((best,d)=>{ const v=velocityPerDay(d.spend_tier??"",d.spend_window_days); if(!v) return best; const num=parseInt(v.replace(/[^0-9]/g,"")); return num>best?num:best; },0);
+  const networkSet=new Set(lib.flatMap(d=>d.spend_networks??[]));
+  const cloudLabel={idle:"",saving:"Saving…",saved:"Saved to GitHub ✓",error:"Cloud save failed"}[cloudStatus];
+  const cloudColor={idle:D.textDim,saving:D.blue,saved:D.green,error:D.red}[cloudStatus];
+  const SB=48;
 
   return (
-    <div style={{ background:D.bg, minHeight:"100vh", color:D.text, fontFamily:"system-ui,sans-serif", fontSize:13, position:"relative" }}>
-      {showModal && <UploadModal onConfirm={handleModalConfirm} onCancel={() => setShowModal(false)} />}
+    <div style={{ background:D.bg,minHeight:"100vh",color:D.text,fontFamily:"system-ui,sans-serif",fontSize:13,position:"relative" }}>
+      {showModal&&<UploadModal onConfirm={handleModalConfirm} onCancel={()=>setShowModal(false)} />}
       <input ref={fileRef} type="file" accept="video/*,image/*" multiple style={{ display:"none" }} onChange={handleUpload} />
       <input ref={importRef} type="file" accept=".json" style={{ display:"none" }} onChange={importLibrary} />
 
       {/* Sidebar */}
-      <div style={{ position:"fixed", top:0, left:0, width:SB, height:"100vh", background:D.surface, borderRight:`0.5px solid ${D.border}`, display:"flex", flexDirection:"column", alignItems:"center", paddingTop:12, gap:6, zIndex:200 }}>
+      <div style={{ position:"fixed",top:0,left:0,width:SB,height:"100vh",background:D.surface,borderRight:`0.5px solid ${D.border}`,display:"flex",flexDirection:"column",alignItems:"center",paddingTop:12,gap:6,zIndex:200 }}>
         {[
-          { icon:<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 6.5L8 1l7 5.5V15H1V6.5zm1 .9V14h4v-3h4v3h4V7.4L8 2.5 2 7.4z"/></svg>, key:"home", active:!libPanelOpen },
-          { icon:<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>, key:"library", active:libPanelOpen },
-          { icon:<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 1.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11zM7.5 4v4.25l3 1.75-.75 1.3L6.5 9V4h1z"/></svg>, key:"history", active:false },
-        ].map(({icon,key,active}) => (
-          <button key={key} onClick={() => key==="library"&&setLibPanelOpen(p=>!p)}
-            style={{ width:32,height:32,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",background:active?D.surface2:"transparent",border:"none",color:active?D.text:D.textMuted,cursor:"pointer" }}>
-            {icon}
-          </button>
+          { icon:<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 6.5L8 1l7 5.5V15H1V6.5zm1 .9V14h4v-3h4v3h4V7.4L8 2.5 2 7.4z"/></svg>,key:"home",active:!libPanelOpen },
+          { icon:<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>,key:"library",active:libPanelOpen },
+          { icon:<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 1.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11zM7.5 4v4.25l3 1.75-.75 1.3L6.5 9V4h1z"/></svg>,key:"history",active:false },
+        ].map(({icon,key,active})=>(
+          <button key={key} onClick={()=>key==="library"&&setLibPanelOpen(p=>!p)} style={{ width:32,height:32,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",background:active?D.surface2:"transparent",border:"none",color:active?D.text:D.textMuted,cursor:"pointer" }}>{icon}</button>
         ))}
       </div>
 
       {/* Library side panel */}
-      <div style={{ position:"fixed",top:0,left:SB,width:380,height:"100vh",background:D.surface,borderRight:`0.5px solid ${D.border2}`,display:"flex",flexDirection:"column",zIndex:150,transform:libPanelOpen?"translateX(0)":"translateX(-100%)",transition:"transform .22s ease-out",overflowY:"auto" }}>
+      <div style={{ position:"fixed",top:0,left:SB,width:380,height:"100vh",background:D.surface,borderRight:`0.5px solid ${D.border2}`,display:"flex",flexDirection:"column",zIndex:150,transform:libPanelOpen?"translateX(0)":"translateX(-100%)",transition:"transform .22s ease-out" }}>
         <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 16px",borderBottom:`0.5px solid ${D.border}`,flexShrink:0 }}>
           <div>
             <div style={{ fontSize:14,fontWeight:500 }}>Creative library</div>
-            <div style={{ fontSize:10,color:D.textMuted,marginTop:2 }}>{lib.length} entries · {winners} winners · {lib.filter(d=>d.reanalyzed).length} re-analyzed</div>
+            <div style={{ fontSize:10,color:D.textMuted,marginTop:2 }}>{lib.length} entries · {activeWinners} active winners · {lib.filter(d=>d.creative_status==="fatigued").length} fatigued</div>
           </div>
-          <button onClick={() => setLibPanelOpen(false)} style={{ background:"none",border:"none",color:D.textMuted,fontSize:11,cursor:"pointer",padding:"3px 6px",borderRadius:4,fontFamily:"inherit" }}>✕</button>
+          <button onClick={()=>setLibPanelOpen(false)} style={{ background:"none",border:"none",color:D.textMuted,fontSize:11,cursor:"pointer",padding:"3px 6px",borderRadius:4,fontFamily:"inherit" }}>✕</button>
         </div>
         <div style={{ display:"flex",gap:6,padding:"10px 16px",borderBottom:`0.5px solid ${D.border}`,flexWrap:"wrap" as const,flexShrink:0 }}>
-          {lib.length>0 && (<>
-            <button style={btnSec} onClick={handleReanalyzeAll} disabled={reanalyzingAll||analyzing}>{reanalyzingAll?"Re-analyzing…":"Re-analyze all"}</button>
-            <button style={btnSec} onClick={exportLibrary}>Export</button>
-            <button style={btnSec} onClick={() => { if(confirm("Clear library?")) saveLib([]); }}>Clear</button>
-          </>)}
-          <button style={btnSec} onClick={() => importRef.current?.click()}>Import</button>
-          <button style={btnPri} onClick={() => { setLibPanelOpen(false); setShowModal(true); }} disabled={analyzing||reanalyzingAll}>{analyzing?"Analyzing…":"+ Upload"}</button>
+          {lib.length>0&&(<><button style={btnSec} onClick={handleReanalyzeAll} disabled={reanalyzingAll||analyzing}>{reanalyzingAll?"Re-analyzing…":"Re-analyze all"}</button><button style={btnSec} onClick={exportLibrary}>Export</button><button style={btnSec} onClick={()=>{ if(confirm("Clear library?")) saveLib([]); }}>Clear</button></>)}
+          <button style={btnSec} onClick={()=>importRef.current?.click()}>Import</button>
+          <button style={btnPri} onClick={()=>{ setLibPanelOpen(false); setShowModal(true); }} disabled={analyzing||reanalyzingAll}>{analyzing?"Analyzing…":"+ Upload"}</button>
         </div>
-        {(analyzeErr||reanalysisProgress) && <div style={{ fontSize:11,color:reanalysisProgress?D.blue:D.red,background:reanalysisProgress?D.blueBg:D.redBg,border:`0.5px solid ${reanalysisProgress?D.blueDark:"#6e2020"}`,borderRadius:7,padding:"7px 12px",margin:"8px 16px" }}>{analyzeErr||reanalysisProgress}</div>}
-        {analyzeInfo && <div style={{ fontSize:11,color:D.blue,background:D.blueBg,border:`0.5px solid ${D.blueDark}`,borderRadius:7,padding:"7px 12px",margin:"8px 16px" }}>{analyzeInfo}</div>}
-        {!libraryLoaded && <div style={{ fontSize:11,color:D.blue,padding:"12px 16px" }}>Loading library from GitHub…</div>}
-        {lib.length===0 && !analyzing && libraryLoaded && <div style={{ padding:"2rem 16px",textAlign:"center" as const }}><p style={{ margin:0,fontSize:12,color:D.textMuted }}>Upload MOC ads, competitor ads, or compound mixes to build your Creative DNA library.</p></div>}
+        {(analyzeErr||reanalysisProgress)&&<div style={{ fontSize:11,color:reanalysisProgress?D.blue:D.red,background:reanalysisProgress?D.blueBg:D.redBg,border:`0.5px solid ${reanalysisProgress?D.blueDark:"#6e2020"}`,borderRadius:7,padding:"7px 12px",margin:"8px 16px" }}>{analyzeErr||reanalysisProgress}</div>}
+        {analyzeInfo&&<div style={{ fontSize:11,color:D.blue,background:D.blueBg,border:`0.5px solid ${D.blueDark}`,borderRadius:7,padding:"7px 12px",margin:"8px 16px" }}>{analyzeInfo}</div>}
+        {!libraryLoaded&&<div style={{ fontSize:11,color:D.blue,padding:"12px 16px" }}>Loading library from GitHub…</div>}
+        {lib.length===0&&!analyzing&&libraryLoaded&&<div style={{ padding:"2rem 16px",textAlign:"center" as const }}><p style={{ margin:0,fontSize:12,color:D.textMuted }}>Upload MOC ads to build your Creative DNA library.</p></div>}
         <div style={{ flex:1,overflowY:"auto" }}>
-          {lib.map((d,di) => <LibraryCard key={d.id} d={d} di={di} expandedDNA={expandedDNA} setExpandedDNA={setExpandedDNA} lib={lib} saveLib={saveLib} reanalyzingIds={reanalyzingIds} handleReanalyzeSingle={handleReanalyzeSingle} />)}
+          {lib.map((d,di)=><LibraryCard key={d.id} d={d} di={di} expandedDNA={expandedDNA} setExpandedDNA={setExpandedDNA} lib={lib} saveLib={saveLib} reanalyzingIds={reanalyzingIds} handleReanalyzeSingle={handleReanalyzeSingle} />)}
         </div>
       </div>
 
@@ -887,16 +753,13 @@ export default function App() {
             <span style={{ fontSize:12,color:D.textMuted }}>MOC Creative Intelligence</span>
           </div>
           <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-            {cloudStatus!=="idle"
-              ? <span style={{ fontSize:10,color:cloudColor }}>{cloudLabel}</span>
-              : lib.length>0 && <div style={{ display:"flex",alignItems:"center",gap:5,background:D.surface,border:`0.5px solid ${D.border2}`,borderRadius:20,padding:"4px 12px" }}><div style={{ width:6,height:6,borderRadius:"50%",background:D.green }} /><span style={{ fontSize:11,color:D.blue }}>Saved to GitHub</span></div>
-            }
+            {cloudStatus!=="idle"?<span style={{ fontSize:10,color:cloudColor }}>{cloudLabel}</span>:lib.length>0&&<div style={{ display:"flex",alignItems:"center",gap:5,background:D.surface,border:`0.5px solid ${D.border2}`,borderRadius:20,padding:"4px 12px" }}><div style={{ width:6,height:6,borderRadius:"50%",background:D.green }} /><span style={{ fontSize:11,color:D.blue }}>Saved to GitHub</span></div>}
           </div>
         </div>
 
         {/* Stats */}
         <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",borderBottom:`0.5px solid ${D.border}` }}>
-          {[{n:lib.length,label:"CREATIVES",color:D.text},{n:winners,label:"WINNERS",color:D.blue},{n:topVel>0?`$${topVel>=1000?Math.round(topVel/1000)+"K":topVel}`:"—",label:"TOP VELOCITY",color:D.gold},{n:networkSet.size||"—",label:"NETWORKS",color:D.green}].map(({n,label,color},i) => (
+          {[{n:lib.length,label:"CREATIVES",color:D.text},{n:winners,label:"WINNERS",color:D.blue},{n:topVel>0?`$${topVel>=1000?Math.round(topVel/1000)+"K":topVel}`:"—",label:"TOP VELOCITY",color:D.gold},{n:networkSet.size||"—",label:"NETWORKS",color:D.green}].map(({n,label,color},i)=>(
             <div key={label} style={{ padding:"20px 24px",borderRight:i<3?`0.5px solid ${D.border}`:"none" }}>
               <div style={{ fontSize:28,fontWeight:500,color,lineHeight:1 }}>{n}</div>
               <div style={{ fontSize:10,letterSpacing:"0.1em",color:D.textMuted,marginTop:4 }}>{label}</div>
@@ -910,13 +773,13 @@ export default function App() {
           {/* Mode cards */}
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20 }}>
             {[
-              { key:"brief",icon:<svg width="20" height="20" viewBox="0 0 16 16" fill="#58a6ff"><path d="M2 2h9l3 3v9H2V2zm1 1v10h10V6.5L9.5 3H3z"/></svg>,iconBg:D.blueBg,badgeText:"Primary",badgeColor:D.blue,badgeBorder:D.blueDark,title:"Generate brief",desc:"Describe your idea. Levelly matches it to winning DNA patterns and generates a master brief with network adaptations.",active:briefPanelOpen,onClick:()=>{setBriefPanelOpen(p=>!p);setAnalysePanelOpen(false);} },
-              { key:"analyse",icon:<svg width="20" height="20" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="#3fb950" strokeWidth="1.5"/><line x1="9.5" y1="9.5" x2="14" y2="14" stroke="#3fb950" strokeWidth="1.5"/></svg>,iconBg:D.greenBg,badgeText:"Analysis",badgeColor:D.green,badgeBorder:D.greenBdr,title:"Analyse creative",desc:"Drop a video or paste a URL. Levelly extracts emotional beats, hook timing, gate patterns, and adds it to the DNA library.",active:analysePanelOpen,onClick:()=>{setAnalysePanelOpen(p=>!p);setBriefPanelOpen(false);} },
-            ].map(card => (
+              { key:"brief",icon:<svg width="20" height="20" viewBox="0 0 16 16" fill="#58a6ff"><path d="M2 2h9l3 3v9H2V2zm1 1v10h10V6.5L9.5 3H3z"/></svg>,iconBg:D.blueBg,badgeText:"Primary",badgeColor:D.blue,badgeBorder:D.blueDark,title:"Generate brief",desc:"Describe your idea. Levelly matches it to winning DNA patterns and generates a master brief with network adaptations.",active:briefPanelOpen,onClick:()=>{ setBriefPanelOpen(p=>!p); setAnalysePanelOpen(false); } },
+              { key:"analyse",icon:<svg width="20" height="20" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="#3fb950" strokeWidth="1.5"/><line x1="9.5" y1="9.5" x2="14" y2="14" stroke="#3fb950" strokeWidth="1.5"/></svg>,iconBg:D.greenBg,badgeText:"Analysis",badgeColor:D.green,badgeBorder:D.greenBdr,title:"Analyse creative",desc:"Drop a video or paste a URL. Levelly extracts emotional beats, hook timing, gate patterns, and adds it to the DNA library.",active:analysePanelOpen,onClick:()=>{ setAnalysePanelOpen(p=>!p); setBriefPanelOpen(false); } },
+            ].map(card=>(
               <div key={card.key} onClick={card.onClick}
                 style={{ background:card.active?"#1a2130":D.surface,border:`0.5px solid ${card.active?card.badgeBorder:D.border2}`,borderRadius:12,padding:20,cursor:"pointer",transition:"border-color .18s,background .18s,transform .12s" }}
-                onMouseEnter={e=>{(e.currentTarget as HTMLDivElement).style.transform="translateY(-1px)";(e.currentTarget as HTMLDivElement).style.borderColor=card.badgeBorder;}}
-                onMouseLeave={e=>{(e.currentTarget as HTMLDivElement).style.transform="";(e.currentTarget as HTMLDivElement).style.borderColor=card.active?card.badgeBorder:D.border2;}}>
+                onMouseEnter={e=>{ (e.currentTarget as HTMLDivElement).style.transform="translateY(-1px)"; (e.currentTarget as HTMLDivElement).style.borderColor=card.badgeBorder; }}
+                onMouseLeave={e=>{ (e.currentTarget as HTMLDivElement).style.transform=""; (e.currentTarget as HTMLDivElement).style.borderColor=card.active?card.badgeBorder:D.border2; }}>
                 <div style={{ width:36,height:36,borderRadius:9,background:card.iconBg,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:14 }}>{card.icon}</div>
                 <div style={{ marginBottom:10 }}><span style={{ fontSize:10,padding:"3px 10px",borderRadius:20,border:`1px solid ${card.badgeBorder}`,color:card.badgeColor }}>{card.badgeText}</span></div>
                 <div style={{ fontSize:16,fontWeight:500,marginBottom:6 }}>{card.title}</div>
@@ -926,69 +789,60 @@ export default function App() {
           </div>
 
           {/* Brief panel */}
-          {briefPanelOpen && (
+          {briefPanelOpen&&(
             <div style={{ background:D.surface,border:`1.5px solid ${D.blueDark}`,borderRadius:10,overflow:"hidden",marginBottom:14,animation:"slideIn .2s ease-out" }}>
               <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:`0.5px solid ${D.border}` }}>
                 <div style={{ display:"flex",alignItems:"center",gap:8,color:D.blue,fontSize:13,fontWeight:500 }}>
-                  <svg width="13" height="13" viewBox="0 0 16 16" fill={D.blue}><path d="M2 2h9l3 3v9H2V2zm1 1v10h10V6.5L9.5 3H3z"/></svg>
-                  Generate brief
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill={D.blue}><path d="M2 2h9l3 3v9H2V2zm1 1v10h10V6.5L9.5 3H3z"/></svg>Generate brief
                 </div>
-                <button onClick={() => setBriefPanelOpen(false)} style={{ background:"none",border:"none",color:D.textMuted,cursor:"pointer",fontSize:11,padding:"2px 6px",borderRadius:4,fontFamily:"inherit" }}>✕ Close</button>
+                <button onClick={()=>setBriefPanelOpen(false)} style={{ background:"none",border:"none",color:D.textMuted,cursor:"pointer",fontSize:11,padding:"2px 6px",borderRadius:4,fontFamily:"inherit" }}>✕ Close</button>
               </div>
               <div style={{ padding:"14px 16px" }}>
                 <textarea style={{ width:"100%",boxSizing:"border-box",fontSize:14,padding:"9px 11px",background:"transparent",border:"none",minHeight:64,resize:"vertical",outline:"none",fontFamily:"inherit",color:D.text,lineHeight:1.6 } as React.CSSProperties}
-                  placeholder="Describe your idea — biome, hook type, emotional arc, network target…"
-                  value={briefCtx} onChange={e => setBriefCtx(e.target.value)} />
+                  placeholder="Describe your idea — biome, hook type, emotional arc, network target…" value={briefCtx} onChange={e=>setBriefCtx(e.target.value)} />
               </div>
-              {/* Iterate from */}
               <div style={{ padding:"0 16px 12px" }}>
                 <div style={{ fontSize:9,letterSpacing:".1em",color:D.textMuted,marginBottom:6,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap" as const }}>
                   <svg width="10" height="10" viewBox="0 0 16 16" fill={D.textMuted}><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
-                  ITERATE FROM
-                  <span style={{ fontSize:9,color:D.textDim,fontWeight:400,letterSpacing:0 }}>— optional. Levelly builds on this creative using MOC DNA as the primary guide.</span>
+                  ITERATE FROM <span style={{ fontSize:9,color:D.textDim,fontWeight:400,letterSpacing:0 }}>— optional. MOC DNA is the primary guide.</span>
                 </div>
                 <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" as const }}>
-                  {iterateFrom.trim() && (
+                  {iterateFrom.trim()&&(
                     <div style={{ display:"flex",alignItems:"center",gap:6,background:D.purpleBg,border:`0.5px solid ${D.purpleBdr}`,borderRadius:6,padding:"4px 10px" }}>
                       <div style={{ width:16,height:16,borderRadius:3,background:D.purpleBdr,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:"#fff",flexShrink:0 }}>ref</div>
                       <span style={{ fontSize:11,color:D.purple }}>{iterateFrom.trim()}</span>
                       <span style={{ fontSize:10,color:D.textDim }}>· MOC DNA primary</span>
-                      <button onClick={() => setIterateFrom("")} style={{ fontSize:9,color:D.textDim,background:"none",border:"none",cursor:"pointer",padding:"0 2px" }}>✕</button>
+                      <button onClick={()=>setIterateFrom("")} style={{ fontSize:9,color:D.textDim,background:"none",border:"none",cursor:"pointer" }}>✕</button>
                     </div>
                   )}
-                  <input style={{ ...inputStyle,width:iterateFrom.trim()?"140px":"220px",fontSize:11 }}
-                    placeholder="Library ID, e.g. CT43" value={iterateFrom} onChange={e => setIterateFrom(e.target.value)} />
+                  <input style={{ ...inputStyle,width:iterateFrom.trim()?"140px":"220px",fontSize:11 }} placeholder="Library ID, e.g. CT43" value={iterateFrom} onChange={e=>setIterateFrom(e.target.value)} />
                 </div>
               </div>
-              {/* Segment + generate */}
               <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderTop:`0.5px solid ${D.border}`,flexWrap:"wrap" as const,gap:8 }}>
                 <div style={{ display:"flex",gap:6,flexWrap:"wrap" as const }}>
-                  {SEGMENTS_LIST.map(seg => (
-                    <button key={seg} onClick={() => setSegment(seg)} style={chipStyle(segment===seg)}>{seg}</button>
-                  ))}
+                  {SEGMENTS_LIST.map(seg=><button key={seg} onClick={()=>setSegment(seg)} style={chipStyle(segment===seg)}>{seg}</button>)}
                 </div>
-                <button onClick={handleGenerateBrief} disabled={generating}
-                  style={{ ...btnPri,display:"flex",alignItems:"center",gap:6,opacity:generating?.7:1 }}>
+                <button onClick={handleGenerateBrief} disabled={generating} style={{ ...btnPri,display:"flex",alignItems:"center",gap:6,opacity:generating?.7:1 }}>
                   {generating?<><span style={{ width:10,height:10,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.3)",borderTopColor:"#fff",display:"inline-block",animation:"spin .6s linear infinite" }} />Generating…</>:"Generate concepts ↗"}
                 </button>
               </div>
-              {briefErr && <div style={{ fontSize:11,color:D.red,background:D.redBg,border:`0.5px solid #6e2020`,borderRadius:7,padding:"7px 12px",margin:"0 16px 12px" }}>{briefErr}</div>}
+              {briefErr&&<div style={{ fontSize:11,color:D.red,background:D.redBg,border:`0.5px solid #6e2020`,borderRadius:7,padding:"7px 12px",margin:"0 16px 12px" }}>{briefErr}</div>}
             </div>
           )}
 
           {/* Analyse panel */}
-          {analysePanelOpen && (
+          {analysePanelOpen&&(
             <div style={{ background:D.surface,border:`1.5px solid ${D.greenBdr}`,borderRadius:10,padding:"20px",marginBottom:14,animation:"slideIn .2s ease-out" }}>
               <p style={{ margin:0,fontSize:13,color:D.textMuted }}>Drop a video file or paste a URL to analyse it and add it to the DNA library.</p>
-              <div style={{ display:"flex",gap:8,marginTop:12,flexWrap:"wrap" as const }}>
-                <button style={btnPri} onClick={() => { setAnalysePanelOpen(false); setShowModal(true); }}>+ Upload video</button>
-                <button style={btnSec} onClick={() => setAnalysePanelOpen(false)}>Cancel</button>
+              <div style={{ display:"flex",gap:8,marginTop:12 }}>
+                <button style={btnPri} onClick={()=>{ setAnalysePanelOpen(false); setShowModal(true); }}>+ Upload video</button>
+                <button style={btnSec} onClick={()=>setAnalysePanelOpen(false)}>Cancel</button>
               </div>
             </div>
           )}
 
           {/* Brief analysis */}
-          {briefAnalysis && (
+          {briefAnalysis&&(
             <div style={{ background:D.surface2,border:`0.5px solid ${D.border2}`,borderRadius:10,padding:"14px 16px",marginBottom:14 }}>
               <span style={labelStyle}>Creative strategy</span>
               <p style={{ margin:"0 0 12px",fontSize:12,lineHeight:1.7,color:D.text }}>{briefAnalysis.strategy}</p>
@@ -1000,72 +854,56 @@ export default function App() {
           )}
 
           {/* Concept cards */}
-          {concepts.map((c,ci) => (
+          {concepts.map((c,ci)=>(
             <div key={ci} style={{ background:D.surface,border:`0.5px solid ${(c as any).is_experimental?"#9d174d":D.border}`,borderRadius:10,padding:"14px 16px",marginBottom:10 }}>
-              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",cursor:"pointer" }} onClick={() => setExpandedConcept(expandedConcept===ci?null:ci)}>
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",cursor:"pointer" }} onClick={()=>setExpandedConcept(expandedConcept===ci?null:ci)}>
                 <div style={{ flex:1 }}>
                   <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap" as const }}>
                     <span style={{ fontSize:15,fontWeight:500 }}>{c.title}</span>
-                    {c.is_data_backed && <span style={pill(D.goldBg,D.gold,D.goldBdr)}>Data-backed</span>}
-                    {c.is_experimental && <span style={pill("#2a1a2e","#f472b6","#9d174d")}>⚠ Experimental — no spend data</span>}
-                    {(c as any).dna_source && <span style={pill(D.greenBg,D.green,D.greenBdr)}>based on {(c as any).dna_source}</span>}
-                    {iterateFrom.trim() && <span style={pill(D.purpleBg,D.purple,D.purpleBdr)}>iterates from {iterateFrom.trim()}</span>}
+                    {c.is_data_backed&&<span style={pill(D.goldBg,D.gold,D.goldBdr)}>Data-backed</span>}
+                    {c.is_experimental&&<span style={pill("#2a1a2e","#f472b6","#9d174d")}>⚠ Experimental</span>}
+                    {(c as any).dna_source&&<span style={pill(D.greenBg,D.green,D.greenBdr)}>based on {(c as any).dna_source}</span>}
+                    {iterateFrom.trim()&&<span style={pill(D.purpleBg,D.purple,D.purpleBdr)}>iterates from {iterateFrom.trim()}</span>}
                     <span style={pill(TIER_STYLE["scalable"].bg,TIER_STYLE["scalable"].text,TIER_STYLE["scalable"].border)}>{c.target_segment}</span>
                   </div>
-                  {c.is_experimental && c.experimental_note && <p style={{ margin:"0 0 4px",fontSize:11,color:"#f472b6",fontStyle:"italic" }}>{c.experimental_note}</p>}
+                  {c.is_experimental&&c.experimental_note&&<p style={{ margin:"0 0 4px",fontSize:11,color:"#f472b6",fontStyle:"italic" }}>{c.experimental_note}</p>}
                   <p style={{ margin:0,fontSize:12,color:D.textMuted }}>{c.objective}</p>
                 </div>
-                {c.quality_score && (
-                  <div style={{ textAlign:"right" as const,marginLeft:16,flexShrink:0 }}>
-                    <div style={{ fontSize:24,fontWeight:500,color:scoreColor(c.quality_score.overall) }}>{c.quality_score.overall}</div>
-                    <div style={{ fontSize:9,color:D.textDim }}>quality</div>
-                  </div>
-                )}
+                {c.quality_score&&<div style={{ textAlign:"right" as const,marginLeft:16,flexShrink:0 }}><div style={{ fontSize:24,fontWeight:500,color:scoreColor(c.quality_score.overall) }}>{c.quality_score.overall}</div><div style={{ fontSize:9,color:D.textDim }}>quality</div></div>}
               </div>
-
-              {expandedConcept===ci && (
+              {expandedConcept===ci&&(
                 <div style={{ marginTop:16,borderTop:`0.5px solid ${D.border}`,paddingTop:16 }}>
-                  {(c as any).hook_timing_seconds!=null && (
-                    <div style={{ marginBottom:12,padding:"8px 12px",background:D.blueBg,borderRadius:8,fontSize:11,color:D.blue,border:`0.5px solid ${D.blueDark}` }}>
-                      Hook at <strong>{(c as any).hook_timing_seconds}s</strong> — {c.performance_hooks?.[0]?.type||"Challenge"}
-                    </div>
-                  )}
-                  {(c as any).unit_evolution_chain?.length>0 && (
+                  {(c as any).hook_timing_seconds!=null&&<div style={{ marginBottom:12,padding:"8px 12px",background:D.blueBg,borderRadius:8,fontSize:11,color:D.blue,border:`0.5px solid ${D.blueDark}` }}>Hook at <strong>{(c as any).hook_timing_seconds}s</strong> — {c.performance_hooks?.[0]?.type||"Challenge"}</div>}
+                  {(c as any).unit_evolution_chain?.length>0&&(
                     <div style={{ marginBottom:14 }}>
                       <span style={labelStyle}>Unit evolution chain</span>
                       <div style={{ display:"flex",gap:4,flexWrap:"wrap" as const,alignItems:"center" }}>
-                        {(c as any).unit_evolution_chain.map((step: string,i: number) => (
+                        {(c as any).unit_evolution_chain.map((step: string,i: number)=>(
                           <span key={i} style={{ display:"flex",alignItems:"center",gap:4 }}>
                             <span style={{ fontSize:11,padding:"2px 8px",background:D.blueBg,color:D.blue,borderRadius:20,border:`0.5px solid ${D.blueDark}` }}>{step}</span>
-                            {i<(c as any).unit_evolution_chain.length-1 && <span style={{ color:D.textDim }}>→</span>}
+                            {i<(c as any).unit_evolution_chain.length-1&&<span style={{ color:D.textDim }}>→</span>}
                           </span>
                         ))}
                       </div>
                     </div>
                   )}
-                  {c.visual_identity && (
+                  {c.visual_identity&&(
                     <div style={{ marginBottom:14 }}>
                       <span style={labelStyle}>Visual identity</span>
                       <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:7 }}>
-                        {[{l:"Environment",v:c.visual_identity.environment},{l:"Lighting",v:c.visual_identity.lighting},{l:"Cannon",v:c.visual_identity.cannon_type},{l:"Player",v:`${c.visual_identity.player_champion} (${c.visual_identity.player_mob_color})`},{l:"Enemy",v:`${c.visual_identity.enemy_champion} (${c.visual_identity.enemy_mob_color})`},{l:"Gates",v:c.visual_identity.gate_values?.join(", ")}].map(({l,v}) => (
+                        {[{l:"Environment",v:c.visual_identity.environment},{l:"Lighting",v:c.visual_identity.lighting},{l:"Cannon",v:c.visual_identity.cannon_type},{l:"Player",v:`${c.visual_identity.player_champion} (${c.visual_identity.player_mob_color})`},{l:"Enemy",v:`${c.visual_identity.enemy_champion} (${c.visual_identity.enemy_mob_color})`},{l:"Gates",v:c.visual_identity.gate_values?.join(", ")}].map(({l,v})=>(
                           <div key={l} style={metricStyle}><div style={metricLabel}>{l}</div><div style={{ fontSize:11,fontWeight:500,color:D.text }}>{v??"—"}</div></div>
                         ))}
                       </div>
                     </div>
                   )}
-                  {/* Network adaptations */}
-                  {c.network_adaptations && Object.keys(c.network_adaptations).length>0 && (
+                  {c.network_adaptations&&Object.keys(c.network_adaptations).length>0&&(
                     <div style={{ marginBottom:14 }}>
                       <span style={{ ...labelStyle,marginBottom:8 }}>Network adaptations</span>
                       <div style={{ display:"flex",flexDirection:"column" as const,gap:6 }}>
-                        {(["AppLovin","Facebook","Google","TikTok"] as const).filter(net=>c.network_adaptations?.[net]).map(net => {
-                          const nc = {AppLovin:{bg:D.blueBg,text:D.blue,border:D.blueDark},Facebook:{bg:D.surface2,text:D.textMuted,border:D.border2},Google:{bg:D.greenBg,text:D.green,border:D.greenBdr},TikTok:{bg:D.purpleBg,text:D.purple,border:D.purpleBdr}}[net];
-                          return (
-                            <div key={net} style={{ display:"flex",gap:8,alignItems:"flex-start",fontSize:11,lineHeight:1.5 }}>
-                              <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:500,flexShrink:0,marginTop:1,background:nc.bg,color:nc.text,border:`0.5px solid ${nc.border}` }}>{net}</span>
-                              <span style={{ color:D.textMuted }}>{c.network_adaptations![net]}</span>
-                            </div>
-                          );
+                        {(["AppLovin","Facebook","Google","TikTok"] as const).filter(net=>c.network_adaptations?.[net]).map(net=>{
+                          const nc={AppLovin:{bg:D.blueBg,text:D.blue,border:D.blueDark},Facebook:{bg:D.surface2,text:D.textMuted,border:D.border2},Google:{bg:D.greenBg,text:D.green,border:D.greenBdr},TikTok:{bg:D.purpleBg,text:D.purple,border:D.purpleBdr}}[net];
+                          return <div key={net} style={{ display:"flex",gap:8,alignItems:"flex-start",fontSize:11,lineHeight:1.5 }}><span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:500,flexShrink:0,marginTop:1,background:nc.bg,color:nc.text,border:`0.5px solid ${nc.border}` }}>{net}</span><span style={{ color:D.textMuted }}>{c.network_adaptations![net]}</span></div>;
                         })}
                       </div>
                     </div>
@@ -1073,46 +911,33 @@ export default function App() {
                   {/* Scene renders */}
                   <div style={{ marginBottom:14 }}>
                     <span style={labelStyle}>Scene renders</span>
-                    {c.is_experimental && (
-                      <div style={{ marginBottom:8,padding:"7px 12px",background:"#2a1a2e",border:"0.5px solid #9d174d",borderRadius:7,fontSize:11,color:"#f472b6" }}>
-                        ⚠ Experimental biome — no spend data to validate this visual direction. Use for inspiration only.
-                      </div>
-                    )}
-                    {!c.is_experimental && PROVEN_BIOMES.includes(c.visual_identity?.environment) && (
-                      <div style={{ marginBottom:8,padding:"7px 12px",background:D.greenBg,border:`0.5px solid ${D.greenBdr}`,borderRadius:7,fontSize:11,color:D.green }}>
-                        Proven biome — render Start first, then Middle, then End for best visual consistency.
-                      </div>
-                    )}
+                    {c.is_experimental&&<div style={{ marginBottom:8,padding:"7px 12px",background:"#2a1a2e",border:"0.5px solid #9d174d",borderRadius:7,fontSize:11,color:"#f472b6" }}>⚠ Experimental biome — no spend data. Use for inspiration only.</div>}
+                    {!c.is_experimental&&PROVEN_BIOMES.includes(c.visual_identity?.environment)&&<div style={{ marginBottom:8,padding:"7px 12px",background:D.greenBg,border:`0.5px solid ${D.greenBdr}`,borderRadius:7,fontSize:11,color:D.green }}>Proven biome — render Start first, then Middle, then End for best consistency.</div>}
                     <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
-                      {(["start","middle","end"] as const).map(scene => {
-                        const imgUrl = c[`visual_${scene}` as keyof Concept] as string|undefined;
-                        const loading = renderingScene[`${ci}-${scene}`];
-                        const needsStart = (scene==="middle"||scene==="end") && !c.visual_start;
+                      {(["start","middle","end"] as const).map(scene=>{
+                        const imgUrl=c[`visual_${scene}` as keyof Concept] as string|undefined;
+                        const loading=renderingScene[`${ci}-${scene}`];
+                        const needsStart=(scene==="middle"||scene==="end")&&!c.visual_start;
                         return (
                           <div key={scene} style={{ aspectRatio:"9/16",background:D.surface2,borderRadius:10,border:`0.5px solid ${D.border}`,overflow:"hidden",display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"center",cursor:needsStart?"not-allowed":"pointer" }}
-                            onClick={() => !imgUrl&&!loading&&!needsStart&&handleRenderScene(ci,scene)}>
-                            {imgUrl
-                              ? <img src={imgUrl} alt={scene} style={{ width:"100%",height:"100%",objectFit:"cover" }} />
-                              : loading
-                                ? <p style={{ margin:0,fontSize:11,color:D.textMuted }}>Rendering…</p>
-                                : needsStart
-                                  ? <div style={{ textAlign:"center" as const,padding:12 }}><p style={{ margin:0,fontSize:9,color:D.textDim,textTransform:"uppercase" as const }}>{scene}</p><p style={{ margin:"4px 0 0",fontSize:9,color:D.textDim }}>Render Start first</p></div>
-                                  : <div style={{ textAlign:"center" as const,padding:12 }}><p style={{ margin:0,fontSize:10,fontWeight:500,textTransform:"uppercase" as const,color:D.textDim }}>{scene}</p><p style={{ margin:"4px 0 0",fontSize:9,color:D.textDim }}>Click to render</p></div>
-                            }
+                            onClick={()=>!imgUrl&&!loading&&!needsStart&&handleRenderScene(ci,scene)}>
+                            {imgUrl?<img src={imgUrl} alt={scene} style={{ width:"100%",height:"100%",objectFit:"cover" }} />
+                              :loading?<p style={{ margin:0,fontSize:11,color:D.textMuted }}>Rendering…</p>
+                              :needsStart?<div style={{ textAlign:"center" as const,padding:12 }}><p style={{ margin:0,fontSize:9,color:D.textDim,textTransform:"uppercase" as const }}>{scene}</p><p style={{ margin:"4px 0 0",fontSize:9,color:D.textDim }}>Render Start first</p></div>
+                              :<div style={{ textAlign:"center" as const,padding:12 }}><p style={{ margin:0,fontSize:10,fontWeight:500,textTransform:"uppercase" as const,color:D.textDim }}>{scene}</p><p style={{ margin:"4px 0 0",fontSize:9,color:D.textDim }}>Click to render</p></div>}
                           </div>
                         );
                       })}
                     </div>
                   </div>
-                  {/* Production script */}
-                  {c.production_script?.length>0 && (
+                  {c.production_script?.length>0&&(
                     <div style={{ marginBottom:14 }}>
                       <span style={labelStyle}>Production script</span>
                       <div style={{ border:`0.5px solid ${D.border}`,borderRadius:8,overflow:"hidden" }}>
                         <div style={{ display:"grid",gridTemplateColumns:"60px 1fr 1fr 1fr",padding:"6px 12px",background:D.surface2,borderBottom:`0.5px solid ${D.border}` }}>
                           {["Time","Action","Visual","Audio"].map(h=><span key={h} style={{ fontSize:9,fontWeight:600,color:D.textDim,textTransform:"uppercase" as const,letterSpacing:"0.07em" }}>{h}</span>)}
                         </div>
-                        {c.production_script.map((step,si) => (
+                        {c.production_script.map((step,si)=>(
                           <div key={si} style={{ display:"grid",gridTemplateColumns:"60px 1fr 1fr 1fr",padding:"8px 12px",borderBottom:si<c.production_script.length-1?`0.5px solid ${D.border}`:"none",background:si%2===0?D.surface:D.surface2 }}>
                             <span style={{ fontSize:11,fontWeight:500,color:D.blue }}>{step.time}</span>
                             <span style={{ fontSize:11,paddingRight:8,lineHeight:1.4,color:D.text }}>{step.action}</span>
@@ -1123,12 +948,11 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  {/* Performance hooks */}
-                  {c.performance_hooks?.length>0 && (
+                  {c.performance_hooks?.length>0&&(
                     <div style={{ marginBottom:14 }}>
                       <span style={labelStyle}>Performance hooks</span>
                       <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10 }}>
-                        {c.performance_hooks.map((h,hi) => (
+                        {c.performance_hooks.map((h,hi)=>(
                           <div key={hi} style={{ background:D.surface,border:`0.5px solid ${D.border}`,borderRadius:10,padding:"10px 14px" }}>
                             <span style={{ fontSize:9,fontWeight:600,padding:"2px 7px",borderRadius:20,background:hi===0?D.goldBg:hi===1?D.greenBg:D.blueBg,color:hi===0?D.gold:hi===1?D.green:D.blue,display:"inline-block",marginBottom:6 }}>{h.type}</span>
                             <p style={{ margin:0,fontSize:12,fontStyle:"italic",color:D.textMuted }}>"{h.text}"</p>
@@ -1137,16 +961,15 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  {/* Quality score */}
-                  {c.quality_score && (
+                  {c.quality_score&&(
                     <div>
                       <span style={labelStyle}>Quality score</span>
                       <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:8,marginBottom:8 }}>
-                        {[{l:"Pattern fidelity",v:c.quality_score.pattern_fidelity},{l:"MOC DNA",v:c.quality_score.moc_dna},{l:"Emotional arc",v:c.quality_score.emotional_arc},{l:"Visual clarity",v:c.quality_score.visual_clarity},{l:"Segment fit",v:c.quality_score.segment_fit}].map(({l,v}) => (
+                        {[{l:"Pattern fidelity",v:c.quality_score.pattern_fidelity},{l:"MOC DNA",v:c.quality_score.moc_dna},{l:"Emotional arc",v:c.quality_score.emotional_arc},{l:"Visual clarity",v:c.quality_score.visual_clarity},{l:"Segment fit",v:c.quality_score.segment_fit}].map(({l,v})=>(
                           <div key={l} style={metricStyle}><div style={metricLabel}>{l}</div><div style={{ fontSize:18,fontWeight:500,color:scoreColor(v) }}>{v}</div></div>
                         ))}
                       </div>
-                      {c.quality_score.notes && <p style={{ margin:0,fontSize:11,color:D.textMuted,fontStyle:"italic" }}>{c.quality_score.notes}</p>}
+                      {c.quality_score.notes&&<p style={{ margin:0,fontSize:11,color:D.textMuted,fontStyle:"italic" }}>{c.quality_score.notes}</p>}
                     </div>
                   )}
                 </div>
@@ -1154,23 +977,22 @@ export default function App() {
             </div>
           ))}
 
-          {/* Library preview table */}
+          {/* Library preview */}
           <div style={{ background:D.surface,border:`0.5px solid ${D.border}`,borderRadius:10,overflow:"hidden" }}>
             <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px" }}>
-              <span style={{ fontSize:12,color:D.textMuted }}>Creative library <span style={{ fontSize:11 }}>{lib.length} entries</span></span>
-              <span style={{ fontSize:11,color:D.blue,cursor:"pointer" }} onClick={() => setLibPanelOpen(true)}>View all →</span>
+              <span style={{ fontSize:12,color:D.textMuted }}>Creative library <span style={{ fontSize:11 }}>{lib.length} entries · {activeWinners} active winners</span></span>
+              <span style={{ fontSize:11,color:D.blue,cursor:"pointer" }} onClick={()=>setLibPanelOpen(true)}>View all →</span>
             </div>
             <div style={{ display:"grid",gridTemplateColumns:"1fr 80px 100px 70px",padding:"6px 16px",fontSize:9,letterSpacing:".1em",color:D.textDim,borderBottom:`0.5px solid ${D.border}` }}>
               {["CREATIVE","SPEND","NETWORKS","VELOCITY"].map(h=><div key={h}>{h}</div>)}
             </div>
-            {lib.length===0
-              ? <div style={{ padding:"16px",fontSize:12,color:D.textDim }}>No creatives yet — upload via the library panel.</div>
-              : lib.slice(0,5).map((d,i) => {
-                const spendSt = SPEND_TIERS.find(t=>t.value===d.spend_tier);
-                const vel = velocityPerDay(d.spend_tier??"",d.spend_window_days);
+            {lib.length===0?<div style={{ padding:"16px",fontSize:12,color:D.textDim }}>No creatives yet.</div>
+              :lib.slice(0,5).map((d,i)=>{
+                const spendSt=SPEND_TIERS.find(t=>t.value===d.spend_tier);
+                const vel=velocityPerDay(d.spend_tier??"",d.spend_window_days);
                 return (
-                  <div key={d.id} onClick={() => setLibPanelOpen(true)}
-                    style={{ display:"grid",gridTemplateColumns:"1fr 80px 100px 70px",padding:"9px 16px",borderBottom:i<Math.min(lib.length,5)-1?`0.5px solid ${D.border}`:"none",cursor:"pointer",alignItems:"center",transition:"background .12s" }}
+                  <div key={d.id} onClick={()=>setLibPanelOpen(true)}
+                    style={{ display:"grid",gridTemplateColumns:"1fr 80px 100px 70px",padding:"9px 16px",borderBottom:i<Math.min(lib.length,5)-1?`0.5px solid ${D.border}`:"none",cursor:"pointer",alignItems:"center",transition:"background .12s",opacity:d.creative_status==="fatigued"?0.45:1 }}
                     onMouseEnter={e=>(e.currentTarget as HTMLDivElement).style.background=D.surface2}
                     onMouseLeave={e=>(e.currentTarget as HTMLDivElement).style.background=""}>
                     <div>
@@ -1178,15 +1000,14 @@ export default function App() {
                         <div style={{ width:6,height:6,borderRadius:"50%",background:d.tier==="scalable"?D.blue:D.green,marginRight:8,flexShrink:0 }} />
                         {d.title.length>35?d.title.slice(0,35)+"…":d.title}
                       </div>
-                      <div style={{ fontSize:10,color:D.textDim,paddingLeft:14 }}>Open</div>
+                      <div style={{ fontSize:10,color:D.textDim,paddingLeft:14 }}>{d.creative_status||"Open"}</div>
                     </div>
                     <div style={{ fontSize:12,color:"#c9d1d9" }}>{spendSt?spendSt.label:"—"}</div>
                     <div style={{ fontSize:11,color:D.textMuted }}>{d.spend_networks?.join(", ")||"—"}</div>
                     <div style={{ fontSize:12,color:D.green }}>{vel??"—"}</div>
                   </div>
                 );
-              })
-            }
+              })}
           </div>
         </div>
       </div>
