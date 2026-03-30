@@ -104,10 +104,7 @@ const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 const GEMINI_TEXT_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
 const GEMINI_IMAGE_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${GEMINI_KEY}`;
 
-// ─── Claude direct (bypasses Netlify, no timeout) ─────────────────────────────
-const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY || "";
-const CLAUDE_URL = "https://api.anthropic.com/v1/messages";
-const CLAUDE_MODEL = "claude-sonnet-4-6";
+
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const D = {
@@ -164,32 +161,7 @@ async function callGeminiDirect(systemPrompt: string, contentParts: any[]): Prom
   return parseJSON(raw);
 }
 
-async function callClaudeDirect(systemPrompt: string, userMsg: string): Promise<any> {
-  if (!ANTHROPIC_KEY) throw new Error("VITE_ANTHROPIC_API_KEY is not set.");
-  const r = await fetch(CLAUDE_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify({
-      model: CLAUDE_MODEL,
-      max_tokens: 1800,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userMsg }],
-    }),
-  });
-  const rawText = await r.text();
-  if (!r.ok) throw new Error(`Claude ${r.status}: ${rawText}`);
-  let data: any;
-  try { data = JSON.parse(rawText); }
-  catch { throw new Error(`Claude response not JSON: ${rawText.slice(0, 300)}`); }
-  const text = data.content?.[0]?.text;
-  if (!text) throw new Error(`Claude returned no content. Full response: ${JSON.stringify(data).slice(0, 300)}`);
-  return parseJSON(text);
-}
+
 
 function parseJSON(text: string): any {
   const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
@@ -694,82 +666,19 @@ export default function App() {
     finally { setAnalyzing(false); setAnalyzeInfo(""); setUploadConfig(null); if(fileRef.current) fileRef.current.value=""; }
   },[lib,uploadConfig]);
 
-  // ─── handleGenerateBrief — calls Claude directly, no Netlify timeout ─────────
+  // ─── handleGenerateBrief — Gemini direct, no Netlify, no timeout ─────────────
   const handleGenerateBrief = async () => {
     if (!briefCtx.trim()) { setBriefErr("Enter a brief context first."); return; }
     if (lib.length === 0) { setBriefErr("Add at least one ad first."); return; }
-    if (!ANTHROPIC_KEY) { setBriefErr("VITE_ANTHROPIC_API_KEY not set in environment."); return; }
     setGenerating(true); setBriefErr(""); setConcepts([]); setBriefAnalysis(null);
-
-    // A-smart winner selection: rank by spend tier + network match, exclude fatigued, top 5
-    const SPEND_RANK: Record<string,number> = { "1M":5,"500K":4,"300K":3,"100K":2,"sub100K":1 };
-    const briefLower = briefCtx.toLowerCase();
-    const networkKeywords: Record<string,string[]> = {
-      AppLovin: ["applovin","al"], Facebook: ["facebook","fb","meta"],
-      Google: ["google","gdn"], TikTok: ["tiktok","tt"],
-    };
-    const mentionedNetworks = Object.entries(networkKeywords)
-      .filter(([,kws]) => kws.some(kw => briefLower.includes(kw)))
-      .map(([net]) => net);
-
-    const winners = lib
-      .filter(d => d.tier === "winner" && d.creative_status !== "fatigued")
-      .map(d => ({
-        d,
-        score: (SPEND_RANK[d.spend_tier ?? ""] ?? 0)
-          + (mentionedNetworks.length > 0 ? (d.spend_networks ?? []).filter(n => mentionedNetworks.includes(n)).length * 2 : 0)
-          + (d.spend_networks ?? []).length * 0.1,
-      }))
-      .sort((a,b) => b.score - a.score)
-      .slice(0,5)
-      .map(({d}) => ({
-        title: d.title, hook_type: d.hook_type, hook_timing_seconds: d.hook_timing_seconds,
-        gate_sequence: (d.gate_sequence||[]).slice(0,5), unit_evolution_chain: d.unit_evolution_chain,
-        key_mechanic: d.key_mechanic, biome: d.biome, loss_event_type: d.loss_event_type,
-        spend_tier: d.spend_tier||null, spend_networks: d.spend_networks||[],
-        replication_instructions: (d.replication_instructions||"").slice(0,180),
-        creative_status: d.creative_status||null,
-      }));
-
-    const refBlock = iterateFrom.trim()
-      ? `\nITERATE FROM: "${iterateFrom.trim()}" — creative starting point, DNA rules are primary.\n` : "";
-
-    const buildPrompt = (conceptIndex: number, analysisOnly: boolean) => {
-      const isExperimental = conceptIndex >= 3;
-      return (
-        `You are a World-Class Lead Creative Producer for Mob Control (MOC) by Voodoo.\n\n` +
-        `WINNER DNA LIBRARY (${winners.length} entries — pre-ranked by spend + network relevance):\n` +
-        JSON.stringify(winners, null, 2) + `\n\n` +
-        `BRIEF: ${briefCtx} | SEGMENT: ${segment}${refBlock}\n\n` +
-        `SEGMENTS: Whale(>$50/mo,45-59yo,Winning/Rankings) Dolphin($10-50,Winning+Fun) Minnow(<$10,Fun) NonPayer(Fun+Challenges)\n\n` +
-        `PROVEN SWAP RULES:\n` +
-        `- BIOME SWAP: CC21(beige/AppLovin $11K/d)→CB57(foggy forest/FB+Google $5.6K/d)\n` +
-        `- COLOUR SWAP: CZ66($3.3K/d)→CZ65($7K+/d top-1 FB). Blue/red+desert=strongest FB signal.\n` +
-        `- HOOK SWAP: CR86(skeleton/FB)→CR85(knight/AppLovin)\n` +
-        `- CAMERA: Custom side cam→AppLovin/Google. Default cam→FB/TikTok.\n\n` +
-        `NETWORK RULES:\n` +
-        `- AppLovin: skeleton/knight+custom cam+blue+3+evolution. Biomes:Desert,FoggyForest.\n` +
-        `- Facebook: colour/biome swap+default cam+almost-win boss 1-5HP.\n` +
-        `- Google: strong almost-win+foggy forest/water.\n\n` +
-        `9-STEP CURVE: Pressure→Investment→Validate→Investment2→Payoff→FalseSafety→Pressure++→AlmostWin→Fail\n\n` +
-        (isExperimental
-          ? `CONCEPT TYPE: EXPERIMENTAL — use NEW biome (Cyber-City,Volcanic,Snow,Toxic). Set is_experimental:true.\n`
-          : `CONCEPT TYPE: PROVEN — use ONLY: Desert,FoggyForest,Water,Bunker,Meadow. Set is_experimental:false.\n`) +
-        `Generate concept ${conceptIndex + 1} of 4. Make it distinct.\n\n` +
-        `Return ONLY valid JSON, no markdown:\n` +
-        (analysisOnly
-          ? `{"analysis":{"patterns_used":string,"dna_sources":[string],"segment_insight":string,"strategy":string}}`
-          : `{"title":string,"dna_source":string,"is_data_backed":boolean,"is_experimental":boolean,"experimental_note":string|null,"objective":string,"target_segment":string,"player_motivation":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"layout":string,"hook_timing_seconds":number,"unit_evolution_chain":[string],"network_adaptations":{"AppLovin":string,"Facebook":string,"Google":string},"production_script":[{"time":string,"action":string,"visual_cue":string,"audio_cue":string}],"performance_hooks":[{"type":string,"text":string}],"engagement_hooks":string,"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}`)
-      );
-    };
-
     try {
-      const analysis = await callClaudeDirect(buildPrompt(0, true), "Generate the analysis. Return only JSON.");
-      setBriefAnalysis(analysis.analysis ?? null);
-      for (let i = 0; i < 4; i++) {
-        const concept = await callClaudeDirect(buildPrompt(i, false), "Generate the concept. Return only JSON.");
-        setConcepts(prev => [...prev, concept]);
-        if (i === 0) setExpandedConcept(0);
+      const result = await callGeminiDirect(briefSystem(lib, briefCtx, segment, iterateFrom.trim()||undefined), [{ text: "Generate the analysis and all 4 concepts. Return only JSON." }]);
+      if (result.analysis) setBriefAnalysis(result.analysis);
+      if (Array.isArray(result.concepts)) {
+        result.concepts.forEach((concept: Concept, i: number) => {
+          setConcepts(prev => [...prev, concept]);
+          if (i === 0) setExpandedConcept(0);
+        });
       }
     } catch (err: any) {
       setBriefErr(err.message);
