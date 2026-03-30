@@ -257,6 +257,9 @@ const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtra
 const reanalysisSystem = (entry: DNAEntry) =>
   `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate hallucinations 4.unit_evolution_chain 5.emotional_beats 6.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
 
+// briefSystem — Gemini-direct fallback for brief generation (single call, all 4 concepts).
+// Not currently used — live flow routes through /api/generate (Claude, 1 concept per call).
+// Keep as fallback if Netlify timeout issues recur.
 const briefSystem = (lib: DNAEntry[], ctx: string, seg: string, iterateFrom?: string) => {
   const winners = lib.filter(d => d.tier === "winner");
   const activeWinners = winners.filter(d => d.creative_status !== "fatigued");
@@ -663,22 +666,91 @@ export default function App() {
     finally { setAnalyzing(false); setAnalyzeInfo(""); setUploadConfig(null); if(fileRef.current) fileRef.current.value=""; }
   },[lib,uploadConfig]);
 
-  const handleGenerateBrief=async()=>{
-    if(!briefCtx.trim()){ setBriefErr("Enter a brief context first."); return; }
-    if(lib.length===0){ setBriefErr("Add at least one ad first."); return; }
-    setGenerating(true); setBriefErr(""); setConcepts([]); setBriefAnalysis(null);
-    const winners=lib.filter(d=>d.tier==="winner").map(d=>({ title:d.title,hook_type:d.hook_type,hook_timing_seconds:d.hook_timing_seconds,gate_sequence:(d.gate_sequence||[]).slice(0,5),unit_evolution_chain:d.unit_evolution_chain,key_mechanic:d.key_mechanic,biome:d.biome,loss_event_type:d.loss_event_type,spend_tier:d.spend_tier||null,spend_networks:d.spend_networks||[],replication_instructions:(d.replication_instructions||"").slice(0,180),creative_status:d.creative_status||null }));
-    const callConcept=async(conceptIndex: number,analysisOnly=false)=>{
-      const res=await fetch("/api/generate",{ method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ task:"brief_concept",payload:{ winners,briefContext:briefCtx,segment,iterateFrom:iterateFrom.trim()||undefined,conceptIndex,totalConcepts:4,analysisOnly } }) });
-      if(!res.ok){ const err=await res.json().catch(()=>({error:`HTTP ${res.status}`})); throw new Error(err.error??`HTTP ${res.status}`); }
-      return res.json();
-    };
-    try {
-      const analysis=await callConcept(0,true); setBriefAnalysis(analysis.analysis??null);
-      for(let i=0;i<4;i++){ const concept=await callConcept(i); setConcepts(prev=>[...prev,concept]); if(i===0) setExpandedConcept(0); }
-    } catch(err: any){ setBriefErr(err.message); }
-    finally { setGenerating(false); }
+const handleGenerateBrief = async () => {
+  if (!briefCtx.trim()) { setBriefErr("Enter a brief context first."); return; }
+  if (lib.length === 0) { setBriefErr("Add at least one ad first."); return; }
+  setGenerating(true); setBriefErr(""); setConcepts([]); setBriefAnalysis(null);
+
+  // ── A-smart winner selection ──────────────────────────────────────────────
+  // Rank by spend tier + network match to brief, exclude fatigued, top 5 only.
+  const SPEND_RANK: Record<string, number> = { "1M": 5, "500K": 4, "300K": 3, "100K": 2, "sub100K": 1 };
+  const briefLower = briefCtx.toLowerCase();
+  const networkKeywords: Record<string, string[]> = {
+    AppLovin: ["applovin", "al"],
+    Facebook: ["facebook", "fb", "meta"],
+    Google: ["google", "gdn"],
+    TikTok: ["tiktok", "tt"],
   };
+  const mentionedNetworks = Object.entries(networkKeywords)
+    .filter(([, kws]) => kws.some(kw => briefLower.includes(kw)))
+    .map(([net]) => net);
+
+  const winners = lib
+    .filter(d => d.tier === "winner" && d.creative_status !== "fatigued")
+    .map(d => ({
+      d,
+      score: (SPEND_RANK[d.spend_tier ?? ""] ?? 0)
+        + (mentionedNetworks.length > 0
+          ? (d.spend_networks ?? []).filter(n => mentionedNetworks.includes(n)).length * 2
+          : 0)
+        + (d.spend_networks ?? []).length * 0.1,
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5)
+    .map(({ d }) => ({
+      title: d.title,
+      hook_type: d.hook_type,
+      hook_timing_seconds: d.hook_timing_seconds,
+      gate_sequence: (d.gate_sequence || []).slice(0, 5),
+      unit_evolution_chain: d.unit_evolution_chain,
+      key_mechanic: d.key_mechanic,
+      biome: d.biome,
+      loss_event_type: d.loss_event_type,
+      spend_tier: d.spend_tier || null,
+      spend_networks: d.spend_networks || [],
+      replication_instructions: (d.replication_instructions || "").slice(0, 180),
+      creative_status: d.creative_status || null,
+    }));
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const callConcept = async (conceptIndex: number, analysisOnly = false) => {
+    const res = await fetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        task: "brief_concept",
+        payload: {
+          winners,
+          briefContext: briefCtx,
+          segment,
+          iterateFrom: iterateFrom.trim() || undefined,
+          conceptIndex,
+          totalConcepts: 4,
+          analysisOnly,
+        },
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error(err.error ?? `HTTP ${res.status}`);
+    }
+    return res.json();
+  };
+
+  try {
+    const analysis = await callConcept(0, true);
+    setBriefAnalysis(analysis.analysis ?? null);
+    for (let i = 0; i < 4; i++) {
+      const concept = await callConcept(i);
+      setConcepts(prev => [...prev, concept]);
+      if (i === 0) setExpandedConcept(0);
+    }
+  } catch (err: any) {
+    setBriefErr(err.message);
+  } finally {
+    setGenerating(false);
+  }
+};
 
   const handleRenderScene=async(ci: number,scene: "start"|"middle"|"end")=>{
     const k=`${ci}-${scene}`; setRenderingScene(p=>({...p,[k]:true}));
