@@ -18,6 +18,8 @@ interface DNAEntry {
   ad_type: "moc" | "competitor" | "compound";
   upload_context: string; file_name: string; added_at: string;
   reanalyzed?: boolean; iteration_of?: string; strategic_notes?: string;
+  parent_id?: string;
+  creative_status?: "briefed" | "produced" | "running" | "scaling" | "fatigued";
   creative_id?: string; spend_tier?: string; spend_window_days?: number | null;
   spend_networks?: string[]; spend_notes?: string; spend_data_source?: string;
   title: string; hook_type: string; hook_timing_seconds: number | null;
@@ -58,7 +60,8 @@ interface BriefAnalysis { patterns_used: string; segment_insight: string; strate
 // ─── Constants ────────────────────────────────────────────────────────────────
 const TIERS = ["winner", "scalable", "failed", "inspiration"] as const;
 const PROVEN_BIOMES = ["Desert", "Foggy Forest", "Water", "Bunker", "Meadow"];
-const SPEND_TIERS = [
+
+const SPEND_TIERS = [const PROVEN_BIOMES = ["Desert", "Foggy Forest", "Water", "Bunker", "Meadow"];
   { value: "sub100K", label: "<$100K", bg: "#1a2a1a", text: "#3fb950", border: "#238636" },
   { value: "100K",    label: ">$100K", bg: "#1a2a1a", text: "#3fb950", border: "#238636" },
   { value: "300K",    label: ">$300K", bg: "#1a2a4a", text: "#58a6ff", border: "#1f6feb" },
@@ -381,51 +384,104 @@ function SpendTagger({ entry, onSave }: { entry: DNAEntry; onSave: (fields: Part
   const [networks, setNetworks] = useState<string[]>(entry.spend_networks ?? []);
   const [notes, setNotes] = useState(entry.spend_notes ?? "");
   const [iterOf, setIterOf] = useState(entry.iteration_of ?? "");
+  const [parentId, setParentId] = useState(entry.parent_id ?? "");
+  const [creativeStatus, setCreativeStatus] = useState(entry.creative_status ?? "");
   const [saved, setSaved] = useState(false);
   const vel = velocityPerDay(tier, days);
   function save() {
-    onSave({ spend_tier: tier||undefined, spend_window_days: days, spend_networks: networks.length>0?networks:undefined, spend_notes: notes||undefined, iteration_of: iterOf||undefined });
+    onSave({
+      spend_tier: tier || undefined,
+      spend_window_days: days,
+      spend_networks: networks.length > 0 ? networks : undefined,
+      spend_notes: notes || undefined,
+      iteration_of: iterOf || undefined,
+      parent_id: parentId || undefined,
+      creative_status: (creativeStatus || undefined) as DNAEntry["creative_status"],
+    });
     setSaved(true); setTimeout(() => setSaved(false), 2000);
   }
   return (
     <div style={{ marginTop: 14, padding: "14px 16px", background: D.surface2, borderRadius: 10, border: `0.5px solid ${D.border}` }}>
       <span style={{ ...labelStyle, marginBottom: 12 }}>Spend data</span>
+
+      <div style={{ marginBottom: 12 }}>
+        <span style={{ fontSize: 10, color: D.textDim, display: "block", marginBottom: 6 }}>Creative status</span>
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" as const }}>
+          {CREATIVE_STATUS.map(s => (
+            <button key={s.value} onClick={() => setCreativeStatus(creativeStatus === s.value ? "" : s.value)}
+              style={{ padding: "4px 10px", fontSize: 11, fontWeight: 500, borderRadius: 20, cursor: "pointer",
+                border: `1.5px solid ${creativeStatus === s.value ? s.border : D.border2}`,
+                background: creativeStatus === s.value ? s.bg : "transparent",
+                color: creativeStatus === s.value ? s.text : D.textMuted }}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <span style={{ fontSize: 10, color: D.textDim, display: "block", marginBottom: 6 }}>Parent creative (lineage)</span>
+        <input style={{ ...inputStyle, fontSize: 11, padding: "5px 8px" }}
+          placeholder="e.g. CT43 (the creative this was iterated from)"
+          value={parentId} onChange={e => setParentId(e.target.value)} />
+      </div>
+
       <div style={{ marginBottom: 12 }}>
         <span style={{ fontSize: 10, color: D.textDim, display: "block", marginBottom: 6 }}>Spend tier</span>
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap" as const }}>
           {SPEND_TIERS.map(t => (
-            <button key={t.value} onClick={() => setTier(tier===t.value?"":t.value)} style={{ padding: "4px 10px", fontSize: 11, fontWeight: 500, borderRadius: 20, cursor: "pointer", border: `1.5px solid ${tier===t.value?t.border:D.border2}`, background: tier===t.value?t.bg:"transparent", color: tier===t.value?t.text:D.textMuted }}>{t.label}</button>
+            <button key={t.value} onClick={() => setTier(tier === t.value ? "" : t.value)}
+              style={{ padding: "4px 10px", fontSize: 11, fontWeight: 500, borderRadius: 20, cursor: "pointer",
+                border: `1.5px solid ${tier === t.value ? t.border : D.border2}`,
+                background: tier === t.value ? t.bg : "transparent",
+                color: tier === t.value ? t.text : D.textMuted }}>
+              {t.label}
+            </button>
           ))}
         </div>
       </div>
+
       {tier && tier !== "sub100K" && (
         <div style={{ marginBottom: 12 }}>
           <span style={{ fontSize: 10, color: D.textDim, display: "block", marginBottom: 6 }}>Time to reach that spend</span>
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap" as const }}>
             {WINDOW_OPTIONS.map(w => (
-              <button key={w.value} onClick={() => setDays(days===w.value?null:w.value)} style={{ padding: "4px 10px", fontSize: 11, borderRadius: 20, cursor: "pointer", border: `1.5px solid ${days===w.value?D.blueDark:D.border2}`, background: days===w.value?D.blueBg:"transparent", color: days===w.value?D.blue:D.textMuted }}>{w.label}</button>
+              <button key={w.value} onClick={() => setDays(days === w.value ? null : w.value)}
+                style={{ padding: "4px 10px", fontSize: 11, borderRadius: 20, cursor: "pointer",
+                  border: `1.5px solid ${days === w.value ? D.blueDark : D.border2}`,
+                  background: days === w.value ? D.blueBg : "transparent",
+                  color: days === w.value ? D.blue : D.textMuted }}>
+                {w.label}
+              </button>
             ))}
           </div>
           {vel && <div style={{ marginTop: 6, fontSize: 11, color: D.blue, fontWeight: 500 }}>{vel}</div>}
         </div>
       )}
+
       <div style={{ marginBottom: 12 }}>
         <span style={{ fontSize: 10, color: D.textDim, display: "block", marginBottom: 6 }}>Networks</span>
         <div style={{ display: "flex", gap: 5, flexWrap: "wrap" as const }}>
           {NETWORK_OPTIONS.map(n => (
-            <button key={n} onClick={() => setNetworks(p => p.includes(n)?p.filter(x=>x!==n):[...p,n])} style={chipStyle(networks.includes(n), "green")}>{n}</button>
+            <button key={n} onClick={() => setNetworks(p => p.includes(n) ? p.filter(x => x !== n) : [...p, n])}
+              style={chipStyle(networks.includes(n), "green")}>{n}</button>
           ))}
         </div>
       </div>
+
       <div style={{ marginBottom: 12 }}>
         <span style={{ fontSize: 10, color: D.textDim, display: "block", marginBottom: 6 }}>Iteration of</span>
-        <input style={{ ...inputStyle, fontSize: 11, padding: "5px 8px" }} placeholder="e.g. CT43, CZ66" value={iterOf} onChange={e => setIterOf(e.target.value)} />
+        <input style={{ ...inputStyle, fontSize: 11, padding: "5px 8px" }}
+          placeholder="e.g. CT43, CZ66" value={iterOf} onChange={e => setIterOf(e.target.value)} />
       </div>
+
       <div style={{ marginBottom: 12 }}>
         <span style={{ fontSize: 10, color: D.textDim, display: "block", marginBottom: 6 }}>Notes</span>
-        <textarea style={{ ...inputStyle, minHeight: 52, resize: "vertical", fontSize: 11, background: D.bg } as React.CSSProperties} placeholder="e.g. peaked week 2, Meta only…" value={notes} onChange={e => setNotes(e.target.value)} />
+        <textarea style={{ ...inputStyle, minHeight: 52, resize: "vertical", fontSize: 11, background: D.bg } as React.CSSProperties}
+          placeholder="e.g. peaked week 2, Meta only…" value={notes} onChange={e => setNotes(e.target.value)} />
       </div>
-      <button onClick={save} style={{ ...btnPri, padding: "6px 14px", fontSize: 11 }}>{saved ? "Saved ✓" : "Save spend data"}</button>
+
+      <button onClick={save} style={{ ...btnPri, padding: "6px 14px", fontSize: 11 }}>{saved ? "Saved ✓" : "Save"}</button>
     </div>
   );
 }
@@ -438,13 +494,22 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
 }) {
   const canTag = d.ad_type === "moc" && d.tier !== "inspiration";
   const spendSt = SPEND_TIERS.find(t => t.value === d.spend_tier);
+  const statusSt = CREATIVE_STATUS.find(s => s.value === d.creative_status);
+  const isFatigued = d.creative_status === "fatigued";
+  const lineageChain = d.parent_id ? LINEAGE_CHAINS[d.parent_id] : d.creative_id ? LINEAGE_CHAINS[d.creative_id] : null;
+  const creativeIdForChain = d.title.match(/\b(CT43|9876|CX18|CN28p?|CR17|CZ6[56]|CC21|CB57|10218|10324|CR8[56]|DB24|CV73|8810|8924)\b/)?.[0];
+  const chain = lineageChain || (creativeIdForChain ? LINEAGE_CHAINS[creativeIdForChain] : null);
   return (
-    <div style={{ borderBottom: `0.5px solid ${D.border}`, padding: "14px 16px" }}>
+    <div style={{ borderBottom: `0.5px solid ${D.border}`, padding: "14px 16px", opacity: isFatigued ? 0.6 : 1, transition: "opacity .15s" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setExpandedDNA(expandedDNA===di?null:di)}>
-          <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>{d.title}</div>
+          <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" as const }}>
+            {isFatigued && <span style={{ fontSize: 9, padding: "1px 6px", background: D.redBg, color: D.red, border: `0.5px solid #6e2020`, borderRadius: 20 }}>fatigued</span>}
+            {d.title}
+          </div>
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap" as const, marginBottom: 3 }}>
             <span style={pill(TIER_STYLE[d.tier].bg, TIER_STYLE[d.tier].text, TIER_STYLE[d.tier].border)}>{d.tier}</span>
+            {statusSt && <span style={pill(statusSt.bg, statusSt.text, statusSt.border)}>{statusSt.label}</span>}
             {d.ad_type !== "moc" && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)}>{d.ad_type}</span>}
             {d.is_compound && <span style={pill(D.goldBg, D.gold, D.goldBdr)}>compound</span>}
             {d.reanalyzed && <span style={pill(D.greenBg, D.green, D.greenBdr)}>re-analyzed</span>}
@@ -452,6 +517,20 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
             {spendSt && <span style={pill(spendSt.bg, spendSt.text, spendSt.border)}>{spendSt.label}{d.spend_window_days ? ` / ${WINDOW_OPTIONS.find(w=>w.value===d.spend_window_days)?.label??d.spend_window_days+"d"}` : ""}</span>}
             {d.spend_networks && d.spend_networks.length>0 && <span style={pill(D.greenBg, D.green, D.greenBdr)}>{d.spend_networks.join(", ")}</span>}
           </div>
+          {chain && (
+            <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 3, flexWrap: "wrap" as const }}>
+              <span style={{ fontSize: 9, color: D.textDim, letterSpacing: "0.07em" }}>LINEAGE</span>
+              {chain.map((id, i) => {
+                const isCurrentEntry = d.title.includes(id) || d.iteration_of === id || d.parent_id === id;
+                return (
+                  <span key={i} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                    <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 20, fontWeight: isCurrentEntry ? 600 : 400, background: isCurrentEntry ? D.blueBg : D.surface2, color: isCurrentEntry ? D.blue : D.textDim, border: `0.5px solid ${isCurrentEntry ? D.blueDark : D.border2}` }}>{id}</span>
+                    {i < chain.length - 1 && <span style={{ fontSize: 9, color: D.textDim }}>→</span>}
+                  </span>
+                );
+              })}
+            </div>
+          )}
           <div style={{ fontSize: 10, color: D.textDim }}>{d.file_name} · {new Date(d.added_at).toLocaleDateString()}</div>
         </div>
         <div style={{ display: "flex", gap: 5, alignItems: "center", marginLeft: 10, flexShrink: 0 }}>
@@ -701,60 +780,16 @@ export default function App() {
 
   const handleGenerateBrief = async () => {
     if (!briefCtx.trim()) { setBriefErr("Enter a brief context first."); return; }
-    if (lib.length === 0) { setBriefErr("Add at least one ad first."); return; }
+    if (lib.length===0) { setBriefErr("Add at least one ad first."); return; }
     setGenerating(true); setBriefErr(""); setConcepts([]); setBriefAnalysis(null);
-
-    const winners = lib.filter(d => d.tier === "winner").map(d => ({
-      title: d.title,
-      hook_type: d.hook_type,
-      hook_timing_seconds: d.hook_timing_seconds,
-      gate_sequence: (d.gate_sequence || []).slice(0, 5),
-      unit_evolution_chain: d.unit_evolution_chain,
-      key_mechanic: d.key_mechanic,
-      biome: d.biome,
-      loss_event_type: d.loss_event_type,
-      spend_tier: d.spend_tier || null,
-      spend_networks: d.spend_networks || [],
-      replication_instructions: (d.replication_instructions || "").slice(0, 180),
-    }));
-
-    const callConcept = async (conceptIndex: number, analysisOnly = false) => {
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          task: "brief_concept",
-          payload: {
-            winners,
-            briefContext: briefCtx,
-            segment,
-            iterateFrom: iterateFrom.trim() || undefined,
-            conceptIndex,
-            totalConcepts: 4,
-            analysisOnly,
-          },
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-        throw new Error(err.error ?? `HTTP ${res.status}`);
-      }
-      return res.json();
-    };
-
     try {
-      const analysis = await callConcept(0, true);
-      setBriefAnalysis(analysis.analysis ?? null);
-      for (let i = 0; i < 4; i++) {
-        const concept = await callConcept(i);
-        setConcepts(prev => [...prev, concept]);
-        if (i === 0) setExpandedConcept(0);
-      }
-    } catch (err: any) {
-      setBriefErr(err.message);
-    } finally {
-      setGenerating(false);
-    }
+      const result = await callClaude(
+        briefSystem(lib, briefCtx, segment, iterateFrom.trim()||undefined),
+        "Generate MOC ad concepts grounded in the DNA library. Return only JSON."
+      );
+      setConcepts(result.concepts??[]); setBriefAnalysis(result.analysis??null); setExpandedConcept(0);
+    } catch (err: any) { setBriefErr(err.message); }
+    finally { setGenerating(false); }
   };
 
   const handleRenderScene = async (ci: number, scene: "start"|"middle"|"end") => {
