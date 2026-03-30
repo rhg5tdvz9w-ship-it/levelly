@@ -701,16 +701,60 @@ export default function App() {
 
   const handleGenerateBrief = async () => {
     if (!briefCtx.trim()) { setBriefErr("Enter a brief context first."); return; }
-    if (lib.length===0) { setBriefErr("Add at least one ad first."); return; }
+    if (lib.length === 0) { setBriefErr("Add at least one ad first."); return; }
     setGenerating(true); setBriefErr(""); setConcepts([]); setBriefAnalysis(null);
+
+    const winners = lib.filter(d => d.tier === "winner").map(d => ({
+      title: d.title,
+      hook_type: d.hook_type,
+      hook_timing_seconds: d.hook_timing_seconds,
+      gate_sequence: (d.gate_sequence || []).slice(0, 5),
+      unit_evolution_chain: d.unit_evolution_chain,
+      key_mechanic: d.key_mechanic,
+      biome: d.biome,
+      loss_event_type: d.loss_event_type,
+      spend_tier: d.spend_tier || null,
+      spend_networks: d.spend_networks || [],
+      replication_instructions: (d.replication_instructions || "").slice(0, 180),
+    }));
+
+    const callConcept = async (conceptIndex: number, analysisOnly = false) => {
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          task: "brief_concept",
+          payload: {
+            winners,
+            briefContext: briefCtx,
+            segment,
+            iterateFrom: iterateFrom.trim() || undefined,
+            conceptIndex,
+            totalConcepts: 4,
+            analysisOnly,
+          },
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(err.error ?? `HTTP ${res.status}`);
+      }
+      return res.json();
+    };
+
     try {
-      const result = await callClaude(
-        briefSystem(lib, briefCtx, segment, iterateFrom.trim()||undefined),
-        "Generate MOC ad concepts grounded in the DNA library. Return only JSON."
-      );
-      setConcepts(result.concepts??[]); setBriefAnalysis(result.analysis??null); setExpandedConcept(0);
-    } catch (err: any) { setBriefErr(err.message); }
-    finally { setGenerating(false); }
+      const analysis = await callConcept(0, true);
+      setBriefAnalysis(analysis.analysis ?? null);
+      for (let i = 0; i < 4; i++) {
+        const concept = await callConcept(i);
+        setConcepts(prev => [...prev, concept]);
+        if (i === 0) setExpandedConcept(0);
+      }
+    } catch (err: any) {
+      setBriefErr(err.message);
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const handleRenderScene = async (ci: number, scene: "start"|"middle"|"end") => {
