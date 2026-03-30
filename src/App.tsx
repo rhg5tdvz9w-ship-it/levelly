@@ -165,6 +165,7 @@ async function callGeminiDirect(systemPrompt: string, contentParts: any[]): Prom
 }
 
 async function callClaudeDirect(systemPrompt: string, userMsg: string): Promise<any> {
+  if (!ANTHROPIC_KEY) throw new Error("VITE_ANTHROPIC_API_KEY is not set.");
   const r = await fetch(CLAUDE_URL, {
     method: "POST",
     headers: {
@@ -180,9 +181,14 @@ async function callClaudeDirect(systemPrompt: string, userMsg: string): Promise<
       messages: [{ role: "user", content: userMsg }],
     }),
   });
-  if (!r.ok) throw new Error(`Claude ${r.status}: ${await r.text()}`);
-  const data = await r.json();
-  return parseJSON(data.content?.[0]?.text ?? "{}");
+  const rawText = await r.text();
+  if (!r.ok) throw new Error(`Claude ${r.status}: ${rawText}`);
+  let data: any;
+  try { data = JSON.parse(rawText); }
+  catch { throw new Error(`Claude response not JSON: ${rawText.slice(0, 300)}`); }
+  const text = data.content?.[0]?.text;
+  if (!text) throw new Error(`Claude returned no content. Full response: ${JSON.stringify(data).slice(0, 300)}`);
+  return parseJSON(text);
 }
 
 function parseJSON(text: string): any {
