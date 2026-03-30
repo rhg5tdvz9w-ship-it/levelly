@@ -5,73 +5,41 @@ import { buildReferenceContext, buildReferenceParts, MOC_REFERENCES } from "./re
 interface EmotionalBeat { timestamp_seconds: number; event: string; emotion: string; }
 
 interface DNASegment {
-  segment_index: number;
-  biome: string;
-  biome_visual_notes: string;
-  start_seconds: number;
-  end_seconds: number;
-  hook_type: string;
-  hook_timing_seconds: number;
-  hook_description: string;
-  gate_sequence: string[];
-  swarm_peak_moment_seconds: number | null;
-  loss_event_type: string;
-  loss_event_timing_seconds: number | null;
-  unit_evolution_chain: string[];
-  champions_visible: string[];
-  key_mechanic: string;
-  emotional_beats: EmotionalBeat[];
-  why_it_works: string;
-  why_it_fails: string | null;
+  segment_index: number; biome: string; biome_visual_notes: string;
+  start_seconds: number; end_seconds: number; hook_type: string;
+  hook_timing_seconds: number; hook_description: string; gate_sequence: string[];
+  swarm_peak_moment_seconds: number | null; loss_event_type: string;
+  loss_event_timing_seconds: number | null; unit_evolution_chain: string[];
+  champions_visible: string[]; key_mechanic: string; emotional_beats: EmotionalBeat[];
+  why_it_works: string; why_it_fails: string | null;
 }
 
 interface DNAEntry {
   id: number;
   tier: "winner" | "scalable" | "failed" | "inspiration";
   ad_type: "moc" | "competitor" | "compound";
-  upload_context: string;
-  file_name: string;
-  added_at: string;
-  reanalyzed?: boolean;
-  performance_score?: number;
-  iteration_of?: string;
-  strategic_notes?: string;
-  // Spend & performance data
+  upload_context: string; file_name: string; added_at: string;
+  reanalyzed?: boolean; iteration_of?: string; strategic_notes?: string;
+  // Spend fields
   creative_id?: string;
   spend_tier?: string;
   spend_window_days?: number | null;
+  spend_networks?: string[];
   spend_notes?: string;
-  spend_networks?: string;
   spend_data_source?: string;
-  // Single-ad fields
-  title: string;
-  hook_type: string;
-  hook_timing_seconds: number | null;
-  hook_description: string;
-  gate_sequence: string[];
-  swarm_peak_moment_seconds: number | null;
-  loss_event_type: string;
-  loss_event_timing_seconds: number | null;
-  unit_evolution_chain: string[];
-  emotional_arc: string;
-  emotional_beats: EmotionalBeat[];
-  biome: string;
-  biome_visual_notes: string;
-  champions_visible: string[];
-  pacing: string;
-  key_mechanic: string;
-  why_it_works: string;
-  why_it_fails: string | null;
+  // Analysis fields
+  title: string; hook_type: string; hook_timing_seconds: number | null;
+  hook_description: string; gate_sequence: string[];
+  swarm_peak_moment_seconds: number | null; loss_event_type: string;
+  loss_event_timing_seconds: number | null; unit_evolution_chain: string[];
+  emotional_arc: string; emotional_beats: EmotionalBeat[]; biome: string;
+  biome_visual_notes: string; champions_visible: string[]; pacing: string;
+  key_mechanic: string; why_it_works: string; why_it_fails: string | null;
   creative_gaps: string | null;
   creative_gaps_structured?: { hook_strength: string; mechanic_clarity: string; emotional_payoff: string; };
-  frame_extraction_gaps: string | null;
-  replication_instructions: string;
-  auto_frames?: FrameExtraction[];
-  manual_frames?: string[];
-  // Compound-only fields
-  is_compound?: boolean;
-  segments?: DNASegment[];
-  transition_type?: string;
+  frame_extraction_gaps: string | null; replication_instructions: string;
+  auto_frames?: FrameExtraction[]; manual_frames?: string[];
+  is_compound?: boolean; segments?: DNASegment[]; transition_type?: string;
 }
 
 interface FrameExtraction { timestamp_seconds: number; description: string; significance: string; }
@@ -79,9 +47,7 @@ interface FrameExtraction { timestamp_seconds: number; description: string; sign
 interface UploadConfig {
   tier: "winner" | "scalable" | "failed" | "inspiration";
   ad_type: "moc" | "competitor" | "compound";
-  context: string;
-  manual_frames: File[];
-  performance_score?: number;
+  context: string; manual_frames: File[];
   iteration_of?: string;
 }
 
@@ -94,27 +60,35 @@ interface BriefAnalysis { patterns_used: string; segment_insight: string; strate
 
 const TIERS = ["winner", "scalable", "failed", "inspiration"] as const;
 const TIER_STYLE: Record<string, { bg: string; text: string; border: string }> = {
-  winner: { bg: "#EAF3DE", text: "#3B6D11", border: "#97C459" },
-  scalable: { bg: "#E6F1FB", text: "#185FA5", border: "#85B7EB" },
-  failed: { bg: "#FCEBEB", text: "#A32D2D", border: "#F09595" },
-  inspiration: { bg: "#FAEEDA", text: "#854F0B", border: "#FAC775" },
+  winner:      { bg: "#EAF3DE", text: "#3B6D11",  border: "#97C459" },
+  scalable:    { bg: "#E6F1FB", text: "#185FA5",  border: "#85B7EB" },
+  failed:      { bg: "#FCEBEB", text: "#A32D2D",  border: "#F09595" },
+  inspiration: { bg: "#FAEEDA", text: "#854F0B",  border: "#FAC775" },
 };
+
+const SPEND_TIERS = [
+  { value: "sub100K", label: "<$100K", bg: "#F1EFE8", text: "#5F5E5A", border: "#B4B2A9" },
+  { value: "100K",    label: ">$100K", bg: "#E1F5EE", text: "#0F6E56", border: "#5DCAA5" },
+  { value: "300K",    label: ">$300K", bg: "#E6F1FB", text: "#185FA5", border: "#85B7EB" },
+  { value: "500K",    label: ">$500K", bg: "#FAEEDA", text: "#854F0B", border: "#EF9F27" },
+  { value: "1M",      label: ">$1M",   bg: "#FAECE7", text: "#993C1D", border: "#F0997B" },
+];
+
+const WINDOW_OPTIONS = [
+  { value: 7, label: "7d" }, { value: 14, label: "14d" }, { value: 30, label: "30d" },
+  { value: 60, label: "60d" }, { value: 90, label: "90d" }, { value: 180, label: "6mo" }, { value: 365, label: "1yr+" },
+];
+
+const NETWORK_OPTIONS = ["AppLovin", "Facebook", "TikTok", "Google", "Voodoo Ads", "Unity"];
+
 const SEGMENTS_LIST = ["Whale", "Dolphin", "Minnow", "Non-Payer"];
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 const GEMINI_TEXT_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
 const GEMINI_IMAGE_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${GEMINI_KEY}`;
 
-// ─── Gemini direct calls ──────────────────────────────────────────────────────
+// ─── Gemini calls ─────────────────────────────────────────────────────────────
 async function callGeminiDirect(systemPrompt: string, contentParts: any[]): Promise<any> {
-  const r = await fetch(GEMINI_TEXT_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      system_instruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: "user", parts: contentParts }],
-      generationConfig: { response_mime_type: "application/json" }
-    })
-  });
+  const r = await fetch(GEMINI_TEXT_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ system_instruction: { parts: [{ text: systemPrompt }] }, contents: [{ role: "user", parts: contentParts }], generationConfig: { response_mime_type: "application/json" } }) });
   const text = await r.text();
   if (!r.ok) throw new Error(`Gemini ${r.status}: ${text}`);
   const data = JSON.parse(text);
@@ -130,11 +104,7 @@ function parseJSON(text: string): any {
 }
 
 async function callImageDirect(prompt: string, refParts: any[]): Promise<string> {
-  const r = await fetch(GEMINI_IMAGE_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ contents: [{ parts: [...refParts, { text: prompt }] }], generationConfig: { responseModalities: ["IMAGE", "TEXT"] } })
-  });
+  const r = await fetch(GEMINI_IMAGE_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [...refParts, { text: prompt }] }], generationConfig: { responseModalities: ["IMAGE", "TEXT"] } }) });
   const text = await r.text();
   if (!r.ok) throw new Error(`Image gen ${r.status}: ${text}`);
   const data = JSON.parse(text);
@@ -149,7 +119,6 @@ async function uploadToGeminiFileAPI(file: File, onStatus: (m: string) => void):
   if (!initRes.ok) throw new Error(`File API init: ${initRes.status}`);
   const uploadUrl = initRes.headers.get("X-Goog-Upload-URL");
   if (!uploadUrl) throw new Error("No upload URL");
-  onStatus(`Uploading "${file.name}"…`);
   const uploadRes = await fetch(uploadUrl, { method: "POST", headers: { "X-Goog-Upload-Command": "upload, finalize", "X-Goog-Upload-Offset": "0", "Content-Type": file.type }, body: file });
   if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status}`);
   const data = await uploadRes.json();
@@ -171,19 +140,10 @@ async function fileToBase64(file: File): Promise<string> {
 
 // ─── Ref image helpers ────────────────────────────────────────────────────────
 function pickRelevantRefs(vi: VisualIdentity): any[] {
-  const biome = vi.environment?.toLowerCase() || "";
-  const player = vi.player_champion?.toLowerCase() || "";
-  const enemy = vi.enemy_champion?.toLowerCase() || "";
+  const biome = vi.environment?.toLowerCase() || ""; const player = vi.player_champion?.toLowerCase() || ""; const enemy = vi.enemy_champion?.toLowerCase() || "";
   const populated = MOC_REFERENCES.filter(r => !r.base64.startsWith("REPLACE_"));
   if (populated.length === 0) return [];
-  const scored = populated.map(ref => {
-    const label = ref.label.toLowerCase(); let score = 0;
-    if (label.includes(biome)) score += 3;
-    if (player && label.includes(player)) score += 2;
-    if (enemy && label.includes(enemy)) score += 2;
-    if (ref.category === "gate") score += 1;
-    return { ref, score };
-  });
+  const scored = populated.map(ref => { const label = ref.label.toLowerCase(); let score = 0; if (label.includes(biome)) score += 3; if (player && label.includes(player)) score += 2; if (enemy && label.includes(enemy)) score += 2; if (ref.category === "gate") score += 1; return { ref, score }; });
   scored.sort((a, b) => b.score - a.score);
   const selected: typeof populated = [];
   const biomeRef = scored.find(s => s.ref.category === "biome" && s.score > 0)?.ref;
@@ -225,7 +185,7 @@ const CHAMPION_GUIDE = `CHAMPIONS (visual match only — never infer):
 
 const GATE_GUIDE = `GATES (only report gates you actually see on screen — NEVER invent):
 - Multiplication gate: rectangle with X value (x2, x3, x4, x100 etc.) — various colors
-- Addition gate: rectangle with + value (+1, +3, +99 etc.)  
+- Addition gate: rectangle with + value (+1, +3, +99 etc.)
 - Death gate: RED rectangle with SKULL icon — instantly kills ALL mobs
 - Dynamic/upgrade gates: gates that combine or upgrade when structures are broken
 - Report ONLY gates you see. If you see 1 X gate and 8 +1 gates, report exactly that.`;
@@ -244,216 +204,64 @@ const TIMESTAMP_RULES = `TIMESTAMP RULES (apply to ALL time fields):
 - If a video is 30 seconds long and something happens halfway through, write 15 — not 0.5
 - Minimum meaningful timestamp is 1 second`;
 
-const frameExtractionSystem = () => `You are a precise video timestamp analyst. Watch the video and identify 8 key moments.
+const frameExtractionSystem = () => `You are a precise video timestamp analyst. Watch the video and identify 8 key moments.\n\n${TIMESTAMP_RULES}\n\nReturn ONLY valid JSON:\n{\n  "duration_seconds": number,\n  "frames": [\n    { "timestamp_seconds": number, "description": string, "significance": "hook|gate|upgrade|swarm|boss|loss|win|fail|transition" }\n  ]\n}`;
 
-${TIMESTAMP_RULES}
+const hookDetectionSystem = () => `You are an expert mobile ad analyst specializing in scroll-stopping hooks.\n\n${HOOK_GUIDE}\n${TIMESTAMP_RULES}\n\nReturn ONLY valid JSON:\n{\n  "hook_timing_seconds": number,\n  "hook_type": "Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial",\n  "hook_description": "precise description of WHY this moment stops scrolling"\n}`;
 
-Return ONLY valid JSON:
-{
-  "duration_seconds": number (total video length in real seconds),
-  "frames": [
-    { "timestamp_seconds": number, "description": string, "significance": "hook|gate|upgrade|swarm|boss|loss|win|fail|transition" }
-  ]
-}`;
+const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtraction[], duration: number, hasManualFrames: boolean, hasRefs: boolean) => `You are a World-Class Creative Intelligence Analyst for Mob Control ads. NEVER guess — only report what you directly observe.\n\nAD TYPE: ${config.ad_type === "compound" ? "COMPOUND/MIX CREATIVE" : config.ad_type === "moc" ? "MOB CONTROL ORIGINAL" : "COMPETITOR / MARKET REFERENCE"}\nPERFORMANCE TIER: ${config.tier.toUpperCase()}\n${config.iteration_of ? `ITERATION OF: ${config.iteration_of}` : ""}\nANALYST CONTEXT: ${config.context || "No additional context provided."}\nVIDEO DURATION: ${duration} seconds\n\nEXISTING LIBRARY (${lib.length} entries):\n${lib.length > 0 ? JSON.stringify(lib.map(d => ({ title: d.title, tier: d.tier, hook_type: d.hook_type, hook_timing_seconds: d.hook_timing_seconds }))) : "Empty."}\n\n${hasRefs ? buildReferenceContext() : ""}\n\nAUTO-EXTRACTED FRAMES:\n${frames.length > 0 ? frames.map(f => `[${f.timestamp_seconds}s] ${f.description} (${f.significance})`).join("\n") : "Not available."}\n\n${hasManualFrames ? "MANUAL STORYBOARD FRAMES: provided above." : ""}\n\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\n\nUNIT EVOLUTION CHAIN: Track the player's unit type at every upgrade. Report as ordered array: ["simple cannon (0s)", "double cannon (8s)"]\nEMOTIONAL BEATS: Map to real timestamps: [{ "timestamp_seconds": 3, "event": "skeleton kicks cannon back", "emotion": "surprise" }]\n\n${config.ad_type === "compound" ? "COMPOUND AD: Set is_compound: true and analyze each segment separately in the segments array." : ""}\n\nReturn ONLY valid JSON:\n{\n  "title": string, "is_compound": boolean, "transition_type": string | null, "segments": [] | null,\n  "hook_type": "Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial",\n  "hook_timing_seconds": number, "hook_description": string, "gate_sequence": [string],\n  "swarm_peak_moment_seconds": number | null, "loss_event_type": "Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None",\n  "loss_event_timing_seconds": number | null, "unit_evolution_chain": [string],\n  "emotional_arc": string, "emotional_beats": [{ "timestamp_seconds": number, "event": string, "emotion": string }],\n  "biome": "Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown",\n  "biome_visual_notes": string, "champions_visible": [string], "pacing": "Fast|Medium|Slow",\n  "key_mechanic": string, "why_it_works": string, "why_it_fails": string | null,\n  "creative_gaps": string, "creative_gaps_structured": { "hook_strength": string, "mechanic_clarity": string, "emotional_payoff": string },\n  "frame_extraction_gaps": string, "strategic_notes": string, "replication_instructions": string\n}`;
 
-const hookDetectionSystem = () => `You are an expert mobile ad analyst specializing in scroll-stopping hooks.
-
-${HOOK_GUIDE}
-${TIMESTAMP_RULES}
-
-Given the video and frame extraction data, identify:
-1. The EXACT second a viewer would stop scrolling (hook moment)
-2. What makes it scroll-stopping (not just "action starts")
-
-Return ONLY valid JSON:
-{
-  "hook_timing_seconds": number,
-  "hook_type": "Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial",
-  "hook_description": "precise description of WHY this moment stops scrolling — what is surprising/unexpected/compelling"
-}`;
-
-const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtraction[], duration: number, hasManualFrames: boolean, hasRefs: boolean) => `You are a World-Class Creative Intelligence Analyst for Mob Control ads. NEVER guess — only report what you directly observe.
-
-AD TYPE: ${config.ad_type === "compound" ? "COMPOUND/MIX CREATIVE (multiple gameplay segments)" : config.ad_type === "moc" ? "MOB CONTROL ORIGINAL" : "COMPETITOR / MARKET REFERENCE"}
-PERFORMANCE TIER: ${config.tier.toUpperCase()}
-${config.performance_score ? `PERFORMANCE SCORE (IPM or similar): ${config.performance_score}` : ""}
-${config.iteration_of ? `ITERATION OF: ${config.iteration_of}` : ""}
-ANALYST CONTEXT: ${config.context || "No additional context provided."}
-VIDEO DURATION: ${duration} seconds
-
-EXISTING LIBRARY (${lib.length} entries):
-${lib.length > 0 ? JSON.stringify(lib.map(d => ({ title: d.title, tier: d.tier, hook_type: d.hook_type, hook_timing_seconds: d.hook_timing_seconds }))) : "Empty."}
-
-${hasRefs ? buildReferenceContext() : ""}
-
-AUTO-EXTRACTED FRAMES:
-${frames.length > 0 ? frames.map(f => `[${f.timestamp_seconds}s] ${f.description} (${f.significance})`).join("\n") : "Not available."}
-
-${hasManualFrames ? "MANUAL STORYBOARD FRAMES: provided above. Compare against auto-frames and flag gaps in frame_extraction_gaps." : ""}
-
-${TIMESTAMP_RULES}
-${HOOK_GUIDE}
-${GATE_GUIDE}
-${BIOME_GUIDE}
-${CHAMPION_GUIDE}
-
-UNIT EVOLUTION CHAIN: Track the player's unit type at every upgrade. Report as ordered array: ["simple cannon (0s)", "double cannon (8s)", "triple cannon (15s)", "tank (22s)"]
-
-EMOTIONAL BEATS: Map the emotional arc to real timestamps: [{ "timestamp_seconds": 3, "event": "skeleton kicks cannon back", "emotion": "surprise" }]
-
-${config.ad_type === "compound" ? `
-COMPOUND AD INSTRUCTIONS:
-This is a mix of multiple gameplay segments. First identify each segment:
-- Segment start/end timestamps
-- Biome of each segment  
-- Whether there is a transition screen between segments
-Then analyze EACH segment separately in the "segments" array.
-Set is_compound: true and describe the transition_type.
-` : ""}
-
-Return ONLY valid JSON:
-{
-  "title": string,
-  "is_compound": boolean,
-  "transition_type": string | null,
-  "segments": [] | null,
-  "hook_type": "Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial",
-  "hook_timing_seconds": number,
-  "hook_description": string,
-  "gate_sequence": [string],
-  "swarm_peak_moment_seconds": number | null,
-  "loss_event_type": "Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None",
-  "loss_event_timing_seconds": number | null,
-  "unit_evolution_chain": [string],
-  "emotional_arc": string,
-  "emotional_beats": [{ "timestamp_seconds": number, "event": string, "emotion": string }],
-  "biome": "Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown",
-  "biome_visual_notes": string,
-  "champions_visible": [string],
-  "pacing": "Fast|Medium|Slow",
-  "key_mechanic": string,
-  "why_it_works": string,
-  "why_it_fails": string | null,
-  "creative_gaps": string,
-  "creative_gaps_structured": { "hook_strength": string, "mechanic_clarity": string, "emotional_payoff": string },
-  "frame_extraction_gaps": string,
-  "strategic_notes": string,
-  "replication_instructions": string
-}`;
-
-const reanalysisSystem = (entry: DNAEntry) => `You are re-analyzing a Mob Control ad based on existing DNA data. Fix systematic errors and enrich the analysis.
-
-EXISTING DNA (needs correction):
-${JSON.stringify(entry, null, 2)}
-
-KNOWN SYSTEMATIC ERRORS TO FIX:
-1. hook_timing_seconds is likely 0 or a fraction — use the context and frames to determine the REAL second
-2. swarm_peak_moment_seconds and loss_event_timing_seconds may be fractions (0.28) — convert to real seconds using video duration
-3. gate_sequence may be hallucinated — cross-check against analyst context
-4. unit_evolution_chain is likely missing — extract from context and manual frame names
-5. emotional_beats are missing — add timestamp-mapped beats from the frames and context
-6. creative_gaps_structured is missing — add structured analysis
-7. If ad_type is "compound", set is_compound: true and add segments if context describes multiple gameplays
-
-${TIMESTAMP_RULES}
-${HOOK_GUIDE}
-${GATE_GUIDE}
-${BIOME_GUIDE}
-${CHAMPION_GUIDE}
-
-Return the CORRECTED full DNA as valid JSON with all original fields plus new fields:
-{
-  "title": string (improve if generic),
-  "hook_type": string,
-  "hook_timing_seconds": number (REAL SECONDS — fix if 0 or fraction),
-  "hook_description": string (explain WHY it stops scrolling),
-  "gate_sequence": [string] (only gates actually in the ad),
-  "swarm_peak_moment_seconds": number | null (real seconds),
-  "loss_event_type": string,
-  "loss_event_timing_seconds": number | null (real seconds),
-  "unit_evolution_chain": [string],
-  "emotional_arc": string,
-  "emotional_beats": [{ "timestamp_seconds": number, "event": string, "emotion": string }],
-  "biome": string,
-  "biome_visual_notes": string,
-  "champions_visible": [string],
-  "pacing": string,
-  "key_mechanic": string,
-  "why_it_works": string,
-  "why_it_fails": string | null,
-  "creative_gaps": string,
-  "creative_gaps_structured": { "hook_strength": string, "mechanic_clarity": string, "emotional_payoff": string },
-  "strategic_notes": string,
-  "replication_instructions": string,
-  "is_compound": boolean,
-  "transition_type": string | null,
-  "segments": [] | null
-}`;
+const reanalysisSystem = (entry: DNAEntry) => `You are re-analyzing a Mob Control ad based on existing DNA data. Fix systematic errors and enrich the analysis.\n\nEXISTING DNA:\n${JSON.stringify(entry, null, 2)}\n\nKNOWN ERRORS TO FIX:\n1. hook_timing_seconds is likely 0 or a fraction — fix to real seconds\n2. swarm_peak/loss_event timestamps may be fractions — convert to real seconds\n3. gate_sequence may be hallucinated — cross-check against context\n4. unit_evolution_chain likely missing — extract from context and frame names\n5. emotional_beats missing — add timestamp-mapped beats\n6. creative_gaps_structured missing — add structured analysis\n7. If compound, set is_compound: true and add segments\n\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\n\nReturn the CORRECTED full DNA as valid JSON with all original fields plus:\n{ "title": string, "hook_type": string, "hook_timing_seconds": number, "hook_description": string, "gate_sequence": [string], "swarm_peak_moment_seconds": number | null, "loss_event_type": string, "loss_event_timing_seconds": number | null, "unit_evolution_chain": [string], "emotional_arc": string, "emotional_beats": [{ "timestamp_seconds": number, "event": string, "emotion": string }], "biome": string, "biome_visual_notes": string, "champions_visible": [string], "pacing": string, "key_mechanic": string, "why_it_works": string, "why_it_fails": string | null, "creative_gaps": string, "creative_gaps_structured": { "hook_strength": string, "mechanic_clarity": string, "emotional_payoff": string }, "strategic_notes": string, "replication_instructions": string, "is_compound": boolean, "transition_type": string | null, "segments": [] | null }`;
 
 const briefSystem = (lib: DNAEntry[], ctx: string, seg: string) => {
   const winners = lib.filter(d => d.tier === "winner");
-  return `You are a World-Class Lead Creative Producer for Mob Control. Ground EVERY concept in specific patterns from the DNA library.
-
-WINNER DNA LIBRARY (${winners.length} entries — use these as direct templates):
-${JSON.stringify(winners.map(d => ({ title: d.title, hook_type: d.hook_type, hook_timing_seconds: d.hook_timing_seconds, gate_sequence: d.gate_sequence.slice(0, 5), unit_evolution_chain: d.unit_evolution_chain, key_mechanic: d.key_mechanic, biome: d.biome, loss_event_type: d.loss_event_type, replication_instructions: d.replication_instructions?.slice(0, 200) })), null, 2)}
-
-BRIEF: ${ctx} | SEGMENT: ${seg}
-SEGMENT DATA: Whale(>$50/mo,45-59yo,Motivation=Winning/Rankings), Dolphin($10-50/mo,Motivation=Winning+Fun), Minnow(<$10/mo,Motivation=Fun+Winning), Non-Payer(Motivation=Fun+Challenges).
-MOC BIOMES: Desert, Foggy Forest, Water, Bunker, Cyber-City, Volcanic, Snow, Toxic, Meadow
-MOC CHAMPIONS: Mobzilla, Nexus, Captain Kaboom, Explodon, Big Blob, Raccoon(blue=player/red=enemy), Caveman, General
-9-STEP CURVE: Pressure→Investment→Validate→Investment2→Payoff→False Safety→Pressure++→Almost Win→Fail
-3 PILLARS: Danger Lane(X gates), Investment Lane(+ gates), Upgrade Lane(power-ups).
-
-INSTRUCTIONS:
-- For each concept, cite which DNA library entry it is based on (use title)
-- Replicate the exact gate sequences and unit evolution chains from winners
-- Hook timing must NOT be 0 — pick the real second based on the mechanic
-- Emotional beats must map to real timestamps
-
-Return ONLY valid JSON:
-{"analysis":{"patterns_used":string,"dna_sources":[string],"segment_insight":string,"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"objective":string,"target_segment":string,"player_motivation":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"layout":string,"hook_timing_seconds":number,"unit_evolution_chain":[string],"production_script":[{"time":string,"action":string,"visual_cue":string,"audio_cue":string}],"performance_hooks":[{"type":string,"text":string}],"engagement_hooks":string,"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}]}`;
+  return `You are a World-Class Lead Creative Producer for Mob Control. Ground EVERY concept in specific patterns from the DNA library.\n\nWINNER DNA LIBRARY (${winners.length} entries):\n${JSON.stringify(winners.map(d => ({ title: d.title, hook_type: d.hook_type, hook_timing_seconds: d.hook_timing_seconds, gate_sequence: d.gate_sequence.slice(0, 5), unit_evolution_chain: d.unit_evolution_chain, key_mechanic: d.key_mechanic, biome: d.biome, loss_event_type: d.loss_event_type, replication_instructions: d.replication_instructions?.slice(0, 200) })), null, 2)}\n\nBRIEF: ${ctx} | SEGMENT: ${seg}\nSEGMENT DATA: Whale(>$50/mo,45-59yo,Motivation=Winning/Rankings), Dolphin($10-50/mo,Motivation=Winning+Fun), Minnow(<$10/mo,Motivation=Fun+Winning), Non-Payer(Motivation=Fun+Challenges).\nMOC BIOMES: Desert, Foggy Forest, Water, Bunker, Cyber-City, Volcanic, Snow, Toxic, Meadow\n9-STEP CURVE: Pressure→Investment→Validate→Investment2→Payoff→False Safety→Pressure++→Almost Win→Fail\n\nINSTRUCTIONS:\n- Cite which DNA library entry each concept is based on\n- Replicate exact gate sequences and unit evolution chains from winners\n- Hook timing must NOT be 0\n- Emotional beats must map to real timestamps\n\nReturn ONLY valid JSON:\n{"analysis":{"patterns_used":string,"dna_sources":[string],"segment_insight":string,"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"objective":string,"target_segment":string,"player_motivation":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"layout":string,"hook_timing_seconds":number,"unit_evolution_chain":[string],"production_script":[{"time":string,"action":string,"visual_cue":string,"audio_cue":string}],"performance_hooks":[{"type":string,"text":string}],"engagement_hooks":string,"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}]}`;
 };
 
 const imagePrompt = (concept: Concept, scene: "start" | "middle" | "end", visualSeed?: string) => {
   const vi = concept.visual_identity;
-  const scenes = { start: "Opening: player cannon at bottom, small mob just fired, first gate ahead, enemy base at top with full health bar.", middle: "Mid-battle: massive mob swarm filling screen after multiplier gates. Screen-filling power fantasy moment.", end: "Dramatic fail: player mob nearly gone, enemy/boss still standing, cannon about to be overwhelmed." }[scene];
-  return `Mob Control gameplay screenshot — match reference images above EXACTLY in art style and 3D quality.
-${scenes}
-ENV: ${vi.environment} | LIGHTING: ${vi.lighting} | PLAYER: ${vi.player_champion} | ENEMY: ${vi.enemy_champion}
-PLAYER MOB: ${vi.player_mob_color} round blob creatures | ENEMY MOB: ${vi.enemy_mob_color} round blob creatures
-GATES: ${vi.gate_values?.join(", ")} | CANNON: ${vi.cannon_type} | MOOD: ${vi.mood_notes}
-${visualSeed ? `CONSISTENCY: ${visualSeed}` : ""}
-${BIOME_GUIDE}
-RULES: Cinematic top-down angle, cannon at bottom center, gates large and readable, NO text/UI/watermarks.`;
+  const scenes = { start: "Opening: player cannon at bottom, small mob just fired, first gate ahead, enemy base at top with full health bar.", middle: "Mid-battle: massive mob swarm filling screen after multiplier gates.", end: "Dramatic fail: player mob nearly gone, enemy/boss still standing." }[scene];
+  return `Mob Control gameplay screenshot — match reference images above EXACTLY in art style and 3D quality.\n${scenes}\nENV: ${vi.environment} | LIGHTING: ${vi.lighting} | PLAYER: ${vi.player_champion} | ENEMY: ${vi.enemy_champion}\nPLAYER MOB: ${vi.player_mob_color} round blob creatures | ENEMY MOB: ${vi.enemy_mob_color} round blob creatures\nGATES: ${vi.gate_values?.join(", ")} | CANNON: ${vi.cannon_type} | MOOD: ${vi.mood_notes}\n${visualSeed ? `CONSISTENCY: ${visualSeed}` : ""}\n${BIOME_GUIDE}\nRULES: Cinematic top-down angle, cannon at bottom center, gates large and readable, NO text/UI/watermarks.`;
 };
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const css = {
-  app: { fontFamily: "system-ui, sans-serif", maxWidth: 960, margin: "0 auto", padding: "1.5rem 1rem", color: "#111" } as React.CSSProperties,
-  logo: { fontSize: 22, fontWeight: 600, margin: 0, letterSpacing: "-0.5px" } as React.CSSProperties,
-  sub: { fontSize: 13, color: "#666", margin: "2px 0 1.5rem" } as React.CSSProperties,
-  tabs: { display: "flex", gap: 2, borderBottom: "1px solid #e5e5e5", marginBottom: "1.5rem" } as React.CSSProperties,
-  tab: (a: boolean): React.CSSProperties => ({ padding: "8px 18px", fontSize: 13, fontWeight: a ? 600 : 400, color: a ? "#111" : "#888", background: "none", border: "none", borderBottom: a ? "2px solid #111" : "2px solid transparent", cursor: "pointer", marginBottom: -1 }),
-  card: { background: "#fff", border: "1px solid #e8e8e8", borderRadius: 12, padding: "1rem 1.25rem", marginBottom: 10 } as React.CSSProperties,
-  cardGray: { background: "#f8f8f8", border: "1px solid #e8e8e8", borderRadius: 12, padding: "1rem 1.25rem", marginBottom: 10 } as React.CSSProperties,
-  label: { fontSize: 10, fontWeight: 600, color: "#999", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 5, display: "block" },
-  textarea: { width: "100%", boxSizing: "border-box" as const, fontSize: 13, padding: "8px 10px", border: "1px solid #e0e0e0", borderRadius: 8, minHeight: 80, resize: "vertical" as const, outline: "none", fontFamily: "inherit" },
-  input: { width: "100%", boxSizing: "border-box" as const, fontSize: 13, padding: "7px 10px", border: "1px solid #e0e0e0", borderRadius: 8, outline: "none" },
-  btnPrimary: { padding: "9px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer", borderRadius: 8, border: "none", background: "#1a56db", color: "#fff" } as React.CSSProperties,
+  app:          { fontFamily: "system-ui, sans-serif", maxWidth: 960, margin: "0 auto", padding: "1.5rem 1rem", color: "#111" } as React.CSSProperties,
+  logo:         { fontSize: 22, fontWeight: 600, margin: 0, letterSpacing: "-0.5px" } as React.CSSProperties,
+  sub:          { fontSize: 13, color: "#666", margin: "2px 0 1.5rem" } as React.CSSProperties,
+  tabs:         { display: "flex", gap: 2, borderBottom: "1px solid #e5e5e5", marginBottom: "1.5rem" } as React.CSSProperties,
+  tab:          (a: boolean): React.CSSProperties => ({ padding: "8px 18px", fontSize: 13, fontWeight: a ? 600 : 400, color: a ? "#111" : "#888", background: "none", border: "none", borderBottom: a ? "2px solid #111" : "2px solid transparent", cursor: "pointer", marginBottom: -1 }),
+  card:         { background: "#fff", border: "1px solid #e8e8e8", borderRadius: 12, padding: "1rem 1.25rem", marginBottom: 10 } as React.CSSProperties,
+  cardGray:     { background: "#f8f8f8", border: "1px solid #e8e8e8", borderRadius: 12, padding: "1rem 1.25rem", marginBottom: 10 } as React.CSSProperties,
+  label:        { fontSize: 10, fontWeight: 600, color: "#999", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 5, display: "block" },
+  textarea:     { width: "100%", boxSizing: "border-box" as const, fontSize: 13, padding: "8px 10px", border: "1px solid #e0e0e0", borderRadius: 8, minHeight: 80, resize: "vertical" as const, outline: "none", fontFamily: "inherit" },
+  input:        { width: "100%", boxSizing: "border-box" as const, fontSize: 13, padding: "7px 10px", border: "1px solid #e0e0e0", borderRadius: 8, outline: "none" },
+  btnPrimary:   { padding: "9px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer", borderRadius: 8, border: "none", background: "#1a56db", color: "#fff" } as React.CSSProperties,
   btnSecondary: { padding: "7px 14px", fontSize: 12, fontWeight: 500, cursor: "pointer", borderRadius: 8, border: "1px solid #e0e0e0", background: "#fff", color: "#444" } as React.CSSProperties,
-  btnDanger: { padding: "5px 10px", fontSize: 11, cursor: "pointer", borderRadius: 6, border: "1px solid #fca5a5", background: "#fff", color: "#dc2626" } as React.CSSProperties,
-  btnWarning: { padding: "7px 14px", fontSize: 12, fontWeight: 500, cursor: "pointer", borderRadius: 8, border: "1px solid #fcd34d", background: "#fef3c7", color: "#92400e" } as React.CSSProperties,
-  badge: (tier: string): React.CSSProperties => ({ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 6, background: TIER_STYLE[tier]?.bg ?? "#eee", color: TIER_STYLE[tier]?.text ?? "#333", border: `1px solid ${TIER_STYLE[tier]?.border ?? "#ccc"}` }),
-  error: { fontSize: 12, color: "#dc2626", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "8px 12px", marginTop: 8 } as React.CSSProperties,
-  info: { fontSize: 12, color: "#1a56db", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "8px 12px", marginTop: 8 } as React.CSSProperties,
-  metric: { background: "#f5f5f5", borderRadius: 8, padding: "8px 12px", textAlign: "center" as const },
-  sceneWrap: { aspectRatio: "9/16", background: "#f0f0f0", borderRadius: 10, border: "1px solid #e8e8e8", overflow: "hidden", display: "flex", flexDirection: "column" as const, alignItems: "center", justifyContent: "center", cursor: "pointer" } as React.CSSProperties,
-  grid3: { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 } as React.CSSProperties,
-  gridAuto: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 8 } as React.CSSProperties,
-  overlay: { position: "fixed" as const, inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 },
-  modal: { background: "#fff", borderRadius: 16, padding: "1.5rem", width: "90%", maxWidth: 540, boxShadow: "0 20px 60px rgba(0,0,0,0.2)", maxHeight: "90vh", overflowY: "auto" as const } as React.CSSProperties,
+  btnDanger:    { padding: "5px 10px", fontSize: 11, cursor: "pointer", borderRadius: 6, border: "1px solid #fca5a5", background: "#fff", color: "#dc2626" } as React.CSSProperties,
+  btnWarning:   { padding: "7px 14px", fontSize: 12, fontWeight: 500, cursor: "pointer", borderRadius: 8, border: "1px solid #fcd34d", background: "#fef3c7", color: "#92400e" } as React.CSSProperties,
+  badge:        (tier: string): React.CSSProperties => ({ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 6, background: TIER_STYLE[tier]?.bg ?? "#eee", color: TIER_STYLE[tier]?.text ?? "#333", border: `1px solid ${TIER_STYLE[tier]?.border ?? "#ccc"}` }),
+  error:        { fontSize: 12, color: "#dc2626", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "8px 12px", marginTop: 8 } as React.CSSProperties,
+  info:         { fontSize: 12, color: "#1a56db", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "8px 12px", marginTop: 8 } as React.CSSProperties,
+  metric:       { background: "#f5f5f5", borderRadius: 8, padding: "8px 12px", textAlign: "center" as const },
+  sceneWrap:    { aspectRatio: "9/16", background: "#f0f0f0", borderRadius: 10, border: "1px solid #e8e8e8", overflow: "hidden", display: "flex", flexDirection: "column" as const, alignItems: "center", justifyContent: "center", cursor: "pointer" } as React.CSSProperties,
+  grid3:        { display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 } as React.CSSProperties,
+  gridAuto:     { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 8 } as React.CSSProperties,
+  overlay:      { position: "fixed" as const, inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 },
+  modal:        { background: "#fff", borderRadius: 16, padding: "1.5rem", width: "90%", maxWidth: 540, boxShadow: "0 20px 60px rgba(0,0,0,0.2)", maxHeight: "90vh", overflowY: "auto" as const } as React.CSSProperties,
 };
 const scoreColor = (n: number) => n >= 80 ? "#16a34a" : n >= 60 ? "#1a56db" : "#dc2626";
+
+// ─── Spend display helpers ────────────────────────────────────────────────────
+function spendLabel(tier: string) {
+  return SPEND_TIERS.find(t => t.value === tier)?.label ?? tier;
+}
+function velocityPerDay(tier: string, days: number | null | undefined): string | null {
+  if (!tier || !days || tier === "sub100K") return null;
+  const amounts: Record<string, number> = { "100K": 100000, "300K": 300000, "500K": 500000, "1M": 1000000 };
+  const v = amounts[tier];
+  if (!v) return null;
+  return `~$${Math.round(v / days).toLocaleString()}/day`;
+}
 
 // ─── Upload Modal ─────────────────────────────────────────────────────────────
 function UploadModal({ onConfirm, onCancel }: { onConfirm: (cfg: UploadConfig) => void; onCancel: () => void }) {
@@ -461,7 +269,6 @@ function UploadModal({ onConfirm, onCancel }: { onConfirm: (cfg: UploadConfig) =
   const [adType, setAdType] = useState<UploadConfig["ad_type"]>("moc");
   const [context, setContext] = useState("");
   const [manualFrames, setManualFrames] = useState<File[]>([]);
-  const [perfScore, setPerfScore] = useState("");
   const [iterOf, setIterOf] = useState("");
   const frameRef = useRef<HTMLInputElement>(null);
   const refCount = MOC_REFERENCES.filter(r => !r.base64.startsWith("REPLACE_")).length;
@@ -481,7 +288,6 @@ function UploadModal({ onConfirm, onCancel }: { onConfirm: (cfg: UploadConfig) =
               </button>
             ))}
           </div>
-          {adType === "compound" && <p style={{ margin: "6px 0 0", fontSize: 11, color: "#854F0B" }}>Each gameplay segment will be analyzed separately.</p>}
         </div>
 
         <div style={{ marginBottom: 14 }}>
@@ -493,20 +299,14 @@ function UploadModal({ onConfirm, onCancel }: { onConfirm: (cfg: UploadConfig) =
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
-          <div>
-            <span style={css.label}>Performance score (IPM)</span>
-            <input style={css.input} type="number" placeholder="e.g. 8.5" value={perfScore} onChange={e => setPerfScore(e.target.value)} />
-          </div>
-          <div>
-            <span style={css.label}>Iteration of</span>
-            <input style={css.input} type="text" placeholder="e.g. CT43" value={iterOf} onChange={e => setIterOf(e.target.value)} />
-          </div>
+        <div style={{ marginBottom: 14 }}>
+          <span style={css.label}>Iteration of</span>
+          <input style={css.input} type="text" placeholder="e.g. CT43" value={iterOf} onChange={e => setIterOf(e.target.value)} />
         </div>
 
         <div style={{ marginBottom: 14 }}>
           <span style={css.label}>Context for Gemini</span>
-          <textarea style={css.textarea} placeholder={adType === "compound" ? "Describe each segment: '1st - Water biome zigzag. 2nd - Bunker with tunnel. Segment 1: cannon breaks wall...'" : "Describe biome, hook, key mechanics, what to focus on..."} value={context} onChange={e => setContext(e.target.value)} />
+          <textarea style={css.textarea} placeholder="Describe biome, hook, key mechanics, what to focus on…" value={context} onChange={e => setContext(e.target.value)} />
         </div>
 
         <div style={{ marginBottom: 16 }}>
@@ -523,7 +323,7 @@ function UploadModal({ onConfirm, onCancel }: { onConfirm: (cfg: UploadConfig) =
 
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button style={css.btnSecondary} onClick={onCancel}>Cancel</button>
-          <button style={css.btnPrimary} onClick={() => onConfirm({ tier, ad_type: adType, context, manual_frames: manualFrames, performance_score: perfScore ? parseFloat(perfScore) : undefined, iteration_of: iterOf || undefined })}>
+          <button style={css.btnPrimary} onClick={() => onConfirm({ tier, ad_type: adType, context, manual_frames: manualFrames, iteration_of: iterOf || undefined })}>
             Choose video →
           </button>
         </div>
@@ -532,69 +332,141 @@ function UploadModal({ onConfirm, onCancel }: { onConfirm: (cfg: UploadConfig) =
   );
 }
 
+// ─── Spend Tagger (inline inside expanded card) ───────────────────────────────
+function SpendTagger({ entry, onSave }: { entry: DNAEntry; onSave: (fields: Partial<DNAEntry>) => void }) {
+  const [tier, setTier] = useState(entry.spend_tier ?? "");
+  const [days, setDays] = useState<number | null>(entry.spend_window_days ?? null);
+  const [networks, setNetworks] = useState<string[]>(entry.spend_networks ?? []);
+  const [notes, setNotes] = useState(entry.spend_notes ?? "");
+  const [iterOf, setIterOf] = useState(entry.iteration_of ?? "");
+  const [saved, setSaved] = useState(false);
+
+  function toggleNetwork(n: string) {
+    setNetworks(prev => prev.includes(n) ? prev.filter(x => x !== n) : [...prev, n]);
+  }
+
+  function save() {
+    onSave({ spend_tier: tier || undefined, spend_window_days: days, spend_networks: networks.length > 0 ? networks : undefined, spend_notes: notes || undefined, iteration_of: iterOf || undefined });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  const vel = velocityPerDay(tier, days);
+
+  return (
+    <div style={{ marginTop: 14, padding: "14px 16px", background: "#fafafa", borderRadius: 10, border: "1px solid #f0f0f0" }}>
+      <span style={{ ...css.label, marginBottom: 12 }}>Spend data</span>
+
+      {/* Spend tier */}
+      <div style={{ marginBottom: 12 }}>
+        <span style={{ fontSize: 11, color: "#999", display: "block", marginBottom: 6 }}>Spend tier</span>
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" as const }}>
+          {SPEND_TIERS.map(t => (
+            <button key={t.value} onClick={() => setTier(tier === t.value ? "" : t.value)}
+              style={{ padding: "4px 10px", fontSize: 11, fontWeight: 500, borderRadius: 99, cursor: "pointer", transition: "all .15s",
+                border: `1.5px solid ${tier === t.value ? t.border : "#e0e0e0"}`,
+                background: tier === t.value ? t.bg : "transparent",
+                color: tier === t.value ? t.text : "#888" }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Time window — only show if tier is not sub100K or empty */}
+      {tier && tier !== "sub100K" && (
+        <div style={{ marginBottom: 12 }}>
+          <span style={{ fontSize: 11, color: "#999", display: "block", marginBottom: 6 }}>Time to reach that spend</span>
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" as const }}>
+            {WINDOW_OPTIONS.map(w => (
+              <button key={w.value} onClick={() => setDays(days === w.value ? null : w.value)}
+                style={{ padding: "4px 10px", fontSize: 11, borderRadius: 99, cursor: "pointer", transition: "all .15s",
+                  border: `1.5px solid ${days === w.value ? "#85B7EB" : "#e0e0e0"}`,
+                  background: days === w.value ? "#E6F1FB" : "transparent",
+                  color: days === w.value ? "#185FA5" : "#888" }}>
+                {w.label}
+              </button>
+            ))}
+          </div>
+          {vel && <div style={{ marginTop: 6, fontSize: 11, color: "#185FA5", fontWeight: 500 }}>{vel}</div>}
+        </div>
+      )}
+
+      {/* Networks */}
+      <div style={{ marginBottom: 12 }}>
+        <span style={{ fontSize: 11, color: "#999", display: "block", marginBottom: 6 }}>Networks</span>
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" as const }}>
+          {NETWORK_OPTIONS.map(n => (
+            <button key={n} onClick={() => toggleNetwork(n)}
+              style={{ padding: "4px 10px", fontSize: 11, borderRadius: 99, cursor: "pointer", transition: "all .15s",
+                border: `1.5px solid ${networks.includes(n) ? "#97C459" : "#e0e0e0"}`,
+                background: networks.includes(n) ? "#EAF3DE" : "transparent",
+                color: networks.includes(n) ? "#3B6D11" : "#888" }}>
+              {n}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Iteration of */}
+      <div style={{ marginBottom: 12 }}>
+        <span style={{ fontSize: 11, color: "#999", display: "block", marginBottom: 6 }}>Iteration of</span>
+        <input
+          style={{ ...css.input, fontSize: 12, padding: "5px 8px" }}
+          placeholder="e.g. CT43, CZ66"
+          value={iterOf}
+          onChange={e => setIterOf(e.target.value)}
+        />
+      </div>
+
+      {/* Notes */}
+      <div style={{ marginBottom: 12 }}>
+        <span style={{ fontSize: 11, color: "#999", display: "block", marginBottom: 6 }}>Notes</span>
+        <textarea
+          style={{ ...css.textarea, minHeight: 56, fontSize: 12 }}
+          placeholder="e.g. peaked week 2, Meta only, still running low budget…"
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+        />
+      </div>
+
+      <button onClick={save} style={{ ...css.btnPrimary, padding: "6px 16px", fontSize: 12 }}>
+        {saved ? "Saved ✓" : "Save spend data"}
+      </button>
+    </div>
+  );
+}
+
 // ─── App ─────────────────────────────────────────────────────────────────────
 export default function App() {
   const [tab, setTab] = useState<"Library" | "Brief Studio">("Library");
 
-  // ── Library state — starts empty, loads from GitHub on mount ──────────────
   const [lib, setLib] = useState<DNAEntry[]>([]);
   const [libraryLoaded, setLibraryLoaded] = useState(false);
   const [cloudStatus, setCloudStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
-  // Load from GitHub on startup, fall back to localStorage if GitHub fails
   useEffect(() => {
     fetch("/api/load-library")
-      .then(res => {
-        if (!res.ok) throw new Error(`Load failed: ${res.status}`);
-        return res.json();
-      })
+      .then(res => { if (!res.ok) throw new Error(); return res.json(); })
       .then((data: DNAEntry[]) => {
-        // If GitHub has data, use it; otherwise fall back to localStorage
-        if (Array.isArray(data) && data.length > 0) {
-          setLib(data);
-        } else {
-          // GitHub file is empty — try localStorage as fallback
-          try {
-            const local = localStorage.getItem("levelly_dna_library");
-            if (local) setLib(JSON.parse(local));
-          } catch {}
-        }
+        if (Array.isArray(data) && data.length > 0) { setLib(data); }
+        else { try { const local = localStorage.getItem("levelly_dna_library"); if (local) setLib(JSON.parse(local)); } catch {} }
         setLibraryLoaded(true);
       })
       .catch(() => {
-        // GitHub load failed entirely — fall back to localStorage
-        try {
-          const local = localStorage.getItem("levelly_dna_library");
-          if (local) setLib(JSON.parse(local));
-        } catch {}
+        try { const local = localStorage.getItem("levelly_dna_library"); if (local) setLib(JSON.parse(local)); } catch {}
         setLibraryLoaded(true);
       });
   }, []);
 
-  // Save to GitHub + localStorage whenever library changes (after initial load)
   const saveLib = useCallback((updated: DNAEntry[]) => {
     setLib(updated);
-
-    // Always save to localStorage as immediate backup
     try { localStorage.setItem("levelly_dna_library", JSON.stringify(updated)); } catch {}
-
-    // Save to GitHub (async, non-blocking)
     if (libraryLoaded) {
       setCloudStatus("saving");
-      fetch("/api/save-library", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updated),
-      })
-        .then(res => {
-          if (!res.ok) throw new Error(`Save failed: ${res.status}`);
-          setCloudStatus("saved");
-          setTimeout(() => setCloudStatus("idle"), 2000);
-        })
-        .catch(() => {
-          setCloudStatus("error");
-          setTimeout(() => setCloudStatus("idle"), 3000);
-        });
+      fetch("/api/save-library", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updated) })
+        .then(res => { if (!res.ok) throw new Error(); setCloudStatus("saved"); setTimeout(() => setCloudStatus("idle"), 2000); })
+        .catch(() => { setCloudStatus("error"); setTimeout(() => setCloudStatus("idle"), 3000); });
     }
   }, [libraryLoaded]);
 
@@ -641,25 +513,16 @@ export default function App() {
     reader.readAsText(file); e.target.value = "";
   };
 
-  // ── Re-analyze single entry ──────────────────────────────────────────────
   const reanalyzeSingle = async (entry: DNAEntry): Promise<DNAEntry> => {
-    const corrected = await callGeminiDirect(
-      reanalysisSystem(entry),
-      [{ text: `Re-analyze this DNA entry and fix all systematic errors. Entry: ${entry.title}` }]
-    );
+    const corrected = await callGeminiDirect(reanalysisSystem(entry), [{ text: `Re-analyze: ${entry.title}` }]);
     return { ...entry, ...corrected, id: entry.id, reanalyzed: true, added_at: entry.added_at, file_name: entry.file_name, tier: entry.tier, ad_type: entry.ad_type };
   };
 
   const handleReanalyzeSingle = async (entry: DNAEntry) => {
     setReanalyzingIds(prev => new Set(prev).add(entry.id));
-    try {
-      const updated = await reanalyzeSingle(entry);
-      saveLib(lib.map(x => x.id === entry.id ? updated : x));
-    } catch (err: any) {
-      alert(`Re-analysis failed: ${err.message}`);
-    } finally {
-      setReanalyzingIds(prev => { const s = new Set(prev); s.delete(entry.id); return s; });
-    }
+    try { const updated = await reanalyzeSingle(entry); saveLib(lib.map(x => x.id === entry.id ? updated : x)); }
+    catch (err: any) { alert(`Re-analysis failed: ${err.message}`); }
+    finally { setReanalyzingIds(prev => { const s = new Set(prev); s.delete(entry.id); return s; }); }
   };
 
   const handleReanalyzeAll = async () => {
@@ -668,19 +531,13 @@ export default function App() {
     let updated = [...lib];
     for (let i = 0; i < lib.length; i++) {
       setReanalysisProgress(`Re-analyzing ${i + 1}/${lib.length}: ${lib[i].title}…`);
-      try {
-        const corrected = await reanalyzeSingle(lib[i]);
-        updated = updated.map(x => x.id === lib[i].id ? corrected : x);
-        saveLib(updated);
-      } catch (err) {
-        console.warn(`Failed to re-analyze ${lib[i].title}:`, err);
-      }
+      try { const corrected = await reanalyzeSingle(lib[i]); updated = updated.map(x => x.id === lib[i].id ? corrected : x); saveLib(updated); }
+      catch (err) { console.warn(`Failed: ${lib[i].title}`, err); }
       await new Promise(r => setTimeout(r, 1000));
     }
     setReanalyzingAll(false); setReanalysisProgress("");
   };
 
-  // ── Upload flow ──────────────────────────────────────────────────────────
   const handleModalConfirm = (cfg: UploadConfig) => { setUploadConfig(cfg); setShowModal(false); fileRef.current?.click(); };
 
   const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -702,52 +559,26 @@ export default function App() {
 
         setAnalyzeInfo(`Extracting frames from "${file.name}"…`);
         let autoFrames: FrameExtraction[] = []; let duration = 30;
-        try {
-          const frameResult = await callGeminiDirect(frameExtractionSystem(), [{ text: "Extract 8 key frames with real timestamps:" }, videoPart]);
-          autoFrames = frameResult?.frames || [];
-          duration = frameResult?.duration_seconds || 30;
-        } catch (err) { console.warn("Frame extraction failed:", err); }
+        try { const fr = await callGeminiDirect(frameExtractionSystem(), [{ text: "Extract 8 key frames:" }, videoPart]); autoFrames = fr?.frames || []; duration = fr?.duration_seconds || 30; } catch {}
 
         setAnalyzeInfo(`Detecting hook moment…`);
         let hookData: any = {};
-        try {
-          hookData = await callGeminiDirect(hookDetectionSystem(), [
-            { text: `Video frames: ${JSON.stringify(autoFrames)}. Context: ${cfg.context}. Find the real hook second:` },
-            videoPart
-          ]);
-        } catch (err) { console.warn("Hook detection failed:", err); }
+        try { hookData = await callGeminiDirect(hookDetectionSystem(), [{ text: `Frames: ${JSON.stringify(autoFrames)}. Context: ${cfg.context}. Find hook:` }, videoPart]); } catch {}
 
         const manualParts: any[] = [];
         if (cfg.manual_frames.length > 0) {
           setAnalyzeInfo(`Processing ${cfg.manual_frames.length} manual frames…`);
-          for (const mf of cfg.manual_frames) {
-            const b64 = await fileToBase64(mf);
-            manualParts.push({ text: `Manual frame: ${mf.name}` });
-            manualParts.push({ inlineData: { mimeType: mf.type, data: b64 } });
-          }
+          for (const mf of cfg.manual_frames) { const b64 = await fileToBase64(mf); manualParts.push({ text: `Manual frame: ${mf.name}` }); manualParts.push({ inlineData: { mimeType: mf.type, data: b64 } }); }
         }
 
         setAnalyzeInfo(`Analyzing "${file.name}"…`);
         const refParts = buildReferenceParts();
-        const analysisParts: any[] = [
-          ...refParts,
-          ...(manualParts.length > 0 ? [{ text: "### MANUAL FRAMES:" }, ...manualParts] : []),
-          { text: `HOOK DATA FROM DEDICATED DETECTION: ${JSON.stringify(hookData)}` },
-          { text: "### AD VIDEO TO ANALYZE:" },
-          videoPart,
-          { text: "Extract Creative DNA. Use the hook data above for hook_timing_seconds." }
-        ];
+        const dna = await callGeminiDirect(
+          analyzeSystem(lib, cfg, autoFrames, duration, manualParts.length > 0, refParts.length > 0),
+          [...refParts, ...(manualParts.length > 0 ? [{ text: "### MANUAL FRAMES:" }, ...manualParts] : []), { text: `HOOK DATA: ${JSON.stringify(hookData)}` }, { text: "### AD VIDEO:" }, videoPart, { text: "Extract Creative DNA." }]
+        );
 
-        const dna = await callGeminiDirect(analyzeSystem(lib, cfg, autoFrames, duration, manualParts.length > 0, refParts.length > 0), analysisParts);
-
-        saveLib([...lib, {
-          ...dna,
-          id: Date.now() + Math.random(),
-          tier: cfg.tier, ad_type: cfg.ad_type, upload_context: cfg.context,
-          file_name: file.name, added_at: new Date().toISOString(),
-          performance_score: cfg.performance_score, iteration_of: cfg.iteration_of,
-          auto_frames: autoFrames, manual_frames: cfg.manual_frames.map(f => f.name),
-        }]);
+        saveLib([...lib, { ...dna, id: Date.now() + Math.random(), tier: cfg.tier, ad_type: cfg.ad_type, upload_context: cfg.context, file_name: file.name, added_at: new Date().toISOString(), iteration_of: cfg.iteration_of, auto_frames: autoFrames, manual_frames: cfg.manual_frames.map(f => f.name) }]);
         setAnalyzeInfo("");
       }
     } catch (err: any) { setAnalyzeErr(err.message); }
@@ -758,19 +589,15 @@ export default function App() {
     if (!briefCtx.trim()) { setBriefErr("Enter a brief context first."); return; }
     if (lib.length === 0) { setBriefErr("Add at least one ad to the DNA Library first."); return; }
     setGenerating(true); setBriefErr(""); setConcepts([]); setBriefAnalysis(null);
-    try {
-      const result = await callGeminiDirect(briefSystem(lib, briefCtx, segment), [{ text: "Generate 3 MOC ad concepts grounded in the DNA library." }]);
-      setConcepts(result.concepts ?? []); setBriefAnalysis(result.analysis ?? null); setExpandedConcept(0);
-    } catch (err: any) { setBriefErr(err.message); }
+    try { const result = await callGeminiDirect(briefSystem(lib, briefCtx, segment), [{ text: "Generate 3 MOC ad concepts grounded in the DNA library." }]); setConcepts(result.concepts ?? []); setBriefAnalysis(result.analysis ?? null); setExpandedConcept(0); }
+    catch (err: any) { setBriefErr(err.message); }
     finally { setGenerating(false); }
   };
 
   const handleRenderScene = async (ci: number, scene: "start" | "middle" | "end") => {
-    const k = `${ci}-${scene}`;
-    setRenderingScene(p => ({ ...p, [k]: true }));
+    const k = `${ci}-${scene}`; setRenderingScene(p => ({ ...p, [k]: true }));
     try {
-      const concept = concepts[ci];
-      const refParts = pickRelevantRefs(concept.visual_identity);
+      const concept = concepts[ci]; const refParts = pickRelevantRefs(concept.visual_identity);
       const visualSeed = scene !== "start" && concept.visual_start ? "Match the start scene's environment, lighting, road texture, and art style exactly." : undefined;
       const url = await callImageDirect(imagePrompt(concept, scene, visualSeed), refParts);
       setConcepts(p => p.map((c, i) => i === ci ? { ...c, [`visual_${scene}`]: url } : c));
@@ -778,13 +605,8 @@ export default function App() {
     finally { setRenderingScene(p => ({ ...p, [k]: false })); }
   };
 
-  // Cloud status indicator label
-  const cloudLabel: Record<typeof cloudStatus, string> = {
-    idle: "", saving: "Saving…", saved: "Saved to GitHub ✓", error: "Cloud save failed — local backup kept",
-  };
-  const cloudColor: Record<typeof cloudStatus, string> = {
-    idle: "", saving: "#1a56db", saved: "#16a34a", error: "#dc2626",
-  };
+  const cloudLabel: Record<typeof cloudStatus, string> = { idle: "", saving: "Saving…", saved: "Saved to GitHub ✓", error: "Cloud save failed — local backup kept" };
+  const cloudColor: Record<typeof cloudStatus, string> = { idle: "", saving: "#1a56db", saved: "#16a34a", error: "#dc2626" };
 
   return (
     <div style={css.app}>
@@ -793,15 +615,8 @@ export default function App() {
       <input ref={importRef} type="file" accept=".json" style={{ display: "none" }} onChange={importLibrary} />
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <div>
-          <h1 style={css.logo}>Levelly</h1>
-          <p style={css.sub}>MOC Creative Intelligence Platform</p>
-        </div>
-        {cloudStatus !== "idle" && (
-          <span style={{ fontSize: 11, color: cloudColor[cloudStatus], marginTop: 6 }}>
-            {cloudLabel[cloudStatus]}
-          </span>
-        )}
+        <div><h1 style={css.logo}>Levelly</h1><p style={css.sub}>MOC Creative Intelligence Platform</p></div>
+        {cloudStatus !== "idle" && <span style={{ fontSize: 11, color: cloudColor[cloudStatus], marginTop: 6 }}>{cloudLabel[cloudStatus]}</span>}
       </div>
 
       <div style={css.tabs}>
@@ -815,23 +630,17 @@ export default function App() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap" as const, gap: 8 }}>
             <p style={{ margin: 0, fontSize: 13, color: "#666" }}>{lib.length} ads · {lib.filter(d => d.tier === "winner").length} winners · {lib.filter(d => d.reanalyzed).length} re-analyzed</p>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" as const }}>
-              {lib.length > 0 && (
-                <>
-                  <button style={css.btnWarning} onClick={handleReanalyzeAll} disabled={reanalyzingAll || analyzing}>
-                    {reanalyzingAll ? "Re-analyzing…" : "Re-analyze all"}
-                  </button>
-                  <button style={css.btnSecondary} onClick={exportLibrary}>Export</button>
-                  <button style={css.btnSecondary} onClick={() => { if (confirm("Clear library?")) saveLib([]); }}>Clear</button>
-                </>
-              )}
+              {lib.length > 0 && (<>
+                <button style={css.btnWarning} onClick={handleReanalyzeAll} disabled={reanalyzingAll || analyzing}>{reanalyzingAll ? "Re-analyzing…" : "Re-analyze all"}</button>
+                <button style={css.btnSecondary} onClick={exportLibrary}>Export</button>
+                <button style={css.btnSecondary} onClick={() => { if (confirm("Clear library?")) saveLib([]); }}>Clear</button>
+              </>)}
               <button style={css.btnSecondary} onClick={() => importRef.current?.click()}>Import</button>
               <button style={css.btnPrimary} onClick={() => setShowModal(true)} disabled={analyzing || reanalyzingAll}>{analyzing ? "Analyzing…" : "+ Upload"}</button>
             </div>
           </div>
 
-          {(analyzeErr || reanalysisProgress) && (
-            <div style={reanalysisProgress ? css.info : css.error}>{analyzeErr || reanalysisProgress}</div>
-          )}
+          {(analyzeErr || reanalysisProgress) && <div style={reanalysisProgress ? css.info : css.error}>{analyzeErr || reanalysisProgress}</div>}
           {analyzeInfo && <div style={css.info}>{analyzeInfo}</div>}
           {!libraryLoaded && <div style={css.info}>Loading library from GitHub…</div>}
           {analyzing && !analyzeInfo && <div style={{ ...css.cardGray, textAlign: "center", padding: "2rem" }}><p style={{ margin: 0, fontSize: 13, color: "#666" }}>Extracting creative DNA…</p></div>}
@@ -842,192 +651,191 @@ export default function App() {
             </div>
           )}
 
-          {lib.map((d, di) => (
-            <div key={d.id} style={css.card}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setExpandedDNA(expandedDNA === di ? null : di)}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3, flexWrap: "wrap" as const }}>
-                    <span style={{ fontSize: 14, fontWeight: 600 }}>{d.title}</span>
-                    <span style={css.badge(d.tier)}>{d.tier}</span>
-                    {d.ad_type !== "moc" && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 6, background: "#faf5ff", color: "#7c3aed", border: "1px solid #ddd6fe" }}>{d.ad_type}</span>}
-                    {d.is_compound && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, background: "#fef9c3", color: "#854d0e", border: "1px solid #fde047" }}>compound</span>}
-                    {d.reanalyzed && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0" }}>re-analyzed</span>}
-                    {d.performance_score && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, background: "#eff6ff", color: "#1e40af", border: "1px solid #bfdbfe" }}>IPM {d.performance_score}</span>}
-                    {d.iteration_of && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, background: "#f8f8f8", color: "#666", border: "1px solid #e0e0e0" }}>iter. of {d.iteration_of}</span>}
-                    {d.spend_tier && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, background: "#fef3c7", color: "#92400e", border: "1px solid #fcd34d" }}>{d.spend_tier === "sub100K" ? "<$100K" : `>${d.spend_tier}`}</span>}
+          {lib.map((d, di) => {
+            const canTag = d.ad_type === "moc" && d.tier !== "inspiration";
+            const hasSpend = !!d.spend_tier;
+
+            return (
+              <div key={d.id} style={css.card}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setExpandedDNA(expandedDNA === di ? null : di)}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3, flexWrap: "wrap" as const }}>
+                      <span style={{ fontSize: 14, fontWeight: 600 }}>{d.title}</span>
+                      <span style={css.badge(d.tier)}>{d.tier}</span>
+                      {d.ad_type !== "moc" && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 6, background: "#faf5ff", color: "#7c3aed", border: "1px solid #ddd6fe" }}>{d.ad_type}</span>}
+                      {d.is_compound && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, background: "#fef9c3", color: "#854d0e", border: "1px solid #fde047" }}>compound</span>}
+                      {d.reanalyzed && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0" }}>re-analyzed</span>}
+                      {d.iteration_of && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, background: "#f8f8f8", color: "#666", border: "1px solid #e0e0e0" }}>iter. of {d.iteration_of}</span>}
+                      {hasSpend && (() => { const st = SPEND_TIERS.find(t => t.value === d.spend_tier); return st ? <span style={{ fontSize: 10, fontWeight: 500, padding: "2px 8px", borderRadius: 99, background: st.bg, color: st.text, border: `1px solid ${st.border}` }}>{st.label}{d.spend_window_days ? ` / ${WINDOW_OPTIONS.find(w => w.value === d.spend_window_days)?.label ?? d.spend_window_days + "d"}` : ""}</span> : null; })()}
+                      {hasSpend && d.spend_networks && d.spend_networks.length > 0 && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 6, background: "#EAF3DE", color: "#3B6D11", border: "1px solid #97C459" }}>{d.spend_networks.join(", ")}</span>}
+                    </div>
+                    <p style={{ margin: 0, fontSize: 11, color: "#aaa" }}>{d.file_name} · {new Date(d.added_at).toLocaleDateString()}</p>
                   </div>
-                  <p style={{ margin: 0, fontSize: 11, color: "#aaa" }}>{d.file_name} · {new Date(d.added_at).toLocaleDateString()}</p>
-                </div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 10 }}>
-                  <button style={{ ...css.btnSecondary, fontSize: 11, padding: "4px 10px" }} onClick={() => handleReanalyzeSingle(d)} disabled={reanalyzingIds.has(d.id)}>
-                    {reanalyzingIds.has(d.id) ? "…" : "Re-analyze"}
-                  </button>
-                  <select value={d.tier} onChange={e => saveLib(lib.map(x => x.id === d.id ? { ...x, tier: e.target.value as DNAEntry["tier"] } : x))} style={{ fontSize: 11, padding: "3px 6px", borderRadius: 6, border: "1px solid #e0e0e0" }}>
-                    {TIERS.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                  <button style={css.btnDanger} onClick={() => saveLib(lib.filter(x => x.id !== d.id))}>✕</button>
-                </div>
-              </div>
-
-              <div style={{ ...css.gridAuto, marginTop: 10 }}>
-                {[
-                  { label: "Hook type", value: d.hook_type },
-                  { label: "Hook at", value: d.hook_timing_seconds != null ? `${d.hook_timing_seconds}s` : "—" },
-                  { label: "Biome", value: d.biome },
-                  { label: "Pacing", value: d.pacing },
-                  { label: "Loss event", value: d.loss_event_type },
-                  { label: "Swarm peak", value: d.swarm_peak_moment_seconds != null ? `${d.swarm_peak_moment_seconds}s` : "—" },
-                ].map(({ label, value }) => (
-                  <div key={label} style={css.metric}>
-                    <div style={{ fontSize: 9, color: "#999", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>{label}</div>
-                    <div style={{ fontSize: 12, fontWeight: 600 }}>{value ?? "—"}</div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 10 }}>
+                    <button style={{ ...css.btnSecondary, fontSize: 11, padding: "4px 10px" }} onClick={() => handleReanalyzeSingle(d)} disabled={reanalyzingIds.has(d.id)}>{reanalyzingIds.has(d.id) ? "…" : "Re-analyze"}</button>
+                    <select value={d.tier} onChange={e => saveLib(lib.map(x => x.id === d.id ? { ...x, tier: e.target.value as DNAEntry["tier"] } : x))} style={{ fontSize: 11, padding: "3px 6px", borderRadius: 6, border: "1px solid #e0e0e0" }}>
+                      {TIERS.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    <button style={css.btnDanger} onClick={() => saveLib(lib.filter(x => x.id !== d.id))}>✕</button>
                   </div>
-                ))}
-              </div>
+                </div>
 
-              {expandedDNA === di && (
-                <div style={{ marginTop: 14, borderTop: "1px solid #f0f0f0", paddingTop: 14 }}>
-
-                  {d.unit_evolution_chain?.length > 0 && (
-                    <div style={{ marginBottom: 10 }}>
-                      <span style={css.label}>Unit evolution chain</span>
-                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const, alignItems: "center" }}>
-                        {d.unit_evolution_chain.map((step, i) => (
-                          <span key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                            <span style={{ fontSize: 11, padding: "2px 8px", background: "#eff6ff", color: "#1e40af", borderRadius: 6, border: "1px solid #bfdbfe" }}>{step}</span>
-                            {i < d.unit_evolution_chain.length - 1 && <span style={{ color: "#aaa", fontSize: 12 }}>→</span>}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {d.emotional_beats?.length > 0 && (
-                    <div style={{ marginBottom: 10 }}>
-                      <span style={css.label}>Emotional beats</span>
-                      <div style={{ display: "flex", flexDirection: "column" as const, gap: 3 }}>
-                        {d.emotional_beats.map((b, i) => (
-                          <div key={i} style={{ fontSize: 12, padding: "5px 10px", background: "#f8f8f8", borderRadius: 6, display: "flex", gap: 10 }}>
-                            <span style={{ fontWeight: 600, color: "#1a56db", minWidth: 32 }}>{b.timestamp_seconds}s</span>
-                            <span style={{ color: "#444" }}>{b.event}</span>
-                            <span style={{ color: "#aaa", fontStyle: "italic", marginLeft: "auto" }}>{b.emotion}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {d.gate_sequence?.length > 0 && (
-                    <div style={{ marginBottom: 10 }}>
-                      <span style={css.label}>Gate sequence</span>
-                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const }}>
-                        {d.gate_sequence.map((g, i) => (
-                          <span key={i} style={{ fontSize: 11, padding: "2px 8px", background: g.toLowerCase().includes("death") ? "#fef2f2" : "#eff6ff", color: g.toLowerCase().includes("death") ? "#dc2626" : "#1e40af", borderRadius: 6, border: `1px solid ${g.toLowerCase().includes("death") ? "#fca5a5" : "#bfdbfe"}` }}>{g}</span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {d.champions_visible?.length > 0 && (
-                    <div style={{ marginBottom: 10 }}>
-                      <span style={css.label}>Champions / bosses</span>
-                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const }}>
-                        {d.champions_visible.map((c, i) => <span key={i} style={{ fontSize: 11, padding: "2px 8px", background: "#faf5ff", color: "#7c3aed", borderRadius: 6, border: "1px solid #ddd6fe" }}>{c}</span>)}
-                      </div>
-                    </div>
-                  )}
-
-                  {d.biome_visual_notes && (
-                    <div style={{ marginBottom: 10 }}>
-                      <span style={css.label}>Biome visual notes</span>
-                      <p style={{ margin: 0, fontSize: 12, color: "#666", fontStyle: "italic" }}>{d.biome_visual_notes}</p>
-                    </div>
-                  )}
-
-                  {(d.spend_tier || d.spend_networks || d.spend_notes) && (
-                    <div style={{ marginBottom: 10 }}>
-                      <span style={css.label}>Spend data</span>
-                      <div style={{ padding: "8px 12px", background: "#fef9c3", borderRadius: 8, border: "1px solid #fde047", fontSize: 12 }}>
-                        {d.spend_tier && <div><strong>Tier:</strong> {d.spend_tier === "sub100K" ? "<$100K" : `>${d.spend_tier}`}{d.spend_window_days ? ` in ${d.spend_window_days}d` : ""}</div>}
-                        {d.spend_networks && <div><strong>Networks:</strong> {d.spend_networks}</div>}
-                        {d.spend_notes && <div style={{ color: "#78350f", marginTop: 4 }}>{d.spend_notes}</div>}
-                        {d.spend_data_source && <div style={{ color: "#aaa", fontSize: 11, marginTop: 2 }}>⚠ Data source: {d.spend_data_source}</div>}
-                      </div>
-                    </div>
-                  )}
-
-                  {d.creative_gaps_structured && (
-                    <div style={{ marginBottom: 10 }}>
-                      <span style={css.label}>Creative gaps</span>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                        {[
-                          { label: "Hook strength", value: d.creative_gaps_structured.hook_strength },
-                          { label: "Mechanic clarity", value: d.creative_gaps_structured.mechanic_clarity },
-                          { label: "Emotional payoff", value: d.creative_gaps_structured.emotional_payoff },
-                        ].map(({ label, value }) => (
-                          <div key={label} style={{ padding: "8px 10px", background: "#fef9c3", borderRadius: 8, border: "1px solid #fde047" }}>
-                            <div style={{ fontSize: 9, fontWeight: 600, color: "#854d0e", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 3 }}>{label}</div>
-                            <p style={{ margin: 0, fontSize: 11, color: "#78350f" }}>{value}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {d.strategic_notes && (
-                    <div style={{ marginBottom: 10 }}>
-                      <span style={css.label}>Strategic notes</span>
-                      <p style={{ margin: 0, fontSize: 13, color: "#185FA5", lineHeight: 1.5 }}>{d.strategic_notes}</p>
-                    </div>
-                  )}
-
-                  {d.is_compound && d.segments && d.segments.length > 0 && (
-                    <div style={{ marginBottom: 10 }}>
-                      <span style={css.label}>Segments ({d.segments.length})</span>
-                      {d.segments.map((seg, si) => (
-                        <div key={si} style={{ padding: "10px 12px", background: "#f8f8f8", borderRadius: 8, border: "1px solid #f0f0f0", marginBottom: 6 }}>
-                          <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 4 }}>Segment {si + 1}: {seg.biome} ({seg.start_seconds}s – {seg.end_seconds}s)</div>
-                          <div style={{ fontSize: 11, color: "#666" }}>Hook: {seg.hook_type} at {seg.hook_timing_seconds}s · {seg.key_mechanic}</div>
-                          {seg.unit_evolution_chain?.length > 0 && <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>Evolution: {seg.unit_evolution_chain.join(" → ")}</div>}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
+                <div style={{ ...css.gridAuto, marginTop: 10 }}>
                   {[
-                    { label: "Key mechanic", value: d.key_mechanic },
-                    { label: "Emotional arc", value: d.emotional_arc },
-                    { label: "Why it works", value: d.why_it_works },
-                    { label: "Why it fails", value: d.why_it_fails },
-                    { label: "Frame extraction gaps", value: d.frame_extraction_gaps },
-                    { label: "Replication instructions", value: d.replication_instructions },
-                  ].filter(x => x.value).map(({ label, value }) => (
-                    <div key={label} style={{ marginBottom: 10 }}>
-                      <span style={css.label}>{label}</span>
-                      <p style={{ margin: 0, fontSize: 13, color: "#444", lineHeight: 1.5 }}>{value}</p>
+                    { label: "Hook type", value: d.hook_type },
+                    { label: "Hook at", value: d.hook_timing_seconds != null ? `${d.hook_timing_seconds}s` : "—" },
+                    { label: "Biome", value: d.biome },
+                    { label: "Pacing", value: d.pacing },
+                    { label: "Loss event", value: d.loss_event_type },
+                    { label: "Swarm peak", value: d.swarm_peak_moment_seconds != null ? `${d.swarm_peak_moment_seconds}s` : "—" },
+                  ].map(({ label, value }) => (
+                    <div key={label} style={css.metric}>
+                      <div style={{ fontSize: 9, color: "#999", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>{label}</div>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{value ?? "—"}</div>
                     </div>
                   ))}
+                </div>
 
-                  {d.auto_frames && d.auto_frames.length > 0 && (
-                    <div style={{ marginBottom: 10 }}>
-                      <span style={css.label}>Auto-extracted frames</span>
-                      <div style={{ display: "flex", flexDirection: "column" as const, gap: 3 }}>
-                        {d.auto_frames.map((f, fi) => (
-                          <div key={fi} style={{ fontSize: 11, padding: "5px 10px", background: "#f8f8f8", borderRadius: 6 }}>
-                            <span style={{ fontWeight: 600, color: "#1a56db", marginRight: 8 }}>{f.timestamp_seconds}s</span>
-                            <span style={{ color: "#444" }}>{f.description}</span>
+                {expandedDNA === di && (
+                  <div style={{ marginTop: 14, borderTop: "1px solid #f0f0f0", paddingTop: 14 }}>
+
+                    {/* Spend tagger — only for MOC non-inspiration */}
+                    {canTag && (
+                      <SpendTagger
+                        entry={d}
+                        onSave={fields => saveLib(lib.map(x => x.id === d.id ? { ...x, ...fields } : x))}
+                      />
+                    )}
+
+                    {d.unit_evolution_chain?.length > 0 && (
+                      <div style={{ marginBottom: 10, marginTop: 14 }}>
+                        <span style={css.label}>Unit evolution chain</span>
+                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const, alignItems: "center" }}>
+                          {d.unit_evolution_chain.map((step, i) => (
+                            <span key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                              <span style={{ fontSize: 11, padding: "2px 8px", background: "#eff6ff", color: "#1e40af", borderRadius: 6, border: "1px solid #bfdbfe" }}>{step}</span>
+                              {i < d.unit_evolution_chain.length - 1 && <span style={{ color: "#aaa", fontSize: 12 }}>→</span>}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {d.emotional_beats?.length > 0 && (
+                      <div style={{ marginBottom: 10 }}>
+                        <span style={css.label}>Emotional beats</span>
+                        <div style={{ display: "flex", flexDirection: "column" as const, gap: 3 }}>
+                          {d.emotional_beats.map((b, i) => (
+                            <div key={i} style={{ fontSize: 12, padding: "5px 10px", background: "#f8f8f8", borderRadius: 6, display: "flex", gap: 10 }}>
+                              <span style={{ fontWeight: 600, color: "#1a56db", minWidth: 32 }}>{b.timestamp_seconds}s</span>
+                              <span style={{ color: "#444" }}>{b.event}</span>
+                              <span style={{ color: "#aaa", fontStyle: "italic", marginLeft: "auto" }}>{b.emotion}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {d.gate_sequence?.length > 0 && (
+                      <div style={{ marginBottom: 10 }}>
+                        <span style={css.label}>Gate sequence</span>
+                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const }}>
+                          {d.gate_sequence.map((g, i) => (
+                            <span key={i} style={{ fontSize: 11, padding: "2px 8px", background: g.toLowerCase().includes("death") ? "#fef2f2" : "#eff6ff", color: g.toLowerCase().includes("death") ? "#dc2626" : "#1e40af", borderRadius: 6, border: `1px solid ${g.toLowerCase().includes("death") ? "#fca5a5" : "#bfdbfe"}` }}>{g}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {d.champions_visible?.length > 0 && (
+                      <div style={{ marginBottom: 10 }}>
+                        <span style={css.label}>Champions / bosses</span>
+                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const }}>
+                          {d.champions_visible.map((c, i) => <span key={i} style={{ fontSize: 11, padding: "2px 8px", background: "#faf5ff", color: "#7c3aed", borderRadius: 6, border: "1px solid #ddd6fe" }}>{c}</span>)}
+                        </div>
+                      </div>
+                    )}
+
+                    {d.biome_visual_notes && (
+                      <div style={{ marginBottom: 10 }}>
+                        <span style={css.label}>Biome visual notes</span>
+                        <p style={{ margin: 0, fontSize: 12, color: "#666", fontStyle: "italic" }}>{d.biome_visual_notes}</p>
+                      </div>
+                    )}
+
+                    {d.creative_gaps_structured && (
+                      <div style={{ marginBottom: 10 }}>
+                        <span style={css.label}>Creative gaps</span>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                          {[
+                            { label: "Hook strength", value: d.creative_gaps_structured.hook_strength },
+                            { label: "Mechanic clarity", value: d.creative_gaps_structured.mechanic_clarity },
+                            { label: "Emotional payoff", value: d.creative_gaps_structured.emotional_payoff },
+                          ].map(({ label, value }) => (
+                            <div key={label} style={{ padding: "8px 10px", background: "#fef9c3", borderRadius: 8, border: "1px solid #fde047" }}>
+                              <div style={{ fontSize: 9, fontWeight: 600, color: "#854d0e", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 3 }}>{label}</div>
+                              <p style={{ margin: 0, fontSize: 11, color: "#78350f" }}>{value}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {d.strategic_notes && (
+                      <div style={{ marginBottom: 10 }}>
+                        <span style={css.label}>Strategic notes</span>
+                        <p style={{ margin: 0, fontSize: 13, color: "#185FA5", lineHeight: 1.5 }}>{d.strategic_notes}</p>
+                      </div>
+                    )}
+
+                    {d.is_compound && d.segments && d.segments.length > 0 && (
+                      <div style={{ marginBottom: 10 }}>
+                        <span style={css.label}>Segments ({d.segments.length})</span>
+                        {d.segments.map((seg, si) => (
+                          <div key={si} style={{ padding: "10px 12px", background: "#f8f8f8", borderRadius: 8, border: "1px solid #f0f0f0", marginBottom: 6 }}>
+                            <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 4 }}>Segment {si + 1}: {seg.biome} ({seg.start_seconds}s – {seg.end_seconds}s)</div>
+                            <div style={{ fontSize: 11, color: "#666" }}>Hook: {seg.hook_type} at {seg.hook_timing_seconds}s · {seg.key_mechanic}</div>
+                            {seg.unit_evolution_chain?.length > 0 && <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>Evolution: {seg.unit_evolution_chain.join(" → ")}</div>}
                           </div>
                         ))}
                       </div>
-                    </div>
-                  )}
-                </div>
-              )}
-              <button style={{ ...css.btnSecondary, marginTop: 10, fontSize: 11 }} onClick={() => setExpandedDNA(expandedDNA === di ? null : di)}>
-                {expandedDNA === di ? "Collapse" : "Expand details"}
-              </button>
-            </div>
-          ))}
+                    )}
+
+                    {[
+                      { label: "Key mechanic", value: d.key_mechanic },
+                      { label: "Emotional arc", value: d.emotional_arc },
+                      { label: "Why it works", value: d.why_it_works },
+                      { label: "Why it fails", value: d.why_it_fails },
+                      { label: "Frame extraction gaps", value: d.frame_extraction_gaps },
+                      { label: "Replication instructions", value: d.replication_instructions },
+                    ].filter(x => x.value).map(({ label, value }) => (
+                      <div key={label} style={{ marginBottom: 10 }}>
+                        <span style={css.label}>{label}</span>
+                        <p style={{ margin: 0, fontSize: 13, color: "#444", lineHeight: 1.5 }}>{value}</p>
+                      </div>
+                    ))}
+
+                    {d.auto_frames && d.auto_frames.length > 0 && (
+                      <div style={{ marginBottom: 10 }}>
+                        <span style={css.label}>Auto-extracted frames</span>
+                        <div style={{ display: "flex", flexDirection: "column" as const, gap: 3 }}>
+                          {d.auto_frames.map((f, fi) => (
+                            <div key={fi} style={{ fontSize: 11, padding: "5px 10px", background: "#f8f8f8", borderRadius: 6 }}>
+                              <span style={{ fontWeight: 600, color: "#1a56db", marginRight: 8 }}>{f.timestamp_seconds}s</span>
+                              <span style={{ color: "#444" }}>{f.description}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <button style={{ ...css.btnSecondary, marginTop: 10, fontSize: 11 }} onClick={() => setExpandedDNA(expandedDNA === di ? null : di)}>
+                  {expandedDNA === di ? "Collapse" : "Expand details"}
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -1089,7 +897,6 @@ export default function App() {
                       Hook at <strong>{(c as any).hook_timing_seconds}s</strong> — {c.performance_hooks?.[0]?.type || "Challenge"}
                     </div>
                   )}
-
                   {(c as any).unit_evolution_chain?.length > 0 && (
                     <div style={{ marginBottom: 14 }}>
                       <span style={css.label}>Unit evolution chain</span>
@@ -1103,14 +910,12 @@ export default function App() {
                       </div>
                     </div>
                   )}
-
                   {c.visual_identity && (
                     <div style={{ marginBottom: 14 }}>
                       <span style={css.label}>Visual identity</span>
                       <div style={css.gridAuto}>
                         {[
-                          { l: "Environment", v: c.visual_identity.environment },
-                          { l: "Lighting", v: c.visual_identity.lighting },
+                          { l: "Environment", v: c.visual_identity.environment }, { l: "Lighting", v: c.visual_identity.lighting },
                           { l: "Cannon", v: c.visual_identity.cannon_type },
                           { l: "Player", v: `${c.visual_identity.player_champion} (${c.visual_identity.player_mob_color})` },
                           { l: "Enemy", v: `${c.visual_identity.enemy_champion} (${c.visual_identity.enemy_mob_color})` },
@@ -1124,7 +929,6 @@ export default function App() {
                       </div>
                     </div>
                   )}
-
                   <div style={{ marginBottom: 14 }}>
                     <span style={css.label}>Scene renders</span>
                     <div style={css.grid3}>
@@ -1141,7 +945,6 @@ export default function App() {
                       })}
                     </div>
                   </div>
-
                   {c.production_script?.length > 0 && (
                     <div style={{ marginBottom: 14 }}>
                       <span style={css.label}>Production script</span>
@@ -1160,7 +963,6 @@ export default function App() {
                       </div>
                     </div>
                   )}
-
                   {c.performance_hooks?.length > 0 && (
                     <div style={{ marginBottom: 14 }}>
                       <span style={css.label}>Performance hooks</span>
@@ -1174,18 +976,11 @@ export default function App() {
                       </div>
                     </div>
                   )}
-
                   {c.quality_score && (
                     <div>
                       <span style={css.label}>Quality score</span>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(100px,1fr))", gap: 8, marginBottom: 8 }}>
-                        {[
-                          { l: "Pattern fidelity", v: c.quality_score.pattern_fidelity },
-                          { l: "MOC DNA", v: c.quality_score.moc_dna },
-                          { l: "Emotional arc", v: c.quality_score.emotional_arc },
-                          { l: "Visual clarity", v: c.quality_score.visual_clarity },
-                          { l: "Segment fit", v: c.quality_score.segment_fit },
-                        ].map(({ l, v }) => (
+                        {[{ l: "Pattern fidelity", v: c.quality_score.pattern_fidelity }, { l: "MOC DNA", v: c.quality_score.moc_dna }, { l: "Emotional arc", v: c.quality_score.emotional_arc }, { l: "Visual clarity", v: c.quality_score.visual_clarity }, { l: "Segment fit", v: c.quality_score.segment_fit }].map(({ l, v }) => (
                           <div key={l} style={css.metric}>
                             <div style={{ fontSize: 9, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 3 }}>{l}</div>
                             <div style={{ fontSize: 18, fontWeight: 700, color: scoreColor(v) }}>{v}</div>
