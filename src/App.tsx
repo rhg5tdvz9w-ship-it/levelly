@@ -246,24 +246,6 @@ async function uploadToGeminiFileAPI(file: File, onStatus: (m: string) => void):
 async function fileToBase64(file: File): Promise<string> {
   return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res((r.result as string).split(",")[1]); r.onerror = rej; r.readAsDataURL(file); });
 }
-function pickRelevantRefs(vi: VisualIdentity): any[] {
-  const biome = vi.environment?.toLowerCase() || ""; const player = vi.player_champion?.toLowerCase() || ""; const enemy = vi.enemy_champion?.toLowerCase() || "";
-  const populated = MOC_REFERENCES.filter(r => !r.base64.startsWith("REPLACE_"));
-  if (populated.length === 0) return [];
-  const scored = populated.map(ref => { const lbl = ref.label.toLowerCase(); let score = 0; if (lbl.includes(biome)) score += 3; if (player && lbl.includes(player)) score += 2; if (enemy && lbl.includes(enemy)) score += 2; if (ref.category === "gate") score += 1; return { ref, score }; });
-  scored.sort((a, b) => b.score - a.score);
-  const selected: typeof populated = [];
-  const biomeRef = scored.find(s => s.ref.category === "biome" && s.score > 0)?.ref;
-  const champRef = scored.find(s => s.ref.category === "champion" && s.score > 0)?.ref;
-  const gateRef = scored.find(s => s.ref.category === "gate")?.ref;
-  if (biomeRef) selected.push(biomeRef);
-  if (champRef && champRef !== biomeRef) selected.push(champRef);
-  if (gateRef && !selected.includes(gateRef)) selected.push(gateRef);
-  for (const { ref } of scored) { if (selected.length >= 3) break; if (!selected.includes(ref)) selected.push(ref); }
-  const parts: any[] = [{ text: "### MOC VISUAL REFERENCES:" }];
-  selected.forEach(ref => { parts.push({ text: `[${ref.category.toUpperCase()}]: ${ref.label.split(".")[0]}` }); parts.push({ inlineData: { mimeType: "image/jpeg", data: ref.base64 } }); });
-  return parts;
-}
 
 // ─── Prompts (unchanged from v4) ──────────────────────────────────────────────
 const BIOME_GUIDE = `BIOMES: Foggy Forest(grey/white fog,dark pine,grey road), Desert(tan sand,blue sky), Water(grey bridge over blue water), Bunker(grey concrete tunnel), Cyber-City(grey metal,orange tech), Volcanic(red/orange lava,black rocks), Snow(white snow ground), Toxic(purple paths,green slime), Meadow(green hills,grey brick bridge), Unknown`;
