@@ -493,6 +493,43 @@ function ReferenceDropZone({ onRef, currentRef, onClear, iterateFrom, onIterateF
   );
 }
 
+// ─── AI text enhancement (Claude via Netlify) ─────────────────────────────────
+async function enhanceText(raw: string, mode: "upload" | "brief"): Promise<string> {
+  const systemPrompt = mode === "upload"
+    ? `You are a Mob Control creative analyst. The user has typed a rough note describing a video ad they're about to upload for DNA analysis. Rewrite it into a precise, structured context note for Gemini that covers: biome/environment, hook type and timing, key mechanics shown, gate sequence if mentioned, unit evolution if visible, why it's interesting or unusual. Be specific and concise — max 4 sentences. Use plain text, no bullet points. Preserve all facts the user mentioned.`
+    : `You are a Mob Control creative producer. The user has typed a rough brief idea. Expand it into a clear structured brief for Gemini that specifies: biome, hook type, target network, emotional arc, key mechanic, unit evolution direction, and what makes this concept distinctive vs existing library. Be specific and actionable — max 5 sentences. Use plain text, no bullet points. Preserve all facts and preferences the user mentioned.`;
+  const r = await fetch("/api/enhance", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ system: systemPrompt, text: raw }),
+  });
+  if (!r.ok) throw new Error(`Enhance failed: ${r.status}`);
+  const data = await r.json();
+  const text = data.content?.[0]?.text;
+  if (!text) throw new Error("No response from Claude");
+  return text.trim();
+}
+
+// ─── Enhance Button ────────────────────────────────────────────────────────────
+function EnhanceButton({ text, onEnhanced, mode }: { text: string; onEnhanced: (s: string) => void; mode: "upload"|"brief" }) {
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+  async function run() {
+    setLoading(true);
+    try {
+      const enhanced = await enhanceText(text, mode);
+      onEnhanced(enhanced);
+      setDone(true); setTimeout(() => setDone(false), 2000);
+    } catch { /* silently fail — user keeps their text */ }
+    finally { setLoading(false); }
+  }
+  return (
+    <button onClick={run} disabled={loading} style={{ padding:"3px 10px",fontSize:10,fontWeight:500,borderRadius:20,border:`0.5px solid ${done?D.greenBdr:D.purpleBdr}`,background:done?D.greenBg:D.purpleBg,color:done?D.green:D.purple,cursor:loading?"wait":"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4,whiteSpace:"nowrap" as const,flexShrink:0,transition:"all .2s" }}>
+      {loading?<><span style={{ width:8,height:8,borderRadius:"50%",border:`1.5px solid ${D.purpleBdr}`,borderTopColor:D.purple,display:"inline-block",animation:"spin .6s linear infinite" }} />Enhancing…</>:done?"✓ Enhanced":"✦ Enhance"}
+    </button>
+  );
+}
+
 // ─── Upload Modal ─────────────────────────────────────────────────────────────
 function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConfig) => void; onCancel: () => void; lib: DNAEntry[] }) {
   const [tier, setTier] = useState<UploadConfig["tier"]>("winner");
@@ -536,7 +573,13 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
             {TIERS.map(t => <button key={t} onClick={()=>setTier(t)} style={{ padding:"5px 12px",fontSize:11,fontWeight:500,borderRadius:20,border:`1.5px solid ${tier===t?TIER_STYLE[t].border:D.border2}`,background:tier===t?TIER_STYLE[t].bg:"transparent",color:tier===t?TIER_STYLE[t].text:D.textMuted,cursor:"pointer" }}>{t}</button>)}
           </div>
         </div>
-        <div style={{ marginBottom:14 }}><span style={labelStyle}>Context for Gemini</span><textarea style={{ ...inputStyle,minHeight:72,resize:"vertical",background:D.bg }} placeholder="Describe biome, hook, key mechanics…" value={context} onChange={e=>setContext(e.target.value)} /></div>
+        <div style={{ marginBottom:14 }}>
+          <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6 }}>
+            <span style={labelStyle}>Context for Gemini</span>
+            {context.trim().length>10&&<EnhanceButton text={context} onEnhanced={setContext} mode="upload" />}
+          </div>
+          <textarea style={{ ...inputStyle,minHeight:72,resize:"vertical",background:D.bg }} placeholder="Describe biome, hook, key mechanics…" value={context} onChange={e=>setContext(e.target.value)} />
+        </div>
         <div style={{ marginBottom:16 }}>
           <span style={labelStyle}>Manual storyboard frames (optional)</span>
           <input ref={frameRef} type="file" accept="image/*" multiple style={{ display:"none" }} onChange={e=>setManualFrames(Array.from(e.target.files??[]))} />
@@ -1183,8 +1226,11 @@ export default function App() {
                 <button onClick={()=>setBriefPanelOpen(false)} style={{ background:"none",border:"none",color:D.textMuted,cursor:"pointer",fontSize:11,padding:"2px 6px",borderRadius:4,fontFamily:"inherit" }}>✕ Close</button>
               </div>
               <div style={{ padding:"14px 16px 8px" }}>
-                <textarea style={{ width:"100%",boxSizing:"border-box",fontSize:14,padding:"9px 11px",background:"transparent",border:"none",minHeight:64,resize:"vertical",outline:"none",fontFamily:"inherit",color:D.text,lineHeight:1.6 } as React.CSSProperties}
-                  placeholder="Describe your idea — biome, hook type, emotional arc, network target…" value={briefCtx} onChange={e=>setBriefCtx(e.target.value)} />
+                <div style={{ display:"flex",alignItems:"flex-start",gap:8 }}>
+                  <textarea style={{ flex:1,boxSizing:"border-box",fontSize:14,padding:"9px 11px",background:"transparent",border:"none",minHeight:64,resize:"vertical",outline:"none",fontFamily:"inherit",color:D.text,lineHeight:1.6 } as React.CSSProperties}
+                    placeholder="Describe your idea — biome, hook type, emotional arc, network target…" value={briefCtx} onChange={e=>setBriefCtx(e.target.value)} />
+                  {briefCtx.trim().length>10&&<div style={{ paddingTop:4,flexShrink:0 }}><EnhanceButton text={briefCtx} onEnhanced={setBriefCtx} mode="brief" /></div>}
+                </div>
               </div>
               {/* ── #8 Reference + iterate from (merged) ── */}
               <div style={{ padding:"0 16px 8px" }}>
