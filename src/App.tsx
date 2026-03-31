@@ -54,7 +54,7 @@ interface Concept {
   production_script: ScriptStep[]; performance_hooks: PerformanceHook[];
   engagement_hooks: string; quality_score: QualityScore;
   network_adaptations?: NetworkAdaptations;
-  visual_start?: string; visual_middle?: string; visual_end?: string;
+  visual_hook?: string; visual_start?: string; visual_middle?: string; visual_end?: string;
 }
 interface BriefAnalysis { patterns_used: string; segment_insight: string; strategy: string; dna_sources?: string[]; }
 
@@ -271,16 +271,26 @@ Return ONLY valid JSON:
 {"analysis":{"patterns_used":string,"dna_sources":[string],"segment_insight":string,"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"is_experimental":boolean,"experimental_note":string|null,"objective":string,"target_segment":string,"player_motivation":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"layout":string,"hook_timing_seconds":number,"unit_evolution_chain":[string],"network_adaptations":{"AppLovin":string,"Facebook":string,"Google":string},"production_script":[{"time":string,"action":string,"visual_cue":string,"audio_cue":string}],"performance_hooks":[{"type":string,"text":string}],"engagement_hooks":string,"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}]}`;
 };
 
-const imagePromptFn = (concept: Concept, scene: "start"|"middle"|"end", continuityNote?: string) => {
+const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", continuityNote?: string) => {
   const vi = concept.visual_identity;
   const chain: string[] = (concept as any).unit_evolution_chain || [];
+  const hookDesc = (concept as any).hook_description || "";
   const unitAtScene = {
-    start: chain[0] || "basic mob",
+    hook:   chain[0] || "basic mob",
+    start:  chain[0] || "basic mob",
     middle: chain[Math.floor(chain.length / 2)] || chain[0] || "evolved mob",
-    end: chain[chain.length - 1] || chain[0] || "final evolved mob",
+    end:    chain[chain.length - 1] || chain[0] || "final evolved mob",
   }[scene];
 
   const sceneDesc = {
+    hook: `HOOK SCENE — the dramatic opening moment that stops the thumb (0-2 seconds):
+- This is the VERY FIRST FRAME of the ad — maximum visual impact
+- Hook event: ${hookDesc || "enemy boss dramatically kicks the player cannon backward"}
+- The player cannon is shown being violently knocked back or in a losing/surprised state
+- Enemy boss looms large and threatening at the top, dominant presence
+- Player mobs are few or scattered — player is clearly losing at this moment
+- DRAMATIC composition — this is the thumb-stopper, NOT a neutral game state
+- Unit type: ${unitAtScene} — basic starting units`,
     start: `OPENING SCENE — game state at start of ad:
 - Player cannon at bottom center, just fired first shot
 - VERY FEW player mobs (5-10 blobs) marching toward the FIRST gate ahead
@@ -290,11 +300,11 @@ const imagePromptFn = (concept: Concept, scene: "start"|"middle"|"end", continui
 - This is before any gate has been passed — the lane is mostly empty`,
     middle: `MID-BATTLE SCENE — game state after passing several gates:
 - Massive swarm of player mobs FLOODS the center lane — hundreds of blobs
-- Player mobs have visually UPGRADED: they now look like ${unitAtScene} — larger, evolved, different shape from start
-- 1-2 gates still ahead, partially passed
-- Enemy mobs visible near the top, outnumbered
-- Enemy boss still standing with ~50% health bar remaining
-- Gates show multiplier values — some already passed (player side of lane)`,
+- Player mobs have visually UPGRADED to: ${unitAtScene} — larger, evolved, visually distinct from start
+- UPGRADE CONTAINERS visible on the road: 1-2 breakable crate/box objects on the lane that the mobs are about to hit or have just broken — these are the cannon upgrade pickups
+- 1-2 multiplier gates still ahead, showing values like ${(vi.gate_values||["x3","x5"]).slice(0,2).join(", ")}
+- Enemy mobs visible near the top, being overwhelmed
+- Enemy boss at ~50% health bar`,
     end: `DRAMATIC ALMOST-WIN / FAIL — final game state:
 - Player has reached the final evolved unit: ${unitAtScene}
 - Only a TINY cluster of player mobs remains (3-8 blobs) — almost wiped out
@@ -1041,15 +1051,17 @@ export default function App() {
     finally { setGenerating(false); }
   };
 
-  const handleRenderScene=async(ci: number,scene: "start"|"middle"|"end")=>{
+  const handleRenderScene=async(ci: number,scene: "hook"|"start"|"middle"|"end")=>{
     const k=`${ci}-${scene}`; setRenderingScene(p=>({...p,[k]:true}));
     try {
       const concept=concepts[ci]; const vi=concept.visual_identity;
       const refParts=pickRelevantRefs(vi);
       const prevParts: any[]=[];
+      // Continuity chain: hook is rendered first (no ref), start uses hook, middle uses start, end uses middle
+      if(scene==="start"&&concept.visual_hook){ prevParts.push({text:"### HOOK SCENE — match ALL assets, environment, lighting, cannon, and art style exactly:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_hook.replace("data:image/png;base64,","")}}); }
       if((scene==="middle"||scene==="end")&&concept.visual_start){ prevParts.push({text:"### START SCENE — match ALL assets, environment, lighting, and art style exactly:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_start.replace("data:image/png;base64,","")}}); }
       if(scene==="end"&&concept.visual_middle){ prevParts.push({text:"### MIDDLE SCENE — also match this for additional asset consistency:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_middle.replace("data:image/png;base64,","")}}); }
-      const continuityNote=scene!=="start"?`Match ALL visual assets from the reference scene image(s) above — same cannon model, same mob blob design, same gate style, same environment. Only the GAME STATE changes (${scene==="middle"?"more mobs filling the lane, mid-battle":"very few mobs remaining, dramatic fail moment"}).`:undefined;
+      const continuityNote=scene!=="hook"?`Match ALL visual assets from the reference scene image(s) above — same cannon model, same mob blob design, same gate style, same environment. Only the GAME STATE changes.`:undefined;
       const url=await callImageDirect(imagePromptFn(concept,scene,continuityNote),[...refParts,...prevParts]);
       setConcepts(p=>p.map((c,i)=>i===ci?{...c,[`visual_${scene}`]:url}:c));
     } catch(err: any){ alert(`Render failed: ${err.message}`); }
@@ -1272,26 +1284,28 @@ export default function App() {
                   <div style={{ marginBottom:14 }}>
                     <span style={labelStyle}>Scene renders</span>
                     {c.is_experimental&&<div style={{ marginBottom:8,padding:"7px 12px",background:"#2a1a2e",border:"0.5px solid #9d174d",borderRadius:7,fontSize:11,color:"#f472b6" }}>⚠ Experimental biome — no spend data. Use for inspiration only.</div>}
-                    {!c.is_experimental&&PROVEN_BIOMES.includes(c.visual_identity?.environment)&&<div style={{ marginBottom:8,padding:"7px 12px",background:D.greenBg,border:`0.5px solid ${D.greenBdr}`,borderRadius:7,fontSize:11,color:D.green }}>Proven biome — render Start first, then Middle, then End.</div>}
-                    <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
-                      {(["start","middle","end"] as const).map(scene=>{
+                    {!c.is_experimental&&PROVEN_BIOMES.includes(c.visual_identity?.environment)&&<div style={{ marginBottom:8,padding:"7px 12px",background:D.greenBg,border:`0.5px solid ${D.greenBdr}`,borderRadius:7,fontSize:11,color:D.green }}>Render Hook first — then Start → Middle → End for continuity.</div>}
+                    <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8 }}>
+                      {(["hook","start","middle","end"] as const).map(scene=>{
                         const imgUrl=c[`visual_${scene}` as keyof Concept] as string|undefined;
                         const loading=renderingScene[`${ci}-${scene}`];
-                        const needsStart=(scene==="middle"||scene==="end")&&!c.visual_start;
-                        const isStart=scene==="start";
-                        const isNext=(scene==="middle"&&!!c.visual_start&&!c.visual_middle)||(scene==="end"&&!!c.visual_middle&&!c.visual_end);
-                        const borderColor=isStart&&!imgUrl?D.blue:isNext?D.gold:D.border;
-                        const borderWidth=isStart&&!imgUrl||isNext?"1.5px":"0.5px";
+                        const isHook=scene==="hook";
+                        const needsHook=(scene==="start"||scene==="middle"||scene==="end")&&!c.visual_hook;
+                        const isNext=(scene==="hook"&&!c.visual_hook)||(scene==="start"&&!!c.visual_hook&&!c.visual_start)||(scene==="middle"&&!!c.visual_start&&!c.visual_middle)||(scene==="end"&&!!c.visual_middle&&!c.visual_end);
+                        const sceneColor={hook:D.red,start:D.blue,middle:D.gold,end:D.green}[scene];
+                        const borderColor=isNext?sceneColor:D.border;
+                        const borderWidth=isNext?"1.5px":"0.5px";
+                        const sceneLabel={hook:"Hook",start:"Start",middle:"Middle",end:"End"}[scene];
                         return (
-                          <div key={scene} style={{ aspectRatio:"9/16",background:D.surface2,borderRadius:10,border:`${borderWidth} solid ${borderColor}`,overflow:"hidden",display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"center",cursor:needsStart?"not-allowed":"pointer",position:"relative" as const,transition:"border-color .2s" }}
-                            onClick={()=>!imgUrl&&!loading&&!needsStart&&handleRenderScene(ci,scene)}>
-                            {(isStart&&!imgUrl||isNext)&&<div style={{ position:"absolute" as const,top:8,left:0,right:0,display:"flex",justifyContent:"center" }}>
-                              <span style={{ fontSize:9,padding:"2px 8px",background:isStart?D.blueDark:"#9e6a03",color:"#fff",borderRadius:20,fontWeight:600,letterSpacing:"0.05em" }}>{isStart?"START HERE":"RENDER NEXT"}</span>
+                          <div key={scene} style={{ aspectRatio:"9/16",background:D.surface2,borderRadius:10,border:`${borderWidth} solid ${borderColor}`,overflow:"hidden",display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"center",cursor:needsHook?"not-allowed":"pointer",position:"relative" as const,transition:"border-color .2s" }}
+                            onClick={()=>!imgUrl&&!loading&&!needsHook&&handleRenderScene(ci,scene)}>
+                            {isNext&&!imgUrl&&<div style={{ position:"absolute" as const,top:6,left:0,right:0,display:"flex",justifyContent:"center" }}>
+                              <span style={{ fontSize:9,padding:"2px 7px",background:sceneColor,color:"#fff",borderRadius:20,fontWeight:600,letterSpacing:"0.05em" }}>{isHook?"START HERE":"RENDER NEXT"}</span>
                             </div>}
                             {imgUrl?<img src={imgUrl} alt={scene} style={{ width:"100%",height:"100%",objectFit:"cover" }} />
-                              :loading?<p style={{ margin:0,fontSize:13,fontWeight:500,color:D.textMuted }}>Rendering…</p>
-                              :needsStart?<div style={{ textAlign:"center" as const,padding:12 }}><p style={{ margin:0,fontSize:11,color:D.textDim,textTransform:"uppercase" as const }}>{scene}</p><p style={{ margin:"6px 0 0",fontSize:10,color:D.textDim }}>Render Start first</p></div>
-                              :<div style={{ textAlign:"center" as const,padding:12,marginTop:isStart||isNext?20:0 }}><p style={{ margin:0,fontSize:12,fontWeight:500,textTransform:"uppercase" as const,color:isStart?D.blue:isNext?D.gold:D.textDim }}>{scene}</p><p style={{ margin:"6px 0 0",fontSize:10,color:isStart?D.blue:isNext?D.gold:D.textDim }}>{isStart?"Render first":isNext?"Render next":"Click to render"}</p></div>}
+                              :loading?<p style={{ margin:0,fontSize:11,fontWeight:500,color:D.textMuted }}>Rendering…</p>
+                              :needsHook?<div style={{ textAlign:"center" as const,padding:10 }}><p style={{ margin:0,fontSize:10,color:D.textDim,textTransform:"uppercase" as const }}>{sceneLabel}</p><p style={{ margin:"4px 0 0",fontSize:9,color:D.textDim }}>Render Hook first</p></div>
+                              :<div style={{ textAlign:"center" as const,padding:10,marginTop:isNext?18:0 }}><p style={{ margin:0,fontSize:11,fontWeight:500,textTransform:"uppercase" as const,color:isNext?sceneColor:D.textDim }}>{sceneLabel}</p><p style={{ margin:"4px 0 0",fontSize:9,color:isNext?sceneColor:D.textDim }}>{isNext?"Render next":"Click to render"}</p></div>}
                           </div>
                         );
                       })}
