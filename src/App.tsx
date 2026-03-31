@@ -83,23 +83,6 @@ const WINDOW_OPTIONS = [
   { value: 60, label: "60d" }, { value: 90, label: "90d" }, { value: 180, label: "6mo" }, { value: 365, label: "1yr+" },
 ];
 
-const LINEAGE_CHAINS: Record<string, string[]> = {
-  "CT43":  ["CT43", "9876", "CX18"],
-  "9876":  ["CT43", "9876", "CX18"],
-  "CX18":  ["CT43", "9876", "CX18"],
-  "CN28":  ["CN28", "CN28p", "CR17"],
-  "CN28p": ["CN28", "CN28p", "CR17"],
-  "CR17":  ["CN28", "CN28p", "CR17"],
-  "CZ66":  ["CZ66", "CZ65"],
-  "CZ65":  ["CZ66", "CZ65"],
-  "CC21":  ["CC21", "CB57"],
-  "CB57":  ["CC21", "CB57"],
-  "10218": ["CT43", "CX18", "10218", "10324"],
-  "10324": ["10218", "CR17", "10324"],
-  "CR86":  ["CT43", "CR86"],
-  "CR85":  ["CR86", "CR85"],
-};
-
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 const GEMINI_TEXT_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
 const GEMINI_IMAGE_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${GEMINI_KEY}`;
@@ -425,6 +408,36 @@ function SpendTagger({ entry, onSave }: { entry: DNAEntry; onSave: (fields: Part
       <button onClick={save} style={{ ...btnPri,padding:"6px 14px",fontSize:11 }}>{saved?"Saved ✓":"Save"}</button>
     </div>
   );
+}
+
+// ─── Dynamic lineage chain builder ───────────────────────────────────────────
+function buildLineageChain(entry: DNAEntry, lib: DNAEntry[]): string[] | null {
+  try {
+    const id = entry.creative_id?.trim();
+    if (!id) return null;
+    const visited = new Set<string>();
+    const chain: string[] = [];
+    let current: DNAEntry | undefined = entry;
+    while (current) {
+      const cid = current.creative_id?.trim();
+      if (!cid || visited.has(cid)) break;
+      visited.add(cid);
+      chain.unshift(cid);
+      const pid = current.parent_id?.trim();
+      if (!pid) break;
+      current = lib.find(e => { const ecid = e.creative_id?.trim(); return ecid && ecid !== "" && ecid === pid; });
+    }
+    const seen = new Set(chain);
+    let tip = id;
+    let found = true;
+    let safety = 0;
+    while (found && safety++ < 50) {
+      found = false;
+      const child = lib.find(e => { const epid = e.parent_id?.trim(); const ecid = e.creative_id?.trim(); return epid && epid !== "" && epid === tip && ecid && !seen.has(ecid); });
+      if (child?.creative_id) { const cid = child.creative_id.trim(); seen.add(cid); chain.push(cid); tip = cid; found = true; }
+    }
+    return chain.length > 1 ? chain : null;
+  } catch { return null; }
 }
 
 // ─── Library Card ─────────────────────────────────────────────────────────────
