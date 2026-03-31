@@ -854,7 +854,6 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
       borderLeft: `3px solid ${isReanalyzing ? D.blue : accentColor}`,
       background: isReanalyzing ? `${D.blueBg}44` : "transparent",
       boxShadow: isReanalyzing ? `inset 0 0 0 1px ${D.blueDark}` : "none",
-    }}>  // always visible accent
     }}>
       {/* ── Collapsed card body ── */}
       <div style={{
