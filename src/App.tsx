@@ -84,6 +84,15 @@ const WINDOW_OPTIONS = [
 const SPEND_RANK: Record<string, number> = { "1M": 5, "500K": 4, "300K": 3, "100K": 2, "sub100K": 1 };
 type SortMode = "all" | "winner" | "scalable" | "inspiration" | "failed";
 
+// Analysis steps for homepage progress indicator (#7)
+const ANALYSIS_STEPS = [
+  { key: "uploading",  label: "Uploading video" },
+  { key: "frames",     label: "Extracting frames" },
+  { key: "hook",       label: "Detecting hook" },
+  { key: "analyzing",  label: "Analysing DNA" },
+  { key: "saving",     label: "Saving to library" },
+];
+
 const TIER_ACCENT: Record<string, string> = {
   winner: "#3fb950", scalable: "#58a6ff", inspiration: "#f0c53a", failed: "#f85149",
 };
@@ -242,15 +251,16 @@ const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtra
 const reanalysisSystem = (entry: DNAEntry) =>
   `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate hallucinations 4.unit_evolution_chain 5.emotional_beats 6.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
 
-const briefSystem = (lib: DNAEntry[], ctx: string, seg: string, iterateFrom?: string) => {
+const briefSystem = (lib: DNAEntry[], ctx: string, seg: string, iterateFrom?: string, refNote?: string) => {
   const activeWinners = lib.filter(d => d.tier === "winner" && d.creative_status !== "fatigued");
   const refBlock = iterateFrom ? `\nITERATE FROM: "${iterateFrom}" — creative starting point, DNA rules are primary.\n` : "";
+  const visualRefBlock = refNote ? `\nVISUAL REFERENCE PROVIDED BY USER: ${refNote}. Use for visual inspiration only — DNA patterns and spend rules remain primary.\n` : "";
   return `You are a World-Class Lead Creative Producer for Mob Control (MOC) by Voodoo. Ground EVERY concept in proven spend data.
 
 WINNER DNA LIBRARY (${activeWinners.length} active entries — fatigued excluded):
 ${JSON.stringify(activeWinners.map(d => ({ title: d.title, creative_id: d.creative_id||null, hook_type: d.hook_type, hook_timing_seconds: d.hook_timing_seconds, gate_sequence: (d.gate_sequence||[]).slice(0,5), unit_evolution_chain: d.unit_evolution_chain, key_mechanic: d.key_mechanic, biome: d.biome, loss_event_type: d.loss_event_type, spend_tier: d.spend_tier||null, spend_networks: d.spend_networks||[], replication_instructions: (d.replication_instructions||"").slice(0,200) })), null, 2)}
 
-BRIEF: ${ctx} | SEGMENT: ${seg}${refBlock}
+BRIEF: ${ctx} | SEGMENT: ${seg}${refBlock}${visualRefBlock}
 
 PROVEN SWAP RULES: BIOME SWAP(CC21/AppLovin→CB57/FB+Google), COLOUR SWAP(CZ66→CZ65 $7K+/d top-1 FB, blue/red+desert=strongest FB), HOOK SWAP(CR86 skeleton/FB→CR85 knight/AppLovin), CAMERA(custom side cam→AppLovin/Google, default→FB/TikTok)
 NETWORK RULES: AppLovin=skeleton/knight+custom cam+blue+3+evolution. Facebook=colour/biome swap+default cam+almost-win 1-5HP. Google=strong almost-win+foggy forest/water.
@@ -335,6 +345,86 @@ function sortLib(lib: DNAEntry[], mode: SortMode): DNAEntry[] {
   const fatigued = filtered.filter(d => d.creative_status === "fatigued");
   const bySpend = (a: DNAEntry, b: DNAEntry) => (SPEND_RANK[b.spend_tier??""]??0) - (SPEND_RANK[a.spend_tier??""]??0);
   return [...active.sort(bySpend), ...fatigued.sort(bySpend)];
+}
+
+// ─── #7 Analysis Progress Panel ───────────────────────────────────────────────
+function AnalysisProgressPanel({ step, fileName, error }: { step: string; fileName: string; error: string }) {
+  const currentIdx = ANALYSIS_STEPS.findIndex(s => s.key === step);
+  return (
+    <div style={{ background: D.surface, border: `1.5px solid ${error ? "#6e2020" : D.blueDark}`, borderRadius: 12, padding: "18px 20px", marginBottom: 20, animation: "slideIn .2s ease-out" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: error ? 0 : 16 }}>
+        {!error && <div style={{ width: 16, height: 16, borderRadius: "50%", border: `2px solid rgba(88,166,255,0.2)`, borderTopColor: D.blue, flexShrink: 0, animation: "spin .7s linear infinite" }} />}
+        {error && <span style={{ fontSize: 15 }}>⚠</span>}
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: error ? D.red : D.text }}>{error ? "Analysis failed" : `Analysing: ${fileName}`}</div>
+          {error && <div style={{ fontSize: 11, color: D.red, marginTop: 3 }}>{error}</div>}
+        </div>
+      </div>
+      {!error && (
+        <div style={{ display: "flex", flexDirection: "column" as const, gap: 7 }}>
+          {ANALYSIS_STEPS.map((s, i) => {
+            const isDone = i < currentIdx;
+            const isActive = i === currentIdx;
+            return (
+              <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 20, height: 20, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: isDone ? D.greenBg : isActive ? D.blueBg : D.surface2, border: `1.5px solid ${isDone ? D.greenBdr : isActive ? D.blueDark : D.border2}`, fontSize: 9, fontWeight: 700, color: isDone ? D.green : isActive ? D.blue : D.textDim, transition: "all .3s" }}>
+                  {isDone ? "✓" : i + 1}
+                </div>
+                <span style={{ fontSize: 12, color: isDone ? D.textMuted : isActive ? D.text : D.textDim, fontWeight: isActive ? 500 : 400, transition: "color .3s" }}>
+                  {s.label}{isActive && <span style={{ color: D.blue, marginLeft: 6, fontSize: 10 }}>in progress…</span>}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── #8 Reference Drop Zone ───────────────────────────────────────────────────
+function ReferenceDropZone({ onRef, currentRef, onClear }: {
+  onRef: (data: { base64: string; mimeType: string; name: string }) => void;
+  currentRef: { base64: string; mimeType: string; name: string } | null;
+  onClear: () => void;
+}) {
+  const [dragging, setDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const processFile = async (file: File) => {
+    if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) return;
+    const base64 = await fileToBase64(file);
+    onRef({ base64, mimeType: file.type, name: file.name });
+  };
+  if (currentRef) {
+    return (
+      <div style={{ marginBottom: 10, padding: "9px 14px", background: D.purpleBg, border: `1px solid ${D.purpleBdr}`, borderRadius: 8, display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ fontSize: 16, flexShrink: 0 }}>{currentRef.mimeType.startsWith("image/") ? "🖼" : "🎬"}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 500, color: D.purple, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{currentRef.name}</div>
+          <div style={{ fontSize: 10, color: D.textDim, marginTop: 1 }}>Visual reference · DNA patterns stay primary</div>
+        </div>
+        <button onClick={onClear} style={{ background: "none", border: "none", color: D.textDim, cursor: "pointer", fontSize: 16, padding: "0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
+      </div>
+    );
+  }
+  return (
+    <>
+      <input ref={inputRef} type="file" accept="image/*,video/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); e.target.value = ""; }} />
+      <div
+        onDragOver={e => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files?.[0]; if (f) processFile(f); }}
+        onClick={() => inputRef.current?.click()}
+        style={{ marginBottom: 10, padding: "10px 14px", borderRadius: 8, cursor: "pointer", border: `1.5px dashed ${dragging ? D.purple : D.border2}`, background: dragging ? D.purpleBg : "transparent", display: "flex", alignItems: "center", gap: 10, transition: "border-color .15s, background .15s" }}
+      >
+        <div style={{ fontSize: 16, opacity: 0.45 }}>🖼</div>
+        <div>
+          <div style={{ fontSize: 11, color: dragging ? D.purple : D.textMuted, fontWeight: 500 }}>{dragging ? "Drop to add reference" : "Drop a reference image or video"}</div>
+          <div style={{ fontSize: 10, color: D.textDim, marginTop: 1 }}>Optional · Levelly DNA stays primary</div>
+        </div>
+      </div>
+    </>
+  );
 }
 
 // ─── Upload Modal ─────────────────────────────────────────────────────────────
@@ -474,6 +564,7 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
   lib: DNAEntry[]; saveLib: (l: DNAEntry[]) => void;
   reanalyzingIds: Set<number>; handleReanalyzeSingle: (e: DNAEntry) => void;
 }) {
+  // ✅ canTag fix: inspiration tier now shows metadata fields
   const canTag = d.ad_type === "moc";
   const spendSt = SPEND_TIERS.find(t => t.value === d.spend_tier);
   const statusSt = CREATIVE_STATUS.find(s => s.value === d.creative_status);
@@ -795,12 +886,15 @@ export default function App() {
   const [showModal, setShowModal] = useState(false);
   const [uploadConfig, setUploadConfig] = useState<UploadConfig|null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  const [analyzeErr, setAnalyzeErr] = useState(""); const [analyzeInfo, setAnalyzeInfo] = useState("");
+  const [analyzeStep, setAnalyzeStep] = useState("");
+  const [analyzeFileName, setAnalyzeFileName] = useState("");
+  const [analyzeErr, setAnalyzeErr] = useState("");
   const [reanalyzingIds, setReanalyzingIds] = useState<Set<number>>(new Set());
   const [reanalyzingAll, setReanalyzingAll] = useState(false);
   const [reanalysisProgress, setReanalysisProgress] = useState("");
   const [briefCtx, setBriefCtx] = useState(""); const [segment, setSegment] = useState("Whale");
   const [iterateFrom, setIterateFrom] = useState("");
+  const [briefRef, setBriefRef] = useState<{ base64: string; mimeType: string; name: string } | null>(null);
   const [generating, setGenerating] = useState(false);
   const [briefErr, setBriefErr] = useState("");
   const [concepts, setConcepts] = useState<Concept[]>([]);
@@ -842,28 +936,31 @@ export default function App() {
   const handleUpload=useCallback(async(e: React.ChangeEvent<HTMLInputElement>)=>{
     const files=Array.from(e.target.files??[]); if(!files.length) return;
     const cfg=uploadConfig||{tier:"winner" as const,ad_type:"moc" as const,context:"",manual_frames:[]};
-    setAnalyzing(true); setAnalyzeErr(""); setAnalyzeInfo("");
+    setAnalyzing(true); setAnalyzeErr(""); setAnalyzeStep("uploading"); setAnalyzeFileName(files[0].name);
+    setBriefPanelOpen(false); setAnalysePanelOpen(false);
     try {
       for(const file of files){
+        setAnalyzeFileName(file.name); setAnalyzeStep("uploading");
         let videoPart: any;
-        if(file.size>4*1024*1024){ const {fileUri,mimeType}=await uploadToGeminiFileAPI(file,setAnalyzeInfo); videoPart={fileData:{mimeType,fileUri}}; }
-        else { setAnalyzeInfo(`Processing "${file.name}"…`); videoPart={inlineData:{mimeType:file.type,data:await fileToBase64(file)}}; }
-        setAnalyzeInfo("Extracting frames…");
+        if(file.size>4*1024*1024){ const {fileUri,mimeType}=await uploadToGeminiFileAPI(file,()=>{}); videoPart={fileData:{mimeType,fileUri}}; }
+        else { videoPart={inlineData:{mimeType:file.type,data:await fileToBase64(file)}}; }
+        setAnalyzeStep("frames");
         let autoFrames: FrameExtraction[]=[],duration=30;
         try { const fr=await callGeminiDirect(frameExtractionSystem(),[{text:"Extract 8 key frames:"},videoPart]); autoFrames=fr?.frames||[]; duration=fr?.duration_seconds||30; } catch {}
-        setAnalyzeInfo("Detecting hook…");
+        setAnalyzeStep("hook");
         let hookData: any={};
         try { hookData=await callGeminiDirect(hookDetectionSystem(),[{text:`Frames:${JSON.stringify(autoFrames)}.Context:${cfg.context}.Find hook:`},videoPart]); } catch {}
         const manualParts: any[]=[];
-        if(cfg.manual_frames.length>0){ setAnalyzeInfo(`Processing ${cfg.manual_frames.length} manual frames…`); for(const mf of cfg.manual_frames){ manualParts.push({text:`Manual:${mf.name}`}); manualParts.push({inlineData:{mimeType:mf.type,data:await fileToBase64(mf)}}); } }
-        setAnalyzeInfo(`Analyzing "${file.name}"…`);
+        if(cfg.manual_frames.length>0){ for(const mf of cfg.manual_frames){ manualParts.push({text:`Manual:${mf.name}`}); manualParts.push({inlineData:{mimeType:mf.type,data:await fileToBase64(mf)}}); } }
+        setAnalyzeStep("analyzing");
         const refParts=buildReferenceParts();
         const dna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,manualParts.length>0,refParts.length>0),[...refParts,...(manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
+        setAnalyzeStep("saving");
         saveLib([...lib,{...dna,id:Date.now()+Math.random(),tier:cfg.tier,ad_type:cfg.ad_type,upload_context:cfg.context,file_name:file.name,added_at:new Date().toISOString(),creative_id:cfg.creative_id,parent_id:cfg.parent_id,auto_frames:autoFrames,manual_frames:cfg.manual_frames.map(f=>f.name)}]);
-        setAnalyzeInfo("");
+        setAnalyzeStep("");
       }
     } catch(err: any){ setAnalyzeErr(err.message); }
-    finally { setAnalyzing(false); setAnalyzeInfo(""); setUploadConfig(null); if(fileRef.current) fileRef.current.value=""; }
+    finally { setAnalyzing(false); setUploadConfig(null); if(fileRef.current) fileRef.current.value=""; }
   },[lib,uploadConfig]);
 
   const handleGenerateBrief = async () => {
@@ -871,7 +968,12 @@ export default function App() {
     if (lib.length === 0) { setBriefErr("Add at least one ad first."); return; }
     setGenerating(true); setBriefErr(""); setConcepts([]); setBriefAnalysis(null);
     try {
-      const result = await callGeminiDirect(briefSystem(lib, briefCtx, segment, iterateFrom.trim()||undefined), [{ text: "Generate the analysis and all 4 concepts. Return only JSON." }]);
+      const refNote = briefRef ? `User provided visual reference: "${briefRef.name}". It is included as an inline file below.` : undefined;
+      const refParts: any[] = briefRef ? [
+        { text: "### USER VISUAL REFERENCE — visual inspiration only, DNA and spend rules are primary:" },
+        { inlineData: { mimeType: briefRef.mimeType, data: briefRef.base64 } },
+      ] : [];
+      const result = await callGeminiDirect(briefSystem(lib, briefCtx, segment, iterateFrom.trim()||undefined, refNote), [...refParts, { text: "Generate the analysis and all 4 concepts. Return only JSON." }]);
       if (result.analysis) setBriefAnalysis(result.analysis);
       if (Array.isArray(result.concepts)) {
         result.concepts.forEach((concept: Concept, i: number) => {
@@ -949,8 +1051,7 @@ export default function App() {
           <button style={btnSec} onClick={()=>importRef.current?.click()}>Import</button>
           <button style={btnPri} onClick={()=>{ setLibPanelOpen(false); setShowModal(true); }} disabled={analyzing||reanalyzingAll}>{analyzing?"Analyzing…":"+ Upload"}</button>
         </div>
-        {(analyzeErr||reanalysisProgress)&&<div style={{ fontSize:11,color:reanalysisProgress?D.blue:D.red,background:reanalysisProgress?D.blueBg:D.redBg,border:`0.5px solid ${reanalysisProgress?D.blueDark:"#6e2020"}`,borderRadius:7,padding:"7px 12px",margin:"8px 16px" }}>{analyzeErr||reanalysisProgress}</div>}
-        {analyzeInfo&&<div style={{ fontSize:11,color:D.blue,background:D.blueBg,border:`0.5px solid ${D.blueDark}`,borderRadius:7,padding:"7px 12px",margin:"8px 16px" }}>{analyzeInfo}</div>}
+        {reanalysisProgress&&<div style={{ fontSize:11,color:D.blue,background:D.blueBg,border:`0.5px solid ${D.blueDark}`,borderRadius:7,padding:"7px 12px",margin:"8px 16px" }}>{reanalysisProgress}</div>}
         {!libraryLoaded&&<div style={{ fontSize:11,color:D.blue,padding:"12px 16px" }}>Loading library…</div>}
         {lib.length===0&&!analyzing&&libraryLoaded&&<div style={{ padding:"2rem 16px",textAlign:"center" as const }}><p style={{ margin:0,fontSize:12,color:D.textMuted }}>Upload MOC ads to build your Creative DNA library.</p></div>}
         <div style={{ flex:1,overflowY:"auto" }}>
@@ -982,6 +1083,12 @@ export default function App() {
         </div>
 
         <div style={{ padding:20,maxWidth:960,margin:"0 auto" }}>
+
+          {/* ── #7 Analysis progress panel ── */}
+          {(analyzing || (!analyzing && analyzeErr)) && (
+            <AnalysisProgressPanel step={analyzeStep} fileName={analyzeFileName} error={analyzeErr} />
+          )}
+
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20 }}>
             {[
               { key:"brief",icon:<svg width="20" height="20" viewBox="0 0 16 16" fill="#58a6ff"><path d="M2 2h9l3 3v9H2V2zm1 1v10h10V6.5L9.5 3H3z"/></svg>,iconBg:D.blueBg,badgeText:"Primary",badgeColor:D.blue,badgeBorder:D.blueDark,title:"Generate brief",desc:"Describe your idea. Levelly matches it to winning DNA patterns and generates a master brief with network adaptations.",active:briefPanelOpen,onClick:()=>{ setBriefPanelOpen(p=>!p); setAnalysePanelOpen(false); } },
@@ -1007,11 +1114,15 @@ export default function App() {
                 </div>
                 <button onClick={()=>setBriefPanelOpen(false)} style={{ background:"none",border:"none",color:D.textMuted,cursor:"pointer",fontSize:11,padding:"2px 6px",borderRadius:4,fontFamily:"inherit" }}>✕ Close</button>
               </div>
-              <div style={{ padding:"14px 16px" }}>
+              <div style={{ padding:"14px 16px 8px" }}>
                 <textarea style={{ width:"100%",boxSizing:"border-box",fontSize:14,padding:"9px 11px",background:"transparent",border:"none",minHeight:64,resize:"vertical",outline:"none",fontFamily:"inherit",color:D.text,lineHeight:1.6 } as React.CSSProperties}
                   placeholder="Describe your idea — biome, hook type, emotional arc, network target…" value={briefCtx} onChange={e=>setBriefCtx(e.target.value)} />
               </div>
-              <div style={{ padding:"0 16px 12px" }}>
+              {/* ── #8 Reference drop zone ── */}
+              <div style={{ padding:"0 16px 4px" }}>
+                <ReferenceDropZone onRef={setBriefRef} currentRef={briefRef} onClear={() => setBriefRef(null)} />
+              </div>
+              <div style={{ padding:"4px 16px 12px" }}>
                 <div style={{ fontSize:9,letterSpacing:".1em",color:D.textMuted,marginBottom:6,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap" as const }}>
                   <svg width="10" height="10" viewBox="0 0 16 16" fill={D.textMuted}><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
                   ITERATE FROM <span style={{ fontSize:9,color:D.textDim,fontWeight:400,letterSpacing:0 }}>— optional. MOC DNA is the primary guide.</span>
