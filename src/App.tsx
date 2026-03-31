@@ -828,11 +828,12 @@ function SpendTagger({ entry, onSave, lib }: { entry: DNAEntry; onSave: (fields:
 }
 
 // ─── Library Card ─────────────────────────────────────────────────────────────
-function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanalyzingIds, handleReanalyzeSingle, onZoomFrame }: {
+function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanalyzingIds, handleReanalyzeSingle, onZoomFrame, isReanalyzing }: {
   d: DNAEntry; di: number; expandedDNA: number|null; setExpandedDNA: (n: number|null) => void;
   lib: DNAEntry[]; saveLib: (l: DNAEntry[]) => void;
   reanalyzingIds: Set<number>; handleReanalyzeSingle: (e: DNAEntry) => void;
   onZoomFrame: (src: string) => void;
+  isReanalyzing: boolean;
 }) {
   // ✅ canTag fix: inspiration tier now shows metadata fields
   const canTag = d.ad_type === "moc";
@@ -850,7 +851,10 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
       borderBottom: `0.5px solid ${D.border}`,
       opacity: isFatigued ? 0.72 : 1,
       transition: "opacity .2s",
-      borderLeft: `3px solid ${accentColor}`,  // always visible accent
+      borderLeft: `3px solid ${isReanalyzing ? D.blue : accentColor}`,
+      background: isReanalyzing ? `${D.blueBg}44` : "transparent",
+      boxShadow: isReanalyzing ? `inset 0 0 0 1px ${D.blueDark}` : "none",
+    }}>  // always visible accent
     }}>
       {/* ── Collapsed card body ── */}
       <div style={{
@@ -1180,6 +1184,7 @@ export default function App() {
   const [lastAnalyzedId, setLastAnalyzedId] = useState<number|null>(null);
   const [zoomedFrame, setZoomedFrame] = useState<string|null>(null);
   const [reanalyzingIds, setReanalyzingIds] = useState<Set<number>>(new Set());
+  const [reanalyzingEntry, setReanalyzingEntry] = useState<number|null>(null);
   const [reanalyzingAll, setReanalyzingAll] = useState(false);
   const [reanalysisProgress, setReanalysisProgress] = useState("");
   const [briefCtx, setBriefCtx] = useState(""); const [segment, setSegment] = useState("Whale");
@@ -1206,7 +1211,13 @@ export default function App() {
     try { localStorage.setItem("levelly_dna_library",JSON.stringify(updated)); } catch {}
     if(libraryLoaded){
       setCloudStatus("saving");
-      fetch("/api/save-library",{ method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(updated) })
+      // Strip image_data from auto_frames before cloud save — images are large and can exceed Blobs limits
+      // They're preserved in localStorage and in-memory lib for the current session
+      const stripped = updated.map(e => ({
+        ...e,
+        auto_frames: e.auto_frames?.map(f => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance }))
+      }));
+      fetch("/api/save-library",{ method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(stripped) })
         .then(r=>{ if(!r.ok) throw new Error(); setCloudStatus("saved"); setTimeout(()=>setCloudStatus("idle"),2000); })
         .catch(()=>{ setCloudStatus("error"); setTimeout(()=>setCloudStatus("idle"),3000); });
     }
@@ -1216,10 +1227,19 @@ export default function App() {
   const importLibrary=(e: React.ChangeEvent<HTMLInputElement>)=>{ const file=e.target.files?.[0]; if(!file) return; const reader=new FileReader(); reader.onload=()=>{ try { const p=JSON.parse(reader.result as string); if(!Array.isArray(p)) throw new Error(); const m=[...lib]; p.forEach((entry: DNAEntry)=>{ if(!m.find(x=>x.id===entry.id)) m.push(entry); }); saveLib(m); } catch { alert("Import failed."); } }; reader.readAsText(file); e.target.value=""; };
 
   const reanalyzeSingle=async(entry: DNAEntry): Promise<DNAEntry>=>{
-    const corrected=await callGeminiDirect(reanalysisSystem(entry),[{text:`Re-analyze: ${entry.title}`}]);
-    return {...entry,...corrected,id:entry.id,reanalyzed:true,added_at:entry.added_at,file_name:entry.file_name,tier:entry.tier,ad_type:entry.ad_type};
+    // Strip image_data from auto_frames before sending — base64 images bloat the prompt and cause JSON parse errors
+    const stripped = { ...entry, auto_frames: entry.auto_frames?.map(f => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance })) };
+    const corrected=await callGeminiDirect(reanalysisSystem(stripped),[{text:`Re-analyze: ${entry.title}`}]);
+    // Preserve image_data from original entry — re-analysis doesn't re-extract frames
+    return {...entry,...corrected,id:entry.id,reanalyzed:true,added_at:entry.added_at,file_name:entry.file_name,tier:entry.tier,ad_type:entry.ad_type,auto_frames:entry.auto_frames};
   };
-  const handleReanalyzeSingle=async(entry: DNAEntry)=>{ setReanalyzingIds(p=>new Set(p).add(entry.id)); try { const u=await reanalyzeSingle(entry); saveLib(lib.map(x=>x.id===entry.id?u:x)); } catch(err: any){ alert(`Re-analysis failed: ${err.message}`); } finally { setReanalyzingIds(p=>{ const s=new Set(p); s.delete(entry.id); return s; }); } };
+  const handleReanalyzeSingle=async(entry: DNAEntry)=>{
+    setReanalyzingIds(p=>new Set(p).add(entry.id));
+    setReanalyzingEntry(entry.id);
+    try { const u=await reanalyzeSingle(entry); saveLib(lib.map(x=>x.id===entry.id?u:x)); }
+    catch(err: any){ alert(`Re-analysis failed: ${err.message}`); }
+    finally { setReanalyzingIds(p=>{ const s=new Set(p); s.delete(entry.id); return s; }); setReanalyzingEntry(null); }
+  };
   const handleReanalyzeAll=async()=>{ if(!confirm(`Re-analyze all ${lib.length} entries?`)) return; setReanalyzingAll(true); let updated=[...lib]; for(let i=0;i<lib.length;i++){ setReanalysisProgress(`Re-analyzing ${i+1}/${lib.length}: ${lib[i].title}…`); try { const c=await reanalyzeSingle(lib[i]); updated=updated.map(x=>x.id===lib[i].id?c:x); saveLib(updated); } catch(err){ console.warn(`Failed: ${lib[i].title}`,err); } await new Promise(r=>setTimeout(r,1000)); } setReanalyzingAll(false); setReanalysisProgress(""); };
 
   const handleModalConfirm=(cfg: UploadConfig)=>{ setUploadConfig(cfg); setShowModal(false); fileRef.current?.click(); };
@@ -1386,7 +1406,7 @@ export default function App() {
         <div style={{ flex:1,overflowY:"auto" }}>
           {sortedLib.map((d) => {
             const di = lib.indexOf(d);
-            return <LibraryCard key={d.id} d={d} di={di} expandedDNA={expandedDNA} setExpandedDNA={setExpandedDNA} lib={lib} saveLib={saveLib} reanalyzingIds={reanalyzingIds} handleReanalyzeSingle={handleReanalyzeSingle} onZoomFrame={setZoomedFrame} />;
+            return <LibraryCard key={d.id} d={d} di={di} expandedDNA={expandedDNA} setExpandedDNA={setExpandedDNA} lib={lib} saveLib={saveLib} reanalyzingIds={reanalyzingIds} handleReanalyzeSingle={handleReanalyzeSingle} onZoomFrame={setZoomedFrame} isReanalyzing={reanalyzingEntry === d.id} />;
           })}
         </div>
       </div>
@@ -1417,6 +1437,24 @@ export default function App() {
           {(analyzing || (!analyzing && analyzeErr)) && (
             <AnalysisProgressPanel step={analyzeStep} fileName={analyzeFileName} error={analyzeErr} />
           )}
+
+          {/* ── Re-analyze progress ── */}
+          {reanalyzingEntry && (() => {
+            const entry = lib.find(e => e.id === reanalyzingEntry);
+            if (!entry) return null;
+            return (
+              <div style={{ marginBottom: 20, background: D.surface, border: `1.5px solid ${D.blueDark}`, borderRadius: 12, padding: "14px 18px", display: "flex", alignItems: "center", gap: 12, animation: "slideIn .2s ease-out" }}>
+                <div style={{ width: 16, height: 16, borderRadius: "50%", border: `2px solid rgba(88,166,255,0.2)`, borderTopColor: D.blue, flexShrink: 0, animation: "spin .7s linear infinite" }} />
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: D.text }}>Re-analysing{entry.creative_id ? `: ${entry.creative_id}` : ""}</div>
+                  <div style={{ fontSize: 11, color: D.textMuted, marginTop: 2 }}>{entry.title}</div>
+                </div>
+                <div style={{ marginLeft: "auto" }}>
+                  <button onClick={() => setLibPanelOpen(true)} style={{ ...btnSec, fontSize: 11 }}>View in library</button>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ── Analysis complete: full inline report ── */}
           {!analyzing && !analyzeErr && lastAnalyzedId && (() => {
