@@ -319,46 +319,70 @@ function pickRelevantRefs(vi: VisualIdentity): any[] {
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 const BIOME_GUIDE = `BIOMES: Foggy Forest(grey/white atmospheric fog,dark pines,grey road—NOT snow), Desert(tan sand,blue sky), Water(grey bridge over blue water), Bunker(grey concrete tunnel,pipes,industrial), Cyber-City(grey metal,orange/blue neon), Volcanic(red/orange lava,black rocks), Snow(white snow ground), Toxic(purple paths,green slime), Meadow(green hills,grey brick bridge)`;
 const CHAMPION_GUIDE = `CHAMPIONS (ONLY these exist in Mob Control — NEVER invent new ones): Captain Kaboom(SMALL skeleton pirate,mushroom hat,dual pistols), Gold Golem(LARGE golden muscular humanoid), Caveman(blue-skin,blonde,club), Mobzilla(purple/yellow robotic T-Rex), Nexus(blue/white/orange mech,orange sword), Red Hulk(large red humanoid), Kraken(red octopus), Femme Zombie(crawling female zombie boss), Yellow Normie(small yellow round—BOSS ENEMY), Unknown(generic enemy tower). If a champion name is not on this list, use Unknown and draw a generic enemy tower/boss. NEVER invent champion appearances or names.`;
+const MOC_EVENTS_GUIDE = `MOC-SPECIFIC EVENTS TO HUNT FOR (timestamp ALL of these if present):
+- CANNON UPGRADE (unit evolution): Player mobs destroy a breakable obstacle on the road (box, barrel, crate, stone, or any destructible object) — this triggers the cannon to visually transform into the next upgrade tier. ALWAYS name the upgrade using the exact tier names below. This is the most important mechanic to identify correctly.
+- GIANT/BOSS DEATH: A large enemy giant or boss character is defeated and disappears/explodes. ALWAYS timestamp this — it's a key emotional payoff moment.
+- X GATE PASS: Player mobs pass through a multiplication gate (xN). Report the gate value and timestamp for EACH gate pass separately.
+- + GATE PASS: Player mobs pass through an addition gate (+N). Report gate value and timestamp.
+- ALMOST-FAIL MOMENT: Player's mob count drops to a dangerously low level (near wipeout) but survives.
+- SWARM PEAK: Maximum mob count on screen.
+- FINAL FAIL/DEFEAT: Last mob destroyed, 'FAILED' screen appears.
+
+CANNON UPGRADE TIERS (use these exact names when identifying unit evolutions):
+1. Simple Cannon — single barrel cannon, fires one stream of blobs
+2. Double Cannon — two barrels side by side, fires two streams
+3. Triple Cannon — three barrels, fires three streams simultaneously
+4. Tank — tracked vehicle with a turret, visually very distinct from cannon
+5. Golden Jet / Jet — aircraft unit, gold-coloured, flies above the lane
+6. (Other evolutions may exist — describe what you see if it doesn't match the above)
+
+When you see an upgrade event, output it as: "Cannon upgrades from [previous tier] to [new tier]" using the exact names above.`;
+
 const GATE_GUIDE = `GATES — understand the mechanical difference:
-- Multiplication gate (X value, e.g. x3): multiplies the NUMBER OF MOBS currently moving through the lane. x3 means triple the mob count.
+- Multiplication gate (X value, e.g. x3): multiplies the NUMBER OF MOBS currently moving through the lane. x3 means triple the mob count. Report the EXACT value shown (x2, x3, x4, x10 etc.)
 - Addition gate (+ value, e.g. +10): adds to the CANNON's firing count — how many mobs are shot per cannon fire. Does NOT multiply existing mobs.
 - Death gate (RED rect + SKULL): instantly kills ALL player mobs. Game over mechanic.
 - Dynamic gate: activates when nearby structures are broken.
-Report ONLY gates you actually see. NEVER confuse + gates (cannon upgrade) with x gates (mob multiplier).`;
+Report EVERY gate you see with its exact value. NEVER confuse + gates (cannon upgrade) with x gates (mob multiplier). If you see a gate but can't read the value clearly, report it as "x?" or "+?".`;
 const HOOK_GUIDE = `HOOK: EXACT SECOND thumb stops scrolling. NEVER 0 unless frame-0 drama. hook_timing_seconds=REAL SECOND (2,4,8) NEVER fraction.`;
 const TIMESTAMP_RULES = `TIMESTAMPS: Real seconds only (0,2,5,8,14,22). NEVER fractions (0.03,0.28). 30s video midpoint=15.`;
 
-const frameExtractionSystem = () => `Precise video timestamp analyst. Extract key moments from this video.
+const frameExtractionSystem = () => `Precise video timestamp analyst for Mob Control ads. Extract key moments.
 
 RULES:
-1. Identify significant events: hook, gate passes, upgrades/level-ups, swarm peaks, boss encounters, loss/fail moment
-2. Fill gaps larger than 8 seconds with a filler timestamp — no coverage gap longer than 8s
+1. MUST timestamp these MOC events if present: container destructions, unit evolutions, giant/boss deaths, every x-gate pass (with value), almost-fail moments, swarm peak, final defeat
+2. Fill gaps larger than 8 seconds with a filler timestamp
 3. Total timestamps: between 10 and 14. Never more than 14.
 4. ${TIMESTAMP_RULES}
 5. No two timestamps closer than 2 seconds apart
-6. ONLY report what you can clearly see. If a moment is ambiguous, skip it — do not guess.
+6. ONLY report what you can clearly see. If ambiguous, skip — do not guess.
 
-Return ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":number,"description":string,"significance":"hook|gate|upgrade|swarm|boss|loss|win|fail|transition|filler"}]}`;
+${MOC_EVENTS_GUIDE}
+
+Return ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":number,"description":string,"significance":"hook|gate|upgrade|boss_death|container|swarm|almost_fail|loss|win|fail|transition|filler"}]}`;
 const hookDetectionSystem = () => `Expert mobile ad hook analyst.\n${HOOK_GUIDE}\n${TIMESTAMP_RULES}\nReturn ONLY JSON: {"hook_timing_seconds":number,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_description":string}`;
 const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtraction[], duration: number, hasFrameImages: boolean, hasRefs: boolean) =>
   `World-Class Creative Intelligence Analyst for Mob Control ads. NEVER guess.
 AD TYPE:${config.ad_type} TIER:${config.tier}
-CONTEXT:${config.context||"none"}
+CONTEXT (trust this — user-provided facts about the video):${config.context||"none"}
 DURATION:${duration}s
 LIBRARY:${lib.length>0?JSON.stringify(lib.map(d=>({title:d.title,tier:d.tier,hook_type:d.hook_type,hook_timing_seconds:d.hook_timing_seconds}))):"empty"}
 ${hasRefs?buildReferenceContext():""}
-TIMESTAMP MAP:${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] ${f.description} (${f.significance})`).join("\n"):"none"}
-${hasFrameImages?"EXTRACTED FRAME IMAGES provided above — use them to verify exact gate types, unit appearances, and events at each timestamp. Cross-reference with TIMESTAMP MAP.":""}
+TIMESTAMP MAP (Gemini's frame-by-frame observations):
+${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] ${f.description} (${f.significance})`).join("\n"):"none"}
+${hasFrameImages?"EXTRACTED FRAME IMAGES provided above — use them to verify exact gate values, unit appearances, container destructions, and boss death moments at each timestamp.":""}
 ${TIMESTAMP_RULES}
 ${HOOK_GUIDE}
 ${GATE_GUIDE}
+${MOC_EVENTS_GUIDE}
 ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}
-EMOTIONAL BEATS: Extract a beat for EVERY significant moment AND every 5-7 seconds of filler. Minimum 8 beats for a 30s video. Use the extracted frame images and timestamp map to anchor each beat to the correct second.
+CRITICAL: If the CONTEXT mentions a specific number of upgrades or unit evolutions, trust that count and find the correct timestamps for each. Do not under-count.
+EMOTIONAL BEATS: Extract a beat for EVERY significant MOC event (container destruction, unit evolution, giant death, gate pass, almost-fail) AND every 7-8 seconds of filler. Minimum 10 beats for a 60s video, 8 for 30s.
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
 Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"emotional_arc":string,"emotional_beats":[{"timestamp_seconds":number,"event":string,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
 const reanalysisSystem = (entry: DNAEntry) =>
-  `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate type confusion (+ gates add to cannon firing count, x gates multiply mob count — check gate_sequence carefully) 4.unit_evolution_chain 5.emotional_beats minimum 8 beats with no gaps >7s 6.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
+  `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate type confusion (+ gates = cannon firing count, x gates = mob multiplier) 4.unit_evolution_chain — use exact tier names: Simple Cannon, Double Cannon, Triple Cannon, Tank, Golden Jet. Fix any generic names like "Level 1 Tank" to proper tier names. 5.emotional_beats minimum 8 beats with no gaps >7s 6.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${MOC_EVENTS_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
 
 const briefSystem = (lib: DNAEntry[], ctx: string, seg: string, iterateFrom?: string, refNote?: string) => {
   const activeWinners = lib.filter(d => d.tier === "winner" && d.creative_status !== "fatigued");
@@ -495,10 +519,15 @@ function sortLib(lib: DNAEntry[], mode: SortMode): DNAEntry[] {
   const filtered = mode === "all" ? lib : lib.filter(d => d.tier === mode);
   const active = filtered.filter(d => d.creative_status !== "fatigued");
   const fatigued = filtered.filter(d => d.creative_status === "fatigued");
+  const now = Date.now();
   const bySpendThenNewest = (a: DNAEntry, b: DNAEntry) => {
+    const aNew = !a.spend_tier && (now - new Date(a.added_at).getTime()) < 48 * 60 * 60 * 1000;
+    const bNew = !b.spend_tier && (now - new Date(b.added_at).getTime()) < 48 * 60 * 60 * 1000;
+    // Untagged entries added in last 48h float to top
+    if (aNew && !bNew) return -1;
+    if (bNew && !aNew) return 1;
     const spendDiff = (SPEND_RANK[b.spend_tier??""]??0) - (SPEND_RANK[a.spend_tier??""]??0);
     if (spendDiff !== 0) return spendDiff;
-    // Same spend tier (or no spend) — newest first
     return new Date(b.added_at).getTime() - new Date(a.added_at).getTime();
   };
   return [...active.sort(bySpendThenNewest), ...fatigued.sort(bySpendThenNewest)];
@@ -799,10 +828,11 @@ function SpendTagger({ entry, onSave, lib }: { entry: DNAEntry; onSave: (fields:
 }
 
 // ─── Library Card ─────────────────────────────────────────────────────────────
-function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanalyzingIds, handleReanalyzeSingle }: {
+function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanalyzingIds, handleReanalyzeSingle, onZoomFrame }: {
   d: DNAEntry; di: number; expandedDNA: number|null; setExpandedDNA: (n: number|null) => void;
   lib: DNAEntry[]; saveLib: (l: DNAEntry[]) => void;
   reanalyzingIds: Set<number>; handleReanalyzeSingle: (e: DNAEntry) => void;
+  onZoomFrame: (src: string) => void;
 }) {
   // ✅ canTag fix: inspiration tier now shows metadata fields
   const canTag = d.ad_type === "moc";
@@ -1101,9 +1131,11 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
               {d.auto_frames.some(f => f.image_data) && (
                 <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 6, marginBottom: 8 }}>
                   {d.auto_frames.filter(f => f.image_data).map((f, fi) => (
-                    <div key={fi} style={{ flexShrink: 0, position: "relative" as const }}>
+                    <div key={fi} style={{ flexShrink: 0, position: "relative" as const, cursor: "zoom-in" }} onClick={() => onZoomFrame(`data:image/jpeg;base64,${f.image_data}`)}>
                       <img src={`data:image/jpeg;base64,${f.image_data}`} alt={`${f.timestamp_seconds}s`}
-                        style={{ width: 72, height: 128, objectFit: "cover", borderRadius: 6, border: `0.5px solid ${D.border2}`, display: "block" }} />
+                        style={{ width: 72, height: 128, objectFit: "cover", borderRadius: 6, border: `0.5px solid ${D.border2}`, display: "block", transition: "transform .1s" }}
+                        onMouseEnter={e => (e.currentTarget as HTMLImageElement).style.transform = "scale(1.05)"}
+                        onMouseLeave={e => (e.currentTarget as HTMLImageElement).style.transform = ""} />
                       <div style={{ position: "absolute" as const, bottom: 3, left: 0, right: 0, textAlign: "center" as const }}>
                         <span style={{ fontSize: 8, background: "rgba(0,0,0,0.75)", color: "#fff", padding: "1px 4px", borderRadius: 3 }}>{f.timestamp_seconds}s</span>
                       </div>
@@ -1146,6 +1178,7 @@ export default function App() {
   const [analyzeFileName, setAnalyzeFileName] = useState("");
   const [analyzeErr, setAnalyzeErr] = useState("");
   const [lastAnalyzedId, setLastAnalyzedId] = useState<number|null>(null);
+  const [zoomedFrame, setZoomedFrame] = useState<string|null>(null);
   const [reanalyzingIds, setReanalyzingIds] = useState<Set<number>>(new Set());
   const [reanalyzingAll, setReanalyzingAll] = useState(false);
   const [reanalysisProgress, setReanalysisProgress] = useState("");
@@ -1301,6 +1334,13 @@ export default function App() {
   return (
     <div style={{ background:D.bg,minHeight:"100vh",color:D.text,fontFamily:"system-ui,sans-serif",fontSize:13,position:"relative" }}>
       {showModal&&<UploadModal lib={lib} onConfirm={handleModalConfirm} onCancel={()=>setShowModal(false)} />}
+      {/* Frame zoom lightbox */}
+      {zoomedFrame && (
+        <div onClick={() => setZoomedFrame(null)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out" }}>
+          <img src={zoomedFrame} alt="frame" style={{ maxHeight:"90vh",maxWidth:"90vw",borderRadius:10,boxShadow:"0 0 60px rgba(0,0,0,0.8)" }} />
+          <div style={{ position:"absolute",top:16,right:20,fontSize:20,color:"#fff",opacity:0.6,cursor:"pointer" }}>✕</div>
+        </div>
+      )}
       <input ref={fileRef} type="file" accept="video/*,image/*" multiple style={{ display:"none" }} onChange={handleUpload} />
       <input ref={importRef} type="file" accept=".json" style={{ display:"none" }} onChange={importLibrary} />
 
@@ -1346,7 +1386,7 @@ export default function App() {
         <div style={{ flex:1,overflowY:"auto" }}>
           {sortedLib.map((d) => {
             const di = lib.indexOf(d);
-            return <LibraryCard key={d.id} d={d} di={di} expandedDNA={expandedDNA} setExpandedDNA={setExpandedDNA} lib={lib} saveLib={saveLib} reanalyzingIds={reanalyzingIds} handleReanalyzeSingle={handleReanalyzeSingle} />;
+            return <LibraryCard key={d.id} d={d} di={di} expandedDNA={expandedDNA} setExpandedDNA={setExpandedDNA} lib={lib} saveLib={saveLib} reanalyzingIds={reanalyzingIds} handleReanalyzeSingle={handleReanalyzeSingle} onZoomFrame={setZoomedFrame} />;
           })}
         </div>
       </div>
@@ -1434,19 +1474,55 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Filmstrip */}
+                  {/* Filmstrip — zoomable */}
                   {entry.auto_frames?.some(f => f.image_data) && (
                     <div style={{ marginBottom: 14 }}>
-                      <span style={labelStyle}>Extracted frames</span>
+                      <span style={labelStyle}>Extracted frames — click to zoom</span>
                       <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4 }}>
                         {entry.auto_frames.filter(f => f.image_data).map((f, fi) => (
-                          <div key={fi} style={{ flexShrink: 0, position: "relative" as const }}>
+                          <div key={fi} style={{ flexShrink: 0, position: "relative" as const, cursor: "zoom-in" }} onClick={() => setZoomedFrame(`data:image/jpeg;base64,${f.image_data}`)}>
                             <img src={`data:image/jpeg;base64,${f.image_data}`} alt={`${f.timestamp_seconds}s`}
-                              style={{ width: 80, height: 142, objectFit: "cover", borderRadius: 6, border: `0.5px solid ${D.border2}`, display: "block" }} />
+                              style={{ width: 80, height: 142, objectFit: "cover", borderRadius: 6, border: `0.5px solid ${D.border2}`, display: "block", transition: "transform .1s" }}
+                              onMouseEnter={e => (e.currentTarget as HTMLImageElement).style.transform = "scale(1.05)"}
+                              onMouseLeave={e => (e.currentTarget as HTMLImageElement).style.transform = ""} />
                             <div style={{ position: "absolute" as const, bottom: 4, left: 0, right: 0, textAlign: "center" as const }}>
                               <span style={{ fontSize: 9, background: "rgba(0,0,0,0.7)", color: "#fff", padding: "1px 5px", borderRadius: 3 }}>{f.timestamp_seconds}s</span>
                             </div>
                           </div>
+                        ))}
+                      </div>
+                      {/* Frame descriptions */}
+                      <div style={{ display: "flex", flexDirection: "column" as const, gap: 2, marginTop: 6 }}>
+                        {entry.auto_frames.map((f, fi) => (
+                          <div key={fi} style={{ fontSize: 10, padding: "3px 8px", background: D.surface2, borderRadius: 4, display: "flex", gap: 8 }}>
+                            <span style={{ fontWeight: 500, color: D.blue, minWidth: 28, flexShrink: 0 }}>{f.timestamp_seconds}s</span>
+                            <span style={{ color: D.textMuted, flex: 1 }}>{f.description}</span>
+                            {f.significance !== "filler" && <span style={{ fontSize: 9, color: D.textDim, flexShrink: 0 }}>{f.significance}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Gate sequence */}
+                  {entry.gate_sequence?.length > 0 && (
+                    <div style={{ marginBottom: 14 }}>
+                      <span style={labelStyle}>Gate sequence</span>
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const }}>
+                        {entry.gate_sequence.map((g, i) => (
+                          <span key={i} style={{ fontSize: 10, padding: "2px 7px", background: g.toLowerCase().includes("death") ? D.redBg : D.blueBg, color: g.toLowerCase().includes("death") ? D.red : D.blue, borderRadius: 20, border: `0.5px solid ${g.toLowerCase().includes("death") ? "#6e2020" : D.blueDark}` }}>{g}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Champions */}
+                  {entry.champions_visible?.length > 0 && (
+                    <div style={{ marginBottom: 14 }}>
+                      <span style={labelStyle}>Champions</span>
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const }}>
+                        {entry.champions_visible.map((c, i) => (
+                          <span key={i} style={{ fontSize: 10, padding: "2px 7px", background: D.purpleBg, color: D.purple, borderRadius: 20, border: `0.5px solid ${D.purpleBdr}` }}>{c}</span>
                         ))}
                       </div>
                     </div>
@@ -1462,6 +1538,21 @@ export default function App() {
                             <span style={{ fontWeight: 500, color: D.blue, minWidth: 28, flexShrink: 0 }}>{b.timestamp_seconds}s</span>
                             <span style={{ color: D.text, flex: 1 }}>{b.event}</span>
                             <span style={{ color: D.textDim, fontStyle: "italic", flexShrink: 0 }}>{b.emotion}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Creative gaps */}
+                  {entry.creative_gaps_structured && (
+                    <div style={{ marginBottom: 14 }}>
+                      <span style={labelStyle}>Creative gaps</span>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                        {[{l:"Hook strength",v:entry.creative_gaps_structured.hook_strength},{l:"Mechanic clarity",v:entry.creative_gaps_structured.mechanic_clarity},{l:"Emotional payoff",v:entry.creative_gaps_structured.emotional_payoff}].map(({l,v})=>(
+                          <div key={l} style={{ padding:"7px 9px",background:D.goldBg,borderRadius:7,border:`0.5px solid ${D.goldBdr}` }}>
+                            <div style={{ fontSize:9,fontWeight:600,color:D.gold,textTransform:"uppercase" as const,letterSpacing:"0.07em",marginBottom:2 }}>{l}</div>
+                            <p style={{ margin:0,fontSize:10,color:"#c9a227" }}>{v}</p>
                           </div>
                         ))}
                       </div>
