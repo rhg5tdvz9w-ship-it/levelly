@@ -380,7 +380,7 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
         <div style={{ marginBottom:16 }}>
           <span style={labelStyle}>Manual storyboard frames (optional)</span>
           <input ref={frameRef} type="file" accept="image/*" multiple style={{ display:"none" }} onChange={e=>setManualFrames(Array.from(e.target.files??[]))} />
-          <button style={btnSec} onClick={()=>frameRef.current?.click()}>{manualFrames.length>0?`${manualFrames.length} frame(s) selected`:"+ Add frames"}</button>
+          <button style={{ ...btnSec, ...(manualFrames.length>0?{border:`1.5px solid ${D.greenBdr}`,color:D.green,background:D.greenBg}:{}) }} onClick={()=>frameRef.current?.click()}>{manualFrames.length>0?`✓ ${manualFrames.length} frame(s) selected`:"+ Add frames"}</button>
         </div>
         <div style={{ marginBottom:16,padding:"8px 12px",background:D.surface2,borderRadius:8,fontSize:10,color:D.textMuted,border:`0.5px solid ${D.border}` }}>
           {refCount>0?`✓ ${refCount} MOC refs`:"⚠ No refs"} → Frame extraction → Hook detection → {manualFrames.length>0?`✓ ${manualFrames.length} manual frames`:"No manual frames"} → DNA analysis
@@ -439,15 +439,16 @@ function SpendTagger({ entry, onSave, lib }: { entry: DNAEntry; onSave: (fields:
           {SPEND_TIERS.map(t => <button key={t.value} onClick={()=>setTier(tier===t.value?"":t.value)} style={{ padding:"4px 10px",fontSize:11,fontWeight:500,borderRadius:20,cursor:"pointer",border:`1.5px solid ${tier===t.value?t.border:D.border2}`,background:tier===t.value?t.bg:"transparent",color:tier===t.value?t.text:D.textMuted }}>{t.label}</button>)}
         </div>
       </div>
-      {tier&&tier!=="sub100K"&&(
-        <div style={{ marginBottom:12 }}>
-          <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Time to reach that spend</span>
-          <div style={{ display:"flex",gap:5,flexWrap:"wrap" as const }}>
-            {WINDOW_OPTIONS.map(w => <button key={w.value} onClick={()=>setDays(days===w.value?null:w.value)} style={{ padding:"4px 10px",fontSize:11,borderRadius:20,cursor:"pointer",border:`1.5px solid ${days===w.value?D.blueDark:D.border2}`,background:days===w.value?D.blueBg:"transparent",color:days===w.value?D.blue:D.textMuted }}>{w.label}</button>)}
-          </div>
-          {vel&&<div style={{ marginTop:6,fontSize:11,color:D.blue,fontWeight:500 }}>{vel}</div>}
+      <div style={{ marginBottom:12 }}>
+        <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>
+          {tier==="sub100K" ? "Days in rotation" : "Time to reach that spend"}
+        </span>
+        <div style={{ display:"flex",gap:5,flexWrap:"wrap" as const }}>
+          {WINDOW_OPTIONS.map(w => <button key={w.value} onClick={()=>setDays(days===w.value?null:w.value)} style={{ padding:"4px 10px",fontSize:11,borderRadius:20,cursor:"pointer",border:`1.5px solid ${days===w.value?D.blueDark:D.border2}`,background:days===w.value?D.blueBg:"transparent",color:days===w.value?D.blue:D.textMuted }}>{w.label}</button>)}
         </div>
-      )}
+        {vel&&<div style={{ marginTop:6,fontSize:11,color:D.blue,fontWeight:500 }}>{vel}</div>}
+        {tier==="sub100K"&&days&&<div style={{ marginTop:6,fontSize:11,color:D.textMuted,fontStyle:"italic" }}>Rotation tracking only — no spend threshold reached</div>}
+      </div>
       <div style={{ marginBottom:12 }}>
         <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Networks</span>
         <div style={{ display:"flex",gap:5,flexWrap:"wrap" as const }}>
@@ -469,7 +470,7 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
   lib: DNAEntry[]; saveLib: (l: DNAEntry[]) => void;
   reanalyzingIds: Set<number>; handleReanalyzeSingle: (e: DNAEntry) => void;
 }) {
-  const canTag = d.ad_type==="moc" && d.tier!=="inspiration";
+  const canTag = d.ad_type==="moc";
   const spendSt = SPEND_TIERS.find(t=>t.value===d.spend_tier);
   const statusSt = CREATIVE_STATUS.find(s=>s.value===d.creative_status);
   const isFatigued = d.creative_status==="fatigued";
@@ -758,7 +759,7 @@ export default function App() {
       </div>
 
       {/* Library side panel */}
-      <div style={{ position:"fixed",top:0,left:SB,width:380,height:"100vh",background:D.surface,borderRight:`0.5px solid ${D.border2}`,display:"flex",flexDirection:"column",zIndex:150,transform:libPanelOpen?"translateX(0)":"translateX(-100%)",transition:"transform .22s ease-out" }}>
+      <div style={{ position:"fixed",top:0,left:SB,width:560,height:"100vh",background:D.surface,borderRight:`0.5px solid ${D.border2}`,display:"flex",flexDirection:"column",zIndex:150,transform:libPanelOpen?"translateX(0)":"translateX(-100%)",transition:"transform .22s ease-out" }}>
         <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 16px",borderBottom:`0.5px solid ${D.border}`,flexShrink:0 }}>
           <div>
             <div style={{ fontSize:14,fontWeight:500 }}>Creative library</div>
@@ -891,21 +892,27 @@ export default function App() {
 
           {/* Concept cards */}
           {concepts.map((c,ci)=>(
-            <div key={ci} style={{ background:D.surface,border:`0.5px solid ${(c as any).is_experimental?"#9d174d":D.border}`,borderRadius:10,padding:"14px 16px",marginBottom:10 }}>
+            <div key={ci} style={{ background:expandedConcept===ci?"#161f2e":D.surface,border:`${expandedConcept===ci?"1.5px":"0.5px"} solid ${expandedConcept===ci?D.blue:(c as any).is_experimental?"#9d174d":D.border}`,borderRadius:10,padding:"14px 16px",marginBottom:10,transition:"border-color .15s,background .15s,box-shadow .15s",boxShadow:expandedConcept===ci?`0 0 0 3px ${D.blueBg}`:"none" }}>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",cursor:"pointer" }} onClick={()=>setExpandedConcept(expandedConcept===ci?null:ci)}>
                 <div style={{ flex:1 }}>
-                  <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap" as const }}>
-                    <span style={{ fontSize:15,fontWeight:500 }}>{c.title}</span>
+                  <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap" as const }}>
+                    <span style={{ fontSize:9,fontWeight:700,color:D.textDim,letterSpacing:"0.1em" }}>CONCEPT {ci+1}</span>
                     {c.is_data_backed&&<span style={pill(D.goldBg,D.gold,D.goldBdr)}>Data-backed</span>}
                     {c.is_experimental&&<span style={pill("#2a1a2e","#f472b6","#9d174d")}>⚠ Experimental</span>}
-                    {(c as any).dna_source&&<span style={pill(D.greenBg,D.green,D.greenBdr)}>based on {(c as any).dna_source}</span>}
-                    {iterateFrom.trim()&&<span style={pill(D.purpleBg,D.purple,D.purpleBdr)}>iterates from {iterateFrom.trim()}</span>}
+                    {(c as any).dna_source&&<span style={pill(D.greenBg,D.green,D.greenBdr)}>DNA: {(c as any).dna_source}</span>}
+                    {iterateFrom.trim()&&<span style={pill(D.purpleBg,D.purple,D.purpleBdr)}>iterates {iterateFrom.trim()}</span>}
                     <span style={pill(TIER_STYLE["scalable"].bg,TIER_STYLE["scalable"].text,TIER_STYLE["scalable"].border)}>{c.target_segment}</span>
                   </div>
+                  <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:4 }}>
+                    <span style={{ fontSize:15,fontWeight:600,color:expandedConcept===ci?D.text:D.textMuted }}>{c.title}</span>
+                  </div>
                   {c.is_experimental&&c.experimental_note&&<p style={{ margin:"0 0 4px",fontSize:11,color:"#f472b6",fontStyle:"italic" }}>{c.experimental_note}</p>}
-                  <p style={{ margin:0,fontSize:12,color:D.textMuted }}>{c.objective}</p>
+                  <p style={{ margin:0,fontSize:12,color:D.textMuted,lineHeight:1.5 }}>{c.objective}</p>
                 </div>
-                {c.quality_score&&<div style={{ textAlign:"right" as const,marginLeft:16,flexShrink:0 }}><div style={{ fontSize:24,fontWeight:500,color:scoreColor(c.quality_score.overall) }}>{c.quality_score.overall}</div><div style={{ fontSize:9,color:D.textDim }}>quality</div></div>}
+                <div style={{ display:"flex",flexDirection:"column" as const,alignItems:"flex-end",gap:4,marginLeft:16,flexShrink:0 }}>
+                  {c.quality_score&&<><div style={{ fontSize:24,fontWeight:600,color:scoreColor(c.quality_score.overall),lineHeight:1 }}>{c.quality_score.overall}</div><div style={{ fontSize:9,color:D.textDim }}>quality</div></>}
+                  <div style={{ fontSize:9,color:expandedConcept===ci?D.blue:D.textDim,marginTop:4 }}>{expandedConcept===ci?"▲ collapse":"▼ expand"}</div>
+                </div>
               </div>
               {expandedConcept===ci&&(
                 <div style={{ marginTop:16,borderTop:`0.5px solid ${D.border}`,paddingTop:16 }}>
@@ -953,13 +960,15 @@ export default function App() {
                         const imgUrl=c[`visual_${scene}` as keyof Concept] as string|undefined;
                         const loading=renderingScene[`${ci}-${scene}`];
                         const needsStart=(scene==="middle"||scene==="end")&&!c.visual_start;
+                        const isStart = scene==="start";
                         return (
-                          <div key={scene} style={{ aspectRatio:"9/16",background:D.surface2,borderRadius:10,border:`0.5px solid ${D.border}`,overflow:"hidden",display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"center",cursor:needsStart?"not-allowed":"pointer" }}
+                          <div key={scene} style={{ aspectRatio:"9/16",background:D.surface2,borderRadius:10,border:`${isStart&&!imgUrl?"1.5px":"0.5px"} solid ${isStart&&!imgUrl?D.blue:D.border}`,overflow:"hidden",display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"center",cursor:needsStart?"not-allowed":"pointer",position:"relative" as const }}
                             onClick={()=>!imgUrl&&!loading&&!needsStart&&handleRenderScene(ci,scene)}>
+                            {isStart&&!imgUrl&&<div style={{ position:"absolute" as const,top:8,left:0,right:0,display:"flex",justifyContent:"center" }}><span style={{ fontSize:9,padding:"2px 8px",background:D.blueDark,color:"#fff",borderRadius:20,fontWeight:600,letterSpacing:"0.05em" }}>START HERE</span></div>}
                             {imgUrl?<img src={imgUrl} alt={scene} style={{ width:"100%",height:"100%",objectFit:"cover" }} />
                               :loading?<p style={{ margin:0,fontSize:11,color:D.textMuted }}>Rendering…</p>
                               :needsStart?<div style={{ textAlign:"center" as const,padding:12 }}><p style={{ margin:0,fontSize:9,color:D.textDim,textTransform:"uppercase" as const }}>{scene}</p><p style={{ margin:"4px 0 0",fontSize:9,color:D.textDim }}>Render Start first</p></div>
-                              :<div style={{ textAlign:"center" as const,padding:12 }}><p style={{ margin:0,fontSize:10,fontWeight:500,textTransform:"uppercase" as const,color:D.textDim }}>{scene}</p><p style={{ margin:"4px 0 0",fontSize:9,color:D.textDim }}>Click to render</p></div>}
+                              :<div style={{ textAlign:"center" as const,padding:12,marginTop:isStart?16:0 }}><p style={{ margin:0,fontSize:10,fontWeight:500,textTransform:"uppercase" as const,color:isStart?D.blue:D.textDim }}>{scene}</p><p style={{ margin:"4px 0 0",fontSize:9,color:isStart?D.blue:D.textDim }}>{isStart?"Render first":"Click to render"}</p></div>}
                           </div>
                         );
                       })}
