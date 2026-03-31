@@ -18,9 +18,9 @@ interface DNAEntry {
   ad_type: "moc" | "competitor" | "compound";
   upload_context: string; file_name: string; added_at: string;
   reanalyzed?: boolean; iteration_of?: string; strategic_notes?: string;
-  parent_id?: string;
+  parent_id?: string; creative_id?: string;
   creative_status?: "briefed" | "produced" | "running" | "scaling" | "fatigued";
-  creative_id?: string; spend_tier?: string; spend_window_days?: number | null;
+  spend_tier?: string; spend_window_days?: number | null;
   spend_networks?: string[]; spend_notes?: string; spend_data_source?: string;
   title: string; hook_type: string; hook_timing_seconds: number | null;
   hook_description: string; gate_sequence: string[];
@@ -63,7 +63,6 @@ const TIERS = ["winner", "scalable", "failed", "inspiration"] as const;
 const PROVEN_BIOMES = ["Desert", "Foggy Forest", "Water", "Bunker", "Meadow"];
 const SEGMENTS_LIST = ["Whale", "Dolphin", "Minnow", "Non-Payer"];
 const NETWORK_OPTIONS = ["AppLovin", "Facebook", "TikTok", "Google", "Voodoo Ads", "Unity"];
-
 const CREATIVE_STATUS = [
   { value: "briefed",  label: "Briefed",  bg: "#1a2a4a", text: "#58a6ff", border: "#1f6feb" },
   { value: "produced", label: "Produced", bg: "#1e1a2e", text: "#d2a8ff", border: "#8957e5" },
@@ -71,7 +70,6 @@ const CREATIVE_STATUS = [
   { value: "scaling",  label: "Scaling",  bg: "#1a2a1a", text: "#3fb950", border: "#238636" },
   { value: "fatigued", label: "Fatigued", bg: "#2a1010", text: "#f85149", border: "#6e2020" },
 ] as const;
-
 const SPEND_TIERS = [
   { value: "sub100K", label: "<$100K", bg: "#1a2a1a", text: "#3fb950", border: "#238636" },
   { value: "100K",    label: ">$100K", bg: "#1a2a1a", text: "#3fb950", border: "#238636" },
@@ -84,28 +82,9 @@ const WINDOW_OPTIONS = [
   { value: 60, label: "60d" }, { value: 90, label: "90d" }, { value: 180, label: "6mo" }, { value: 365, label: "1yr+" },
 ];
 
-const LINEAGE_CHAINS: Record<string, string[]> = {
-  "CT43":  ["CT43", "9876", "CX18"],
-  "9876":  ["CT43", "9876", "CX18"],
-  "CX18":  ["CT43", "9876", "CX18"],
-  "CN28":  ["CN28", "CN28p", "CR17"],
-  "CN28p": ["CN28", "CN28p", "CR17"],
-  "CR17":  ["CN28", "CN28p", "CR17"],
-  "CZ66":  ["CZ66", "CZ65"],
-  "CZ65":  ["CZ66", "CZ65"],
-  "CC21":  ["CC21", "CB57"],
-  "CB57":  ["CC21", "CB57"],
-  "10218": ["CT43", "CX18", "10218", "10324"],
-  "10324": ["10218", "CR17", "10324"],
-  "CR86":  ["CT43", "CR86"],
-  "CR85":  ["CR86", "CR85"],
-};
-
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 const GEMINI_TEXT_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
 const GEMINI_IMAGE_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${GEMINI_KEY}`;
-
-
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const D = {
@@ -161,8 +140,6 @@ async function callGeminiDirect(systemPrompt: string, contentParts: any[]): Prom
   const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
   return parseJSON(raw);
 }
-
-
 
 function parseJSON(text: string): any {
   const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
@@ -254,24 +231,19 @@ const TIMESTAMP_RULES = `TIMESTAMPS: Real seconds only (0,2,5,8,14,22). NEVER fr
 
 const frameExtractionSystem = () => `Precise video timestamp analyst. Extract 8 key moments.\n${TIMESTAMP_RULES}\nReturn ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":number,"description":string,"significance":"hook|gate|upgrade|swarm|boss|loss|win|fail|transition"}]}`;
 const hookDetectionSystem = () => `Expert mobile ad hook analyst.\n${HOOK_GUIDE}\n${TIMESTAMP_RULES}\nReturn ONLY JSON: {"hook_timing_seconds":number,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_description":string}`;
-
 const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtraction[], duration: number, hasManual: boolean, hasRefs: boolean) =>
-  `World-Class Creative Intelligence Analyst for Mob Control ads. NEVER guess.\nAD TYPE:${config.ad_type} TIER:${config.tier}${config.iteration_of?` ITERATION_OF:${config.iteration_of}`:""}\nCONTEXT:${config.context||"none"}\nDURATION:${duration}s\nLIBRARY:${lib.length>0?JSON.stringify(lib.map(d=>({title:d.title,tier:d.tier,hook_type:d.hook_type,hook_timing_seconds:d.hook_timing_seconds}))):"empty"}\n${hasRefs?buildReferenceContext():""}\nFRAMES:${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s]${f.description}(${f.significance})`).join("\n"):"none"}\n${hasManual?"MANUAL FRAMES provided above.":""}\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\n${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}\nReturn ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"emotional_arc":string,"emotional_beats":[{"timestamp_seconds":number,"event":string,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
-
+  `World-Class Creative Intelligence Analyst for Mob Control ads. NEVER guess.\nAD TYPE:${config.ad_type} TIER:${config.tier}\nCONTEXT:${config.context||"none"}\nDURATION:${duration}s\nLIBRARY:${lib.length>0?JSON.stringify(lib.map(d=>({title:d.title,tier:d.tier,hook_type:d.hook_type,hook_timing_seconds:d.hook_timing_seconds}))):"empty"}\n${hasRefs?buildReferenceContext():""}\nFRAMES:${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s]${f.description}(${f.significance})`).join("\n"):"none"}\n${hasManual?"MANUAL FRAMES provided above.":""}\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\n${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}\nReturn ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"emotional_arc":string,"emotional_beats":[{"timestamp_seconds":number,"event":string,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
 const reanalysisSystem = (entry: DNAEntry) =>
   `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate hallucinations 4.unit_evolution_chain 5.emotional_beats 6.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
 
-// briefSystem — Gemini-direct fallback for brief generation (single call, all 4 concepts).
-// Not currently used — live flow calls Claude directly from the frontend.
-// Keep as fallback if Claude direct access is ever restricted.
+// briefSystem — Gemini-direct, single call, all 4 concepts. Live flow.
 const briefSystem = (lib: DNAEntry[], ctx: string, seg: string, iterateFrom?: string) => {
-  const winners = lib.filter(d => d.tier === "winner");
-  const activeWinners = winners.filter(d => d.creative_status !== "fatigued");
+  const activeWinners = lib.filter(d => d.tier === "winner" && d.creative_status !== "fatigued");
   const refBlock = iterateFrom ? `\nITERATE FROM: "${iterateFrom}" — creative starting point, DNA rules are primary.\n` : "";
   return `You are a World-Class Lead Creative Producer for Mob Control (MOC) by Voodoo. Ground EVERY concept in proven spend data.
 
-WINNER DNA LIBRARY (${activeWinners.length} active entries — fatigued entries excluded):
-${JSON.stringify(activeWinners.map(d => ({ title: d.title, hook_type: d.hook_type, hook_timing_seconds: d.hook_timing_seconds, gate_sequence: (d.gate_sequence||[]).slice(0,5), unit_evolution_chain: d.unit_evolution_chain, key_mechanic: d.key_mechanic, biome: d.biome, loss_event_type: d.loss_event_type, spend_tier: d.spend_tier||null, spend_networks: d.spend_networks||[], replication_instructions: (d.replication_instructions||"").slice(0,200) })), null, 2)}
+WINNER DNA LIBRARY (${activeWinners.length} active entries — fatigued excluded):
+${JSON.stringify(activeWinners.map(d => ({ title: d.title, creative_id: d.creative_id||null, hook_type: d.hook_type, hook_timing_seconds: d.hook_timing_seconds, gate_sequence: (d.gate_sequence||[]).slice(0,5), unit_evolution_chain: d.unit_evolution_chain, key_mechanic: d.key_mechanic, biome: d.biome, loss_event_type: d.loss_event_type, spend_tier: d.spend_tier||null, spend_networks: d.spend_networks||[], replication_instructions: (d.replication_instructions||"").slice(0,200) })), null, 2)}
 
 BRIEF: ${ctx} | SEGMENT: ${seg}${refBlock}
 
@@ -314,6 +286,53 @@ const imagePromptFn = (concept: Concept, scene: "start"|"middle"|"end", continui
   ].filter(Boolean).join("\n");
 };
 
+// ─── Dynamic lineage chain builder ───────────────────────────────────────────
+// Walks parent_id → creative_id links to build full chain, root first.
+function buildLineageChain(entry: DNAEntry, lib: DNAEntry[]): string[] | null {
+  try {
+    const id = entry.creative_id?.trim();
+    if (!id) return null;
+    const visited = new Set<string>();
+    const chain: string[] = [];
+    let current: DNAEntry | undefined = entry;
+    while (current) {
+      const cid = current.creative_id?.trim();
+      if (!cid || visited.has(cid)) break;
+      visited.add(cid);
+      chain.unshift(cid);
+      const pid = current.parent_id?.trim();
+      if (!pid) break;
+      current = lib.find(e => { const ecid = e.creative_id?.trim(); return ecid && ecid !== "" && ecid === pid; });
+    }
+    const seen = new Set(chain);
+    let tip = id;
+    let found = true;
+    let safety = 0;
+    while (found && safety++ < 50) {
+      found = false;
+      const child = lib.find(e => {
+        const epid = e.parent_id?.trim();
+        const ecid = e.creative_id?.trim();
+        return epid && epid !== "" && epid === tip && ecid && !seen.has(ecid);
+      });
+      if (child?.creative_id) {
+        const cid = child.creative_id.trim();
+        seen.add(cid); chain.push(cid); tip = cid; found = true;
+      }
+    }
+    return chain.length > 1 ? chain : null;
+  } catch { return null; }
+}
+
+// ─── Parent ID validator helper ───────────────────────────────────────────────
+function parentValidation(parentId: string, currentId: string, lib: DNAEntry[]) {
+  const pid = parentId.trim();
+  if (!pid) return null;
+  const found = lib.find(e => e.creative_id?.trim() === pid && e.creative_id?.trim() !== currentId.trim());
+  if (found) return { color: D.green, border: D.greenBdr, bg: D.greenBg, msg: `✓ Found: ${found.creative_id}` };
+  return { color: "#f0c53a", border: "#9e6a03", bg: "#2a1a0a", msg: `⚠ Not found in library` };
+}
+
 // ─── Upload Modal ─────────────────────────────────────────────────────────────
 function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConfig) => void; onCancel: () => void; lib: DNAEntry[] }) {
   const [tier, setTier] = useState<UploadConfig["tier"]>("winner");
@@ -324,33 +343,23 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
   const [parentId, setParentId] = useState("");
   const frameRef = useRef<HTMLInputElement>(null);
   const refCount = MOC_REFERENCES.filter(r => !r.base64.startsWith("REPLACE_")).length;
-
-  const parentExists = parentId.trim() === "" || lib.some(e => e.creative_id?.trim() === parentId.trim());
-  const parentStatus = parentId.trim() === ""
-    ? null
-    : parentExists
-      ? { color: D.green, border: D.greenBdr, bg: D.greenBg, msg: `✓ Found in library` }
-      : { color: "#f0c53a", border: "#9e6a03", bg: "#2a1a0a", msg: `⚠ Not found in library — will save anyway` };
-
+  const pv = parentValidation(parentId, creativeId, lib);
   return (
     <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000 }} onClick={onCancel}>
       <div style={{ background:D.surface,borderRadius:14,padding:"1.5rem",width:"90%",maxWidth:520,border:`0.5px solid ${D.border2}`,maxHeight:"90vh",overflowY:"auto" }} onClick={e=>e.stopPropagation()}>
         <h2 style={{ margin:"0 0 4px",fontSize:16,fontWeight:500,color:D.text }}>Upload ads</h2>
         <p style={{ margin:"0 0 20px",fontSize:12,color:D.textMuted }}>Configure before choosing files.</p>
-
-        {/* Production ID + Parent ID — set at upload time */}
         <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14,padding:"12px",background:D.surface2,borderRadius:8,border:`0.5px solid ${D.border}` }}>
           <div>
-            <span style={{ ...labelStyle,marginBottom:4 }}>Production ID</span>
+            <span style={labelStyle}>Production ID</span>
             <input style={{ ...inputStyle,fontSize:12,fontWeight:500 }} placeholder="e.g. CX18" value={creativeId} onChange={e=>setCreativeId(e.target.value)} />
           </div>
           <div>
-            <span style={{ ...labelStyle,marginBottom:4 }}>Parent creative ID</span>
-            <input style={{ ...inputStyle,fontSize:12,borderColor: parentStatus ? parentStatus.border : D.border2 }} placeholder="e.g. CT43" value={parentId} onChange={e=>setParentId(e.target.value)} />
-            {parentStatus&&<div style={{ marginTop:4,fontSize:10,color:parentStatus.color,background:parentStatus.bg,border:`0.5px solid ${parentStatus.border}`,borderRadius:4,padding:"2px 7px" }}>{parentStatus.msg}</div>}
+            <span style={labelStyle}>Parent creative ID</span>
+            <input style={{ ...inputStyle,fontSize:12,borderColor:pv?pv.border:D.border2 }} placeholder="e.g. CT43" value={parentId} onChange={e=>setParentId(e.target.value)} />
+            {pv&&<div style={{ marginTop:4,fontSize:10,color:pv.color,background:pv.bg,border:`0.5px solid ${pv.border}`,borderRadius:4,padding:"2px 7px" }}>{pv.msg}</div>}
           </div>
         </div>
-
         <div style={{ marginBottom:14 }}>
           <span style={labelStyle}>Ad type</span>
           <div style={{ display:"flex",gap:6 }}>
@@ -396,12 +405,7 @@ function SpendTagger({ entry, onSave, lib }: { entry: DNAEntry; onSave: (fields:
   const [creativeStatus, setCreativeStatus] = useState(entry.creative_status??"");
   const [saved, setSaved] = useState(false);
   const vel = velocityPerDay(tier, days);
-  const parentExists = parentId.trim() === "" || lib.some(e => e.creative_id?.trim() === parentId.trim() && e.id !== entry.id);
-  const parentStatus = parentId.trim() === ""
-    ? null
-    : parentExists
-      ? { color: D.green, border: D.greenBdr, bg: D.greenBg, msg: `✓ Found: ${lib.find(e=>e.creative_id?.trim()===parentId.trim()&&e.id!==entry.id)?.creative_id}` }
-      : { color: "#f0c53a", border: "#9e6a03", bg: "#2a1a0a", msg: `⚠ Not found in library` };
+  const pv = parentValidation(parentId, creativeId, lib);
   function save() {
     onSave({ creative_id:creativeId.trim()||undefined, spend_tier:tier||undefined, spend_window_days:days, spend_networks:networks.length>0?networks:undefined, spend_notes:notes||undefined, parent_id:parentId.trim()||undefined, creative_status:(creativeStatus||undefined) as DNAEntry["creative_status"] });
     setSaved(true); setTimeout(()=>setSaved(false),2000);
@@ -410,13 +414,13 @@ function SpendTagger({ entry, onSave, lib }: { entry: DNAEntry; onSave: (fields:
     <div style={{ marginTop:14,padding:"14px 16px",background:D.surface2,borderRadius:10,border:`0.5px solid ${D.border}` }}>
       <span style={{ ...labelStyle,marginBottom:12 }}>Creative metadata</span>
       <div style={{ marginBottom:12 }}>
-        <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Production ID <span style={{ color:D.textDim,fontWeight:400 }}>(e.g. CX18, CR17)</span></span>
+        <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Production ID <span style={{ fontWeight:400 }}>(e.g. CX18, CR17)</span></span>
         <input style={{ ...inputStyle,fontSize:12,padding:"6px 9px",fontWeight:500 }} placeholder="e.g. CX18" value={creativeId} onChange={e=>setCreativeId(e.target.value)} />
       </div>
       <div style={{ marginBottom:12 }}>
-        <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Parent creative ID <span style={{ color:D.textDim,fontWeight:400 }}>(the creative this was iterated from)</span></span>
-        <input style={{ ...inputStyle,fontSize:11,padding:"5px 8px",borderColor:parentStatus?parentStatus.border:D.border2 }} placeholder="e.g. CT43" value={parentId} onChange={e=>setParentId(e.target.value)} />
-        {parentStatus&&<div style={{ marginTop:4,fontSize:10,color:parentStatus.color,background:parentStatus.bg,border:`0.5px solid ${parentStatus.border}`,borderRadius:4,padding:"2px 7px" }}>{parentStatus.msg}</div>}
+        <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Parent creative ID <span style={{ fontWeight:400 }}>(the creative this was iterated from)</span></span>
+        <input style={{ ...inputStyle,fontSize:11,padding:"5px 8px",borderColor:pv?pv.border:D.border2 }} placeholder="e.g. CT43" value={parentId} onChange={e=>setParentId(e.target.value)} />
+        {pv&&<div style={{ marginTop:4,fontSize:10,color:pv.color,background:pv.bg,border:`0.5px solid ${pv.border}`,borderRadius:4,padding:"2px 7px" }}>{pv.msg}</div>}
       </div>
       <div style={{ marginBottom:12 }}>
         <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Creative status</span>
@@ -494,15 +498,12 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
           {chain&&(
             <div style={{ display:"flex",alignItems:"center",gap:4,marginBottom:4,overflowX:"auto",flexWrap:"nowrap" as const,paddingBottom:2 }}>
               <span style={{ fontSize:9,color:D.textDim,letterSpacing:"0.07em",marginRight:2,flexShrink:0 }}>LINEAGE</span>
-              {chain.map((id,i)=>{
-                const isCurrent = id === displayId;
-                return (
-                  <span key={i} style={{ display:"flex",alignItems:"center",gap:3,flexShrink:0 }}>
-                    <span style={{ fontSize:9,padding:"2px 7px",borderRadius:20,fontWeight:isCurrent?700:400,background:isCurrent?D.blueBg:D.surface2,color:isCurrent?D.blue:D.textDim,border:`0.5px solid ${isCurrent?D.blueDark:D.border2}` }}>{id}</span>
-                    {i<chain.length-1&&<span style={{ fontSize:9,color:D.textDim }}>→</span>}
-                  </span>
-                );
-              })}
+              {chain.map((id,i)=>(
+                <span key={i} style={{ display:"flex",alignItems:"center",gap:3,flexShrink:0 }}>
+                  <span style={{ fontSize:9,padding:"2px 7px",borderRadius:20,fontWeight:id===displayId?700:400,background:id===displayId?D.blueBg:D.surface2,color:id===displayId?D.blue:D.textDim,border:`0.5px solid ${id===displayId?D.blueDark:D.border2}` }}>{id}</span>
+                  {i<chain.length-1&&<span style={{ fontSize:9,color:D.textDim }}>→</span>}
+                </span>
+              ))}
             </div>
           )}
           <div style={{ fontSize:10,color:D.textDim }}>{d.file_name} · {new Date(d.added_at).toLocaleDateString()}</div>
@@ -699,7 +700,6 @@ export default function App() {
     finally { setAnalyzing(false); setAnalyzeInfo(""); setUploadConfig(null); if(fileRef.current) fileRef.current.value=""; }
   },[lib,uploadConfig]);
 
-  // ─── handleGenerateBrief — Gemini direct, no Netlify, no timeout ─────────────
   const handleGenerateBrief = async () => {
     if (!briefCtx.trim()) { setBriefErr("Enter a brief context first."); return; }
     if (lib.length === 0) { setBriefErr("Add at least one ad first."); return; }
@@ -713,11 +713,8 @@ export default function App() {
           if (i === 0) setExpandedConcept(0);
         });
       }
-    } catch (err: any) {
-      setBriefErr(err.message);
-    } finally {
-      setGenerating(false);
-    }
+    } catch (err: any) { setBriefErr(err.message); }
+    finally { setGenerating(false); }
   };
 
   const handleRenderScene=async(ci: number,scene: "start"|"middle"|"end")=>{
