@@ -362,22 +362,30 @@ function UploadModal({ onConfirm, onCancel }: { onConfirm: (cfg: UploadConfig) =
 
 // ─── Spend Tagger ─────────────────────────────────────────────────────────────
 function SpendTagger({ entry, onSave }: { entry: DNAEntry; onSave: (fields: Partial<DNAEntry>) => void }) {
+  const [creativeId, setCreativeId] = useState(entry.creative_id??"");
   const [tier, setTier] = useState(entry.spend_tier??"");
   const [days, setDays] = useState<number|null>(entry.spend_window_days??null);
   const [networks, setNetworks] = useState<string[]>(entry.spend_networks??[]);
   const [notes, setNotes] = useState(entry.spend_notes??"");
-  const [iterOf, setIterOf] = useState(entry.iteration_of??"");
   const [parentId, setParentId] = useState(entry.parent_id??"");
   const [creativeStatus, setCreativeStatus] = useState(entry.creative_status??"");
   const [saved, setSaved] = useState(false);
   const vel = velocityPerDay(tier, days);
   function save() {
-    onSave({ spend_tier:tier||undefined, spend_window_days:days, spend_networks:networks.length>0?networks:undefined, spend_notes:notes||undefined, iteration_of:iterOf||undefined, parent_id:parentId||undefined, creative_status:(creativeStatus||undefined) as DNAEntry["creative_status"] });
+    onSave({ creative_id:creativeId.trim()||undefined, spend_tier:tier||undefined, spend_window_days:days, spend_networks:networks.length>0?networks:undefined, spend_notes:notes||undefined, parent_id:parentId.trim()||undefined, creative_status:(creativeStatus||undefined) as DNAEntry["creative_status"] });
     setSaved(true); setTimeout(()=>setSaved(false),2000);
   }
   return (
     <div style={{ marginTop:14,padding:"14px 16px",background:D.surface2,borderRadius:10,border:`0.5px solid ${D.border}` }}>
-      <span style={{ ...labelStyle,marginBottom:12 }}>Spend data</span>
+      <span style={{ ...labelStyle,marginBottom:12 }}>Creative metadata</span>
+      <div style={{ marginBottom:12 }}>
+        <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Production ID <span style={{ color:D.textDim,fontWeight:400 }}>(e.g. CX18, CR17)</span></span>
+        <input style={{ ...inputStyle,fontSize:12,padding:"6px 9px",fontWeight:500 }} placeholder="e.g. CX18" value={creativeId} onChange={e=>setCreativeId(e.target.value)} />
+      </div>
+      <div style={{ marginBottom:12 }}>
+        <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Parent creative ID <span style={{ color:D.textDim,fontWeight:400 }}>(the creative this was iterated from)</span></span>
+        <input style={{ ...inputStyle,fontSize:11,padding:"5px 8px" }} placeholder="e.g. CT43" value={parentId} onChange={e=>setParentId(e.target.value)} />
+      </div>
       <div style={{ marginBottom:12 }}>
         <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Creative status</span>
         <div style={{ display:"flex",gap:5,flexWrap:"wrap" as const }}>
@@ -388,10 +396,6 @@ function SpendTagger({ entry, onSave }: { entry: DNAEntry; onSave: (fields: Part
             </button>
           ))}
         </div>
-      </div>
-      <div style={{ marginBottom:12 }}>
-        <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Parent creative (lineage)</span>
-        <input style={{ ...inputStyle,fontSize:11,padding:"5px 8px" }} placeholder="e.g. CT43 (the creative this was iterated from)" value={parentId} onChange={e=>setParentId(e.target.value)} />
       </div>
       <div style={{ marginBottom:12 }}>
         <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Spend tier</span>
@@ -415,10 +419,6 @@ function SpendTagger({ entry, onSave }: { entry: DNAEntry; onSave: (fields: Part
         </div>
       </div>
       <div style={{ marginBottom:12 }}>
-        <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Iteration of</span>
-        <input style={{ ...inputStyle,fontSize:11,padding:"5px 8px" }} placeholder="e.g. CT43, CZ66" value={iterOf} onChange={e=>setIterOf(e.target.value)} />
-      </div>
-      <div style={{ marginBottom:12 }}>
         <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Notes</span>
         <textarea style={{ ...inputStyle,minHeight:52,resize:"vertical",fontSize:11,background:D.bg } as React.CSSProperties} placeholder="e.g. peaked week 2, Meta only…" value={notes} onChange={e=>setNotes(e.target.value)} />
       </div>
@@ -437,35 +437,36 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
   const spendSt = SPEND_TIERS.find(t=>t.value===d.spend_tier);
   const statusSt = CREATIVE_STATUS.find(s=>s.value===d.creative_status);
   const isFatigued = d.creative_status==="fatigued";
-  const knownIds = ["CT43","9876","CX18","CN28p","CN28","CR17","CZ66","CZ65","CC21","CB57","10218","10324","CR86","CR85","DB24"];
-  const detectedId = d.parent_id || knownIds.find(id => d.title.includes(id));
-  const chain = detectedId ? LINEAGE_CHAINS[detectedId] : null;
+  const chain = buildLineageChain(d, lib);
+  const displayId = d.creative_id?.trim();
   return (
     <div style={{ borderBottom:`0.5px solid ${D.border}`,padding:"14px 16px",opacity:isFatigued?0.55:1,transition:"opacity .15s" }}>
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
         <div style={{ flex:1,cursor:"pointer" }} onClick={()=>setExpandedDNA(expandedDNA===di?null:di)}>
-          <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap" as const }}>
+          <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap" as const }}>
             {isFatigued&&<span style={{ fontSize:9,padding:"1px 6px",background:D.redBg,color:D.red,border:`0.5px solid #6e2020`,borderRadius:20 }}>fatigued</span>}
-            <span style={{ fontSize:13,fontWeight:500 }}>{d.title}</span>
+            {displayId
+              ? <span style={{ fontSize:14,fontWeight:600,color:D.text,letterSpacing:"0.02em" }}>{displayId}</span>
+              : <span style={{ fontSize:13,fontWeight:500,color:D.text }}>{d.title}</span>}
           </div>
+          {displayId&&<div style={{ fontSize:11,color:D.textMuted,marginBottom:4 }}>{d.title}</div>}
           <div style={{ display:"flex",gap:5,flexWrap:"wrap" as const,marginBottom:3 }}>
             <span style={pill(TIER_STYLE[d.tier].bg,TIER_STYLE[d.tier].text,TIER_STYLE[d.tier].border)}>{d.tier}</span>
             {statusSt&&!isFatigued&&<span style={pill(statusSt.bg,statusSt.text,statusSt.border)}>{statusSt.label}</span>}
             {d.ad_type!=="moc"&&<span style={pill(D.purpleBg,D.purple,D.purpleBdr)}>{d.ad_type}</span>}
             {d.is_compound&&<span style={pill(D.goldBg,D.gold,D.goldBdr)}>compound</span>}
             {d.reanalyzed&&<span style={pill(D.greenBg,D.green,D.greenBdr)}>re-analyzed</span>}
-            {d.iteration_of&&<span style={pill(D.surface2,D.textMuted,D.border2)}>iter. of {d.iteration_of}</span>}
             {spendSt&&<span style={pill(spendSt.bg,spendSt.text,spendSt.border)}>{spendSt.label}{d.spend_window_days?` / ${WINDOW_OPTIONS.find(w=>w.value===d.spend_window_days)?.label??d.spend_window_days+"d"}`:""}</span>}
             {d.spend_networks&&d.spend_networks.length>0&&<span style={pill(D.greenBg,D.green,D.greenBdr)}>{d.spend_networks.join(", ")}</span>}
           </div>
           {chain&&(
-            <div style={{ display:"flex",alignItems:"center",gap:4,marginBottom:4,flexWrap:"wrap" as const }}>
-              <span style={{ fontSize:9,color:D.textDim,letterSpacing:"0.07em",marginRight:2 }}>LINEAGE</span>
+            <div style={{ display:"flex",alignItems:"center",gap:4,marginBottom:4,overflowX:"auto",flexWrap:"nowrap" as const,paddingBottom:2 }}>
+              <span style={{ fontSize:9,color:D.textDim,letterSpacing:"0.07em",marginRight:2,flexShrink:0 }}>LINEAGE</span>
               {chain.map((id,i)=>{
-                const isCurrent = d.title.includes(id)||(d.parent_id&&(d.parent_id===id||d.iteration_of===id));
+                const isCurrent = id === displayId;
                 return (
-                  <span key={i} style={{ display:"flex",alignItems:"center",gap:3 }}>
-                    <span style={{ fontSize:9,padding:"1px 6px",borderRadius:20,fontWeight:isCurrent?600:400,background:isCurrent?D.blueBg:D.surface2,color:isCurrent?D.blue:D.textDim,border:`0.5px solid ${isCurrent?D.blueDark:D.border2}` }}>{id}</span>
+                  <span key={i} style={{ display:"flex",alignItems:"center",gap:3,flexShrink:0 }}>
+                    <span style={{ fontSize:9,padding:"2px 7px",borderRadius:20,fontWeight:isCurrent?700:400,background:isCurrent?D.blueBg:D.surface2,color:isCurrent?D.blue:D.textDim,border:`0.5px solid ${isCurrent?D.blueDark:D.border2}` }}>{id}</span>
                     {i<chain.length-1&&<span style={{ fontSize:9,color:D.textDim }}>→</span>}
                   </span>
                 );
@@ -1003,7 +1004,9 @@ export default function App() {
                     <div>
                       <div style={{ display:"flex",alignItems:"center",fontSize:12,fontWeight:500 }}>
                         <div style={{ width:6,height:6,borderRadius:"50%",background:d.tier==="scalable"?D.blue:D.green,marginRight:8,flexShrink:0 }} />
-                        {d.title.length>35?d.title.slice(0,35)+"…":d.title}
+                        {d.creative_id?.trim()
+                          ? <><span style={{ fontWeight:600,marginRight:6 }}>{d.creative_id.trim()}</span><span style={{ color:D.textMuted,fontWeight:400,fontSize:11 }}>{d.title.length>22?d.title.slice(0,22)+"…":d.title}</span></>
+                          : (d.title.length>35?d.title.slice(0,35)+"…":d.title)}
                       </div>
                       <div style={{ fontSize:10,color:D.textDim,paddingLeft:14 }}>{d.creative_status||"Open"}</div>
                     </div>
