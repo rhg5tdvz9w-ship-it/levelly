@@ -1,25 +1,43 @@
-import type { Handler } from "@netlify/functions";
 import { getStore } from "@netlify/blobs";
+import type { Handler } from "@netlify/functions";
 
 export const handler: Handler = async (event) => {
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: "Method not allowed" };
+  const headers = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Content-Type": "application/json",
+  };
+
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 204, headers, body: "" };
   }
+
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, headers, body: JSON.stringify({ error: "Method not allowed" }) };
+  }
+
   try {
-    const library = event.body ?? "[]";
-    JSON.parse(library);
-    const store = getStore("levelly");
-    await store.set("library", library);
+    const body = event.body ?? "";
+    const data = JSON.parse(body);
+
+    if (!Array.isArray(data)) {
+      return { statusCode: 400, headers, body: JSON.stringify({ error: "Expected array" }) };
+    }
+
+    const store = getStore("levelly-library");
+    await store.setJSON("library", data);
+
     return {
       statusCode: 200,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ success: true }),
+      headers,
+      body: JSON.stringify({ ok: true, count: data.length }),
     };
   } catch (err: any) {
-    console.error("Blob save error:", err);
+    console.error("save-library error:", err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: err.message }),
+      headers,
+      body: JSON.stringify({ error: err.message ?? "Unknown error" }),
     };
   }
 };
