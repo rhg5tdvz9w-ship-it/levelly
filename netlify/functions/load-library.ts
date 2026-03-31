@@ -1,5 +1,5 @@
-import { getStore } from "@netlify/blobs";
 import type { Handler } from "@netlify/functions";
+import { getStore } from "@netlify/blobs";
 
 export const handler: Handler = async (event) => {
   const headers = {
@@ -8,30 +8,17 @@ export const handler: Handler = async (event) => {
     "Content-Type": "application/json",
   };
 
-  if (event.httpMethod === "OPTIONS") {
-    return { statusCode: 204, headers, body: "" };
-  }
+  if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers, body: "" };
 
   try {
-    const store = getStore("levelly-library");
-    const data = await store.get("library", { type: "json" });
+    const store = getStore("levelly");
+    const existing = await store.get("library");
+    const data = JSON.parse(existing ?? "[]");
 
-    if (!data) {
-      return { statusCode: 200, headers, body: JSON.stringify([]) };
-    }
-
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify(data),
-    };
+    return { statusCode: 200, headers, body: JSON.stringify(data) };
   } catch (err: any) {
     console.error("load-library error:", err);
-    // Return empty array on error so the UI still loads
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify([]),
-    };
+    // Return empty array so UI still loads
+    return { statusCode: 200, headers, body: JSON.stringify([]) };
   }
 };
