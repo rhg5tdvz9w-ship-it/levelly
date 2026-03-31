@@ -39,7 +39,8 @@ interface FrameExtraction { timestamp_seconds: number; description: string; sign
 interface UploadConfig {
   tier: "winner" | "scalable" | "failed" | "inspiration";
   ad_type: "moc" | "competitor" | "compound";
-  context: string; manual_frames: File[]; iteration_of?: string;
+  context: string; manual_frames: File[];
+  creative_id?: string; parent_id?: string;
 }
 interface VisualIdentity { environment: string; lighting: string; player_champion: string; enemy_champion: string; player_mob_color: string; enemy_mob_color: string; gate_values: string[]; cannon_type: string; mood_notes: string; }
 interface ScriptStep { time: string; action: string; visual_cue: string; audio_cue: string; }
@@ -82,6 +83,23 @@ const WINDOW_OPTIONS = [
   { value: 7, label: "7d" }, { value: 14, label: "14d" }, { value: 30, label: "30d" },
   { value: 60, label: "60d" }, { value: 90, label: "90d" }, { value: 180, label: "6mo" }, { value: 365, label: "1yr+" },
 ];
+
+const LINEAGE_CHAINS: Record<string, string[]> = {
+  "CT43":  ["CT43", "9876", "CX18"],
+  "9876":  ["CT43", "9876", "CX18"],
+  "CX18":  ["CT43", "9876", "CX18"],
+  "CN28":  ["CN28", "CN28p", "CR17"],
+  "CN28p": ["CN28", "CN28p", "CR17"],
+  "CR17":  ["CN28", "CN28p", "CR17"],
+  "CZ66":  ["CZ66", "CZ65"],
+  "CZ65":  ["CZ66", "CZ65"],
+  "CC21":  ["CC21", "CB57"],
+  "CB57":  ["CC21", "CB57"],
+  "10218": ["CT43", "CX18", "10218", "10324"],
+  "10324": ["10218", "CR17", "10324"],
+  "CR86":  ["CT43", "CR86"],
+  "CR85":  ["CR86", "CR85"],
+};
 
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 const GEMINI_TEXT_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
@@ -297,17 +315,42 @@ const imagePromptFn = (concept: Concept, scene: "start"|"middle"|"end", continui
 };
 
 // ─── Upload Modal ─────────────────────────────────────────────────────────────
-function UploadModal({ onConfirm, onCancel }: { onConfirm: (cfg: UploadConfig) => void; onCancel: () => void }) {
+function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConfig) => void; onCancel: () => void; lib: DNAEntry[] }) {
   const [tier, setTier] = useState<UploadConfig["tier"]>("winner");
   const [adType, setAdType] = useState<UploadConfig["ad_type"]>("moc");
-  const [context, setContext] = useState(""); const [manualFrames, setManualFrames] = useState<File[]>([]); const [iterOf, setIterOf] = useState("");
+  const [context, setContext] = useState("");
+  const [manualFrames, setManualFrames] = useState<File[]>([]);
+  const [creativeId, setCreativeId] = useState("");
+  const [parentId, setParentId] = useState("");
   const frameRef = useRef<HTMLInputElement>(null);
   const refCount = MOC_REFERENCES.filter(r => !r.base64.startsWith("REPLACE_")).length;
+
+  const parentExists = parentId.trim() === "" || lib.some(e => e.creative_id?.trim() === parentId.trim());
+  const parentStatus = parentId.trim() === ""
+    ? null
+    : parentExists
+      ? { color: D.green, border: D.greenBdr, bg: D.greenBg, msg: `✓ Found in library` }
+      : { color: "#f0c53a", border: "#9e6a03", bg: "#2a1a0a", msg: `⚠ Not found in library — will save anyway` };
+
   return (
     <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000 }} onClick={onCancel}>
       <div style={{ background:D.surface,borderRadius:14,padding:"1.5rem",width:"90%",maxWidth:520,border:`0.5px solid ${D.border2}`,maxHeight:"90vh",overflowY:"auto" }} onClick={e=>e.stopPropagation()}>
         <h2 style={{ margin:"0 0 4px",fontSize:16,fontWeight:500,color:D.text }}>Upload ads</h2>
         <p style={{ margin:"0 0 20px",fontSize:12,color:D.textMuted }}>Configure before choosing files.</p>
+
+        {/* Production ID + Parent ID — set at upload time */}
+        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14,padding:"12px",background:D.surface2,borderRadius:8,border:`0.5px solid ${D.border}` }}>
+          <div>
+            <span style={{ ...labelStyle,marginBottom:4 }}>Production ID</span>
+            <input style={{ ...inputStyle,fontSize:12,fontWeight:500 }} placeholder="e.g. CX18" value={creativeId} onChange={e=>setCreativeId(e.target.value)} />
+          </div>
+          <div>
+            <span style={{ ...labelStyle,marginBottom:4 }}>Parent creative ID</span>
+            <input style={{ ...inputStyle,fontSize:12,borderColor: parentStatus ? parentStatus.border : D.border2 }} placeholder="e.g. CT43" value={parentId} onChange={e=>setParentId(e.target.value)} />
+            {parentStatus&&<div style={{ marginTop:4,fontSize:10,color:parentStatus.color,background:parentStatus.bg,border:`0.5px solid ${parentStatus.border}`,borderRadius:4,padding:"2px 7px" }}>{parentStatus.msg}</div>}
+          </div>
+        </div>
+
         <div style={{ marginBottom:14 }}>
           <span style={labelStyle}>Ad type</span>
           <div style={{ display:"flex",gap:6 }}>
@@ -324,7 +367,6 @@ function UploadModal({ onConfirm, onCancel }: { onConfirm: (cfg: UploadConfig) =
             {TIERS.map(t => <button key={t} onClick={()=>setTier(t)} style={{ padding:"5px 12px",fontSize:11,fontWeight:500,borderRadius:20,border:`1.5px solid ${tier===t?TIER_STYLE[t].border:D.border2}`,background:tier===t?TIER_STYLE[t].bg:"transparent",color:tier===t?TIER_STYLE[t].text:D.textMuted,cursor:"pointer" }}>{t}</button>)}
           </div>
         </div>
-        <div style={{ marginBottom:14 }}><span style={labelStyle}>Iteration of</span><input style={inputStyle} placeholder="e.g. CT43" value={iterOf} onChange={e=>setIterOf(e.target.value)} /></div>
         <div style={{ marginBottom:14 }}><span style={labelStyle}>Context for Gemini</span><textarea style={{ ...inputStyle,minHeight:72,resize:"vertical",background:D.bg }} placeholder="Describe biome, hook, key mechanics…" value={context} onChange={e=>setContext(e.target.value)} /></div>
         <div style={{ marginBottom:16 }}>
           <span style={labelStyle}>Manual storyboard frames (optional)</span>
@@ -336,7 +378,7 @@ function UploadModal({ onConfirm, onCancel }: { onConfirm: (cfg: UploadConfig) =
         </div>
         <div style={{ display:"flex",gap:10,justifyContent:"flex-end" }}>
           <button style={btnSec} onClick={onCancel}>Cancel</button>
-          <button style={btnPri} onClick={()=>onConfirm({ tier,ad_type:adType,context,manual_frames:manualFrames,iteration_of:iterOf||undefined })}>Choose video →</button>
+          <button style={btnPri} onClick={()=>onConfirm({ tier, ad_type:adType, context, manual_frames:manualFrames, creative_id:creativeId.trim()||undefined, parent_id:parentId.trim()||undefined })}>Choose video →</button>
         </div>
       </div>
     </div>
@@ -344,7 +386,7 @@ function UploadModal({ onConfirm, onCancel }: { onConfirm: (cfg: UploadConfig) =
 }
 
 // ─── Spend Tagger ─────────────────────────────────────────────────────────────
-function SpendTagger({ entry, onSave }: { entry: DNAEntry; onSave: (fields: Partial<DNAEntry>) => void }) {
+function SpendTagger({ entry, onSave, lib }: { entry: DNAEntry; onSave: (fields: Partial<DNAEntry>) => void; lib: DNAEntry[] }) {
   const [creativeId, setCreativeId] = useState(entry.creative_id??"");
   const [tier, setTier] = useState(entry.spend_tier??"");
   const [days, setDays] = useState<number|null>(entry.spend_window_days??null);
@@ -354,6 +396,12 @@ function SpendTagger({ entry, onSave }: { entry: DNAEntry; onSave: (fields: Part
   const [creativeStatus, setCreativeStatus] = useState(entry.creative_status??"");
   const [saved, setSaved] = useState(false);
   const vel = velocityPerDay(tier, days);
+  const parentExists = parentId.trim() === "" || lib.some(e => e.creative_id?.trim() === parentId.trim() && e.id !== entry.id);
+  const parentStatus = parentId.trim() === ""
+    ? null
+    : parentExists
+      ? { color: D.green, border: D.greenBdr, bg: D.greenBg, msg: `✓ Found: ${lib.find(e=>e.creative_id?.trim()===parentId.trim()&&e.id!==entry.id)?.creative_id}` }
+      : { color: "#f0c53a", border: "#9e6a03", bg: "#2a1a0a", msg: `⚠ Not found in library` };
   function save() {
     onSave({ creative_id:creativeId.trim()||undefined, spend_tier:tier||undefined, spend_window_days:days, spend_networks:networks.length>0?networks:undefined, spend_notes:notes||undefined, parent_id:parentId.trim()||undefined, creative_status:(creativeStatus||undefined) as DNAEntry["creative_status"] });
     setSaved(true); setTimeout(()=>setSaved(false),2000);
@@ -367,7 +415,8 @@ function SpendTagger({ entry, onSave }: { entry: DNAEntry; onSave: (fields: Part
       </div>
       <div style={{ marginBottom:12 }}>
         <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Parent creative ID <span style={{ color:D.textDim,fontWeight:400 }}>(the creative this was iterated from)</span></span>
-        <input style={{ ...inputStyle,fontSize:11,padding:"5px 8px" }} placeholder="e.g. CT43" value={parentId} onChange={e=>setParentId(e.target.value)} />
+        <input style={{ ...inputStyle,fontSize:11,padding:"5px 8px",borderColor:parentStatus?parentStatus.border:D.border2 }} placeholder="e.g. CT43" value={parentId} onChange={e=>setParentId(e.target.value)} />
+        {parentStatus&&<div style={{ marginTop:4,fontSize:10,color:parentStatus.color,background:parentStatus.bg,border:`0.5px solid ${parentStatus.border}`,borderRadius:4,padding:"2px 7px" }}>{parentStatus.msg}</div>}
       </div>
       <div style={{ marginBottom:12 }}>
         <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Creative status</span>
@@ -408,36 +457,6 @@ function SpendTagger({ entry, onSave }: { entry: DNAEntry; onSave: (fields: Part
       <button onClick={save} style={{ ...btnPri,padding:"6px 14px",fontSize:11 }}>{saved?"Saved ✓":"Save"}</button>
     </div>
   );
-}
-
-// ─── Dynamic lineage chain builder ───────────────────────────────────────────
-function buildLineageChain(entry: DNAEntry, lib: DNAEntry[]): string[] | null {
-  try {
-    const id = entry.creative_id?.trim();
-    if (!id) return null;
-    const visited = new Set<string>();
-    const chain: string[] = [];
-    let current: DNAEntry | undefined = entry;
-    while (current) {
-      const cid = current.creative_id?.trim();
-      if (!cid || visited.has(cid)) break;
-      visited.add(cid);
-      chain.unshift(cid);
-      const pid = current.parent_id?.trim();
-      if (!pid) break;
-      current = lib.find(e => { const ecid = e.creative_id?.trim(); return ecid && ecid !== "" && ecid === pid; });
-    }
-    const seen = new Set(chain);
-    let tip = id;
-    let found = true;
-    let safety = 0;
-    while (found && safety++ < 50) {
-      found = false;
-      const child = lib.find(e => { const epid = e.parent_id?.trim(); const ecid = e.creative_id?.trim(); return epid && epid !== "" && epid === tip && ecid && !seen.has(ecid); });
-      if (child?.creative_id) { const cid = child.creative_id.trim(); seen.add(cid); chain.push(cid); tip = cid; found = true; }
-    }
-    return chain.length > 1 ? chain : null;
-  } catch { return null; }
 }
 
 // ─── Library Card ─────────────────────────────────────────────────────────────
@@ -503,7 +522,7 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
       </div>
       {expandedDNA===di&&(
         <div style={{ marginTop:14,borderTop:`0.5px solid ${D.border}`,paddingTop:14 }}>
-          {canTag&&<SpendTagger entry={d} onSave={fields=>saveLib(lib.map(x=>x.id===d.id?{...x,...fields}:x))} />}
+          {canTag&&<SpendTagger entry={d} lib={lib} onSave={fields=>saveLib(lib.map(x=>x.id===d.id?{...x,...fields}:x))} />}
           {d.unit_evolution_chain?.length>0&&(
             <div style={{ marginBottom:10,marginTop:14 }}>
               <span style={labelStyle}>Unit evolution chain</span>
@@ -673,7 +692,7 @@ export default function App() {
         setAnalyzeInfo(`Analyzing "${file.name}"…`);
         const refParts=buildReferenceParts();
         const dna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,manualParts.length>0,refParts.length>0),[...refParts,...(manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
-        saveLib([...lib,{...dna,id:Date.now()+Math.random(),tier:cfg.tier,ad_type:cfg.ad_type,upload_context:cfg.context,file_name:file.name,added_at:new Date().toISOString(),iteration_of:cfg.iteration_of,auto_frames:autoFrames,manual_frames:cfg.manual_frames.map(f=>f.name)}]);
+        saveLib([...lib,{...dna,id:Date.now()+Math.random(),tier:cfg.tier,ad_type:cfg.ad_type,upload_context:cfg.context,file_name:file.name,added_at:new Date().toISOString(),creative_id:cfg.creative_id,parent_id:cfg.parent_id,auto_frames:autoFrames,manual_frames:cfg.manual_frames.map(f=>f.name)}]);
         setAnalyzeInfo("");
       }
     } catch(err: any){ setAnalyzeErr(err.message); }
@@ -726,7 +745,7 @@ export default function App() {
 
   return (
     <div style={{ background:D.bg,minHeight:"100vh",color:D.text,fontFamily:"system-ui,sans-serif",fontSize:13,position:"relative" }}>
-      {showModal&&<UploadModal onConfirm={handleModalConfirm} onCancel={()=>setShowModal(false)} />}
+      {showModal&&<UploadModal lib={lib} onConfirm={handleModalConfirm} onCancel={()=>setShowModal(false)} />}
       <input ref={fileRef} type="file" accept="video/*,image/*" multiple style={{ display:"none" }} onChange={handleUpload} />
       <input ref={importRef} type="file" accept=".json" style={{ display:"none" }} onChange={importLibrary} />
 
