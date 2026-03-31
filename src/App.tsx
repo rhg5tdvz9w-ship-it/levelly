@@ -239,7 +239,7 @@ async function extractFramesFromVideo(
     const safeTimestamps = timestamps
       .map(t => Math.min(Math.max(t, 0), Math.max(duration - 0.1, 0)))
       .filter((t, i, arr) => arr.indexOf(t) === i) // dedupe
-      .slice(0, 12); // hard cap — no more than 12 frames
+      .slice(0, 20); // hard cap — no more than 20 frames
 
     let idx = 0;
 
@@ -319,16 +319,45 @@ function pickRelevantRefs(vi: VisualIdentity): any[] {
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 const BIOME_GUIDE = `BIOMES: Foggy Forest(grey/white atmospheric fog,dark pines,grey road—NOT snow), Desert(tan sand,blue sky), Water(grey bridge over blue water), Bunker(grey concrete tunnel,pipes,industrial), Cyber-City(grey metal,orange/blue neon), Volcanic(red/orange lava,black rocks), Snow(white snow ground), Toxic(purple paths,green slime), Meadow(green hills,grey brick bridge)`;
 const CHAMPION_GUIDE = `CHAMPIONS (ONLY these exist in Mob Control — NEVER invent new ones): Captain Kaboom(SMALL skeleton pirate,mushroom hat,dual pistols), Gold Golem(LARGE golden muscular humanoid), Caveman(blue-skin,blonde,club), Mobzilla(purple/yellow robotic T-Rex), Nexus(blue/white/orange mech,orange sword), Red Hulk(large red humanoid), Kraken(red octopus), Femme Zombie(crawling female zombie boss), Yellow Normie(small yellow round—BOSS ENEMY), Unknown(generic enemy tower). If a champion name is not on this list, use Unknown and draw a generic enemy tower/boss. NEVER invent champion appearances or names.`;
-const GATE_GUIDE = `GATES: Multiplication(X value rect), Addition(+ value rect), Death(RED rect+SKULL kills ALL), Dynamic(combine when structures broken). Report ONLY gates you see.`;
+const GATE_GUIDE = `GATES — understand the mechanical difference:
+- Multiplication gate (X value, e.g. x3): multiplies the NUMBER OF MOBS currently moving through the lane. x3 means triple the mob count.
+- Addition gate (+ value, e.g. +10): adds to the CANNON's firing count — how many mobs are shot per cannon fire. Does NOT multiply existing mobs.
+- Death gate (RED rect + SKULL): instantly kills ALL player mobs. Game over mechanic.
+- Dynamic gate: activates when nearby structures are broken.
+Report ONLY gates you actually see. NEVER confuse + gates (cannon upgrade) with x gates (mob multiplier).`;
 const HOOK_GUIDE = `HOOK: EXACT SECOND thumb stops scrolling. NEVER 0 unless frame-0 drama. hook_timing_seconds=REAL SECOND (2,4,8) NEVER fraction.`;
 const TIMESTAMP_RULES = `TIMESTAMPS: Real seconds only (0,2,5,8,14,22). NEVER fractions (0.03,0.28). 30s video midpoint=15.`;
 
-const frameExtractionSystem = () => `Precise video timestamp analyst. Extract 8 key moments.\n${TIMESTAMP_RULES}\nReturn ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":number,"description":string,"significance":"hook|gate|upgrade|swarm|boss|loss|win|fail|transition"}]}`;
+const frameExtractionSystem = () => `Precise video timestamp analyst. Extract key moments from this video.
+
+RULES:
+1. Identify ALL significant events: hook, every gate pass, every upgrade/level-up, swarm peaks, boss encounters, loss/fail moment, win attempt
+2. ALSO add a timestamp every 5-7 seconds even if nothing notable happens — fill the gaps
+3. Total timestamps: between 15 and 20. Never fewer than 15 for a 30s video.
+4. ${TIMESTAMP_RULES}
+5. No two timestamps closer than 2 seconds apart
+
+Return ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":number,"description":string,"significance":"hook|gate|upgrade|swarm|boss|loss|win|fail|transition|filler"}]}`;
 const hookDetectionSystem = () => `Expert mobile ad hook analyst.\n${HOOK_GUIDE}\n${TIMESTAMP_RULES}\nReturn ONLY JSON: {"hook_timing_seconds":number,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_description":string}`;
-const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtraction[], duration: number, hasManual: boolean, hasRefs: boolean) =>
-  `World-Class Creative Intelligence Analyst for Mob Control ads. NEVER guess.\nAD TYPE:${config.ad_type} TIER:${config.tier}\nCONTEXT:${config.context||"none"}\nDURATION:${duration}s\nLIBRARY:${lib.length>0?JSON.stringify(lib.map(d=>({title:d.title,tier:d.tier,hook_type:d.hook_type,hook_timing_seconds:d.hook_timing_seconds}))):"empty"}\n${hasRefs?buildReferenceContext():""}\nFRAMES:${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s]${f.description}(${f.significance})`).join("\n"):"none"}\n${hasManual?"MANUAL FRAMES provided above.":""}\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\n${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}\nReturn ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"emotional_arc":string,"emotional_beats":[{"timestamp_seconds":number,"event":string,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
+const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtraction[], duration: number, hasFrameImages: boolean, hasRefs: boolean) =>
+  `World-Class Creative Intelligence Analyst for Mob Control ads. NEVER guess.
+AD TYPE:${config.ad_type} TIER:${config.tier}
+CONTEXT:${config.context||"none"}
+DURATION:${duration}s
+LIBRARY:${lib.length>0?JSON.stringify(lib.map(d=>({title:d.title,tier:d.tier,hook_type:d.hook_type,hook_timing_seconds:d.hook_timing_seconds}))):"empty"}
+${hasRefs?buildReferenceContext():""}
+TIMESTAMP MAP:${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] ${f.description} (${f.significance})`).join("\n"):"none"}
+${hasFrameImages?"EXTRACTED FRAME IMAGES provided above — use them to verify exact gate types, unit appearances, and events at each timestamp. Cross-reference with TIMESTAMP MAP.":""}
+${TIMESTAMP_RULES}
+${HOOK_GUIDE}
+${GATE_GUIDE}
+${BIOME_GUIDE}
+${CHAMPION_GUIDE}
+EMOTIONAL BEATS: Extract a beat for EVERY significant moment AND every 5-7 seconds of filler. Minimum 8 beats for a 30s video. Use the extracted frame images and timestamp map to anchor each beat to the correct second.
+${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
+Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"emotional_arc":string,"emotional_beats":[{"timestamp_seconds":number,"event":string,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
 const reanalysisSystem = (entry: DNAEntry) =>
-  `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate hallucinations 4.unit_evolution_chain 5.emotional_beats 6.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
+  `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate type confusion (+ gates add to cannon firing count, x gates multiply mob count — check gate_sequence carefully) 4.unit_evolution_chain 5.emotional_beats minimum 8 beats with no gaps >7s 6.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
 
 const briefSystem = (lib: DNAEntry[], ctx: string, seg: string, iterateFrom?: string, refNote?: string) => {
   const activeWinners = lib.filter(d => d.tier === "winner" && d.creative_status !== "fatigued");
@@ -1156,7 +1185,7 @@ export default function App() {
         const frameParts = extractedFrameParts.length > 0
           ? [{text:"### EXTRACTED FRAMES — key moments at exact timestamps:"},...extractedFrameParts]
           : [];
-        const dna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,manualParts.length>0||frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
+        const dna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
         setAnalyzeStep("saving");
         saveLib([...lib,{...dna,id:Date.now()+Math.random(),tier:cfg.tier,ad_type:cfg.ad_type,upload_context:cfg.context,file_name:file.name,added_at:new Date().toISOString(),creative_id:cfg.creative_id,parent_id:cfg.parent_id,auto_frames:autoFrames,manual_frames:cfg.manual_frames.map(f=>f.name)}]);
         setAnalyzeStep("");
