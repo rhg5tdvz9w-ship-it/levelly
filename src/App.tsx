@@ -84,6 +84,10 @@ const WINDOW_OPTIONS = [
 const SPEND_RANK: Record<string, number> = { "1M": 5, "500K": 4, "300K": 3, "100K": 2, "sub100K": 1 };
 type SortMode = "all" | "winner" | "scalable" | "inspiration" | "failed";
 
+const TIER_ACCENT: Record<string, string> = {
+  winner: "#3fb950", scalable: "#58a6ff", inspiration: "#f0c53a", failed: "#f85149",
+};
+
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 const GEMINI_TEXT_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
 const GEMINI_IMAGE_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${GEMINI_KEY}`;
@@ -114,8 +118,8 @@ const pill = (bg: string, text: string, border: string): React.CSSProperties => 
 });
 const btnSec: React.CSSProperties = { padding: "6px 12px", fontSize: 11, background: "transparent", border: `0.5px solid ${D.border2}`, borderRadius: 7, color: D.textMuted, cursor: "pointer", fontFamily: "inherit" };
 const btnPri: React.CSSProperties = { padding: "7px 14px", fontSize: 11, background: D.blueDark, border: "none", borderRadius: 7, color: "#fff", cursor: "pointer", fontFamily: "inherit", fontWeight: 500 };
-const btnDanger: React.CSSProperties = { padding: "4px 10px", fontSize: 10, background: "transparent", border: `0.5px solid #6e2020`, borderRadius: 6, color: D.red, cursor: "pointer", fontFamily: "inherit" };
-const metricStyle: React.CSSProperties = { background: "#1c2128", borderRadius: 7, padding: "8px 10px", textAlign: "center" };
+const btnDanger: React.CSSProperties = { padding: "5px 12px", fontSize: 11, background: "transparent", border: `0.5px solid #6e2020`, borderRadius: 7, color: D.red, cursor: "pointer", fontFamily: "inherit" };
+const metricStyle: React.CSSProperties = { background: D.surface2, borderRadius: 7, padding: "8px 10px", textAlign: "center" };
 const metricLabel: React.CSSProperties = { fontSize: 9, color: D.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 3 };
 const labelStyle: React.CSSProperties = { fontSize: 9, fontWeight: 600, color: D.textDim, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6, display: "block" };
 const inputStyle: React.CSSProperties = { width: "100%", boxSizing: "border-box", fontSize: 12, padding: "7px 10px", background: D.bg, border: `0.5px solid ${D.border2}`, borderRadius: 7, outline: "none", color: D.text, fontFamily: "inherit" };
@@ -305,20 +309,11 @@ function buildLineageChain(entry: DNAEntry, lib: DNAEntry[]): string[] | null {
       current = lib.find(e => { const ecid = e.creative_id?.trim(); return ecid && ecid !== "" && ecid === pid; });
     }
     const seen = new Set(chain);
-    let tip = id;
-    let found = true;
-    let safety = 0;
+    let tip = id; let found = true; let safety = 0;
     while (found && safety++ < 50) {
       found = false;
-      const child = lib.find(e => {
-        const epid = e.parent_id?.trim();
-        const ecid = e.creative_id?.trim();
-        return epid && epid !== "" && epid === tip && ecid && !seen.has(ecid);
-      });
-      if (child?.creative_id) {
-        const cid = child.creative_id.trim();
-        seen.add(cid); chain.push(cid); tip = cid; found = true;
-      }
+      const child = lib.find(e => { const epid = e.parent_id?.trim(); const ecid = e.creative_id?.trim(); return epid && epid !== "" && epid === tip && ecid && !seen.has(ecid); });
+      if (child?.creative_id) { const cid = child.creative_id.trim(); seen.add(cid); chain.push(cid); tip = cid; found = true; }
     }
     return chain.length > 1 ? chain : null;
   } catch { return null; }
@@ -331,6 +326,15 @@ function parentValidation(parentId: string, currentId: string, lib: DNAEntry[]) 
   const found = lib.find(e => e.creative_id?.trim() === pid && e.creative_id?.trim() !== currentId.trim());
   if (found) return { color: D.green, border: D.greenBdr, bg: D.greenBg, msg: `✓ Found: ${found.creative_id}` };
   return { color: "#f0c53a", border: "#9e6a03", bg: "#2a1a0a", msg: `⚠ Not found in library` };
+}
+
+// ─── Sorted library helper ────────────────────────────────────────────────────
+function sortLib(lib: DNAEntry[], mode: SortMode): DNAEntry[] {
+  const filtered = mode === "all" ? lib : lib.filter(d => d.tier === mode);
+  const active = filtered.filter(d => d.creative_status !== "fatigued");
+  const fatigued = filtered.filter(d => d.creative_status === "fatigued");
+  const bySpend = (a: DNAEntry, b: DNAEntry) => (SPEND_RANK[b.spend_tier??""]??0) - (SPEND_RANK[a.spend_tier??""]??0);
+  return [...active.sort(bySpend), ...fatigued.sort(bySpend)];
 }
 
 // ─── Upload Modal ─────────────────────────────────────────────────────────────
@@ -380,7 +384,7 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
         <div style={{ marginBottom:16 }}>
           <span style={labelStyle}>Manual storyboard frames (optional)</span>
           <input ref={frameRef} type="file" accept="image/*" multiple style={{ display:"none" }} onChange={e=>setManualFrames(Array.from(e.target.files??[]))} />
-          <button style={{ ...btnSec, ...(manualFrames.length>0?{border:`1.5px solid ${D.greenBdr}`,color:D.green,background:D.greenBg}:{}) }} onClick={()=>frameRef.current?.click()}>
+          <button style={{ ...btnSec,...(manualFrames.length>0?{border:`1.5px solid ${D.greenBdr}`,color:D.green,background:D.greenBg}:{}) }} onClick={()=>frameRef.current?.click()}>
             {manualFrames.length>0?`✓ ${manualFrames.length} frame(s) selected`:"+ Add frames"}
           </button>
         </div>
@@ -389,7 +393,7 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
         </div>
         <div style={{ display:"flex",gap:10,justifyContent:"flex-end" }}>
           <button style={btnSec} onClick={onCancel}>Cancel</button>
-          <button style={btnPri} onClick={()=>onConfirm({ tier, ad_type:adType, context, manual_frames:manualFrames, creative_id:creativeId.trim()||undefined, parent_id:parentId.trim()||undefined })}>Choose video →</button>
+          <button style={btnPri} onClick={()=>onConfirm({ tier,ad_type:adType,context,manual_frames:manualFrames,creative_id:creativeId.trim()||undefined,parent_id:parentId.trim()||undefined })}>Choose video →</button>
         </div>
       </div>
     </div>
@@ -409,7 +413,7 @@ function SpendTagger({ entry, onSave, lib }: { entry: DNAEntry; onSave: (fields:
   const vel = velocityPerDay(tier, days);
   const pv = parentValidation(parentId, creativeId, lib);
   function save() {
-    onSave({ creative_id:creativeId.trim()||undefined, spend_tier:tier||undefined, spend_window_days:days, spend_networks:networks.length>0?networks:undefined, spend_notes:notes||undefined, parent_id:parentId.trim()||undefined, creative_status:(creativeStatus||undefined) as DNAEntry["creative_status"] });
+    onSave({ creative_id:creativeId.trim()||undefined,spend_tier:tier||undefined,spend_window_days:days,spend_networks:networks.length>0?networks:undefined,spend_notes:notes||undefined,parent_id:parentId.trim()||undefined,creative_status:(creativeStatus||undefined) as DNAEntry["creative_status"] });
     setSaved(true); setTimeout(()=>setSaved(false),2000);
   }
   return (
@@ -427,7 +431,7 @@ function SpendTagger({ entry, onSave, lib }: { entry: DNAEntry; onSave: (fields:
       <div style={{ marginBottom:12 }}>
         <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Creative status</span>
         <div style={{ display:"flex",gap:5,flexWrap:"wrap" as const }}>
-          {CREATIVE_STATUS.map(s => (
+          {CREATIVE_STATUS.map(s=>(
             <button key={s.value} onClick={()=>setCreativeStatus(creativeStatus===s.value?"":s.value)}
               style={{ padding:"4px 10px",fontSize:11,fontWeight:500,borderRadius:20,cursor:"pointer",border:`1.5px solid ${creativeStatus===s.value?s.border:D.border2}`,background:creativeStatus===s.value?s.bg:"transparent",color:creativeStatus===s.value?s.text:D.textMuted }}>
               {s.label}
@@ -438,15 +442,13 @@ function SpendTagger({ entry, onSave, lib }: { entry: DNAEntry; onSave: (fields:
       <div style={{ marginBottom:12 }}>
         <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Spend tier</span>
         <div style={{ display:"flex",gap:5,flexWrap:"wrap" as const }}>
-          {SPEND_TIERS.map(t => <button key={t.value} onClick={()=>setTier(tier===t.value?"":t.value)} style={{ padding:"4px 10px",fontSize:11,fontWeight:500,borderRadius:20,cursor:"pointer",border:`1.5px solid ${tier===t.value?t.border:D.border2}`,background:tier===t.value?t.bg:"transparent",color:tier===t.value?t.text:D.textMuted }}>{t.label}</button>)}
+          {SPEND_TIERS.map(t=><button key={t.value} onClick={()=>setTier(tier===t.value?"":t.value)} style={{ padding:"4px 10px",fontSize:11,fontWeight:500,borderRadius:20,cursor:"pointer",border:`1.5px solid ${tier===t.value?t.border:D.border2}`,background:tier===t.value?t.bg:"transparent",color:tier===t.value?t.text:D.textMuted }}>{t.label}</button>)}
         </div>
       </div>
       <div style={{ marginBottom:12 }}>
-        <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>
-          {tier==="sub100K" ? "Days in rotation" : "Time to reach that spend"}
-        </span>
+        <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>{tier==="sub100K"?"Days in rotation":"Time to reach that spend"}</span>
         <div style={{ display:"flex",gap:5,flexWrap:"wrap" as const }}>
-          {WINDOW_OPTIONS.map(w => <button key={w.value} onClick={()=>setDays(days===w.value?null:w.value)} style={{ padding:"4px 10px",fontSize:11,borderRadius:20,cursor:"pointer",border:`1.5px solid ${days===w.value?D.blueDark:D.border2}`,background:days===w.value?D.blueBg:"transparent",color:days===w.value?D.blue:D.textMuted }}>{w.label}</button>)}
+          {WINDOW_OPTIONS.map(w=><button key={w.value} onClick={()=>setDays(days===w.value?null:w.value)} style={{ padding:"4px 10px",fontSize:11,borderRadius:20,cursor:"pointer",border:`1.5px solid ${days===w.value?D.blueDark:D.border2}`,background:days===w.value?D.blueBg:"transparent",color:days===w.value?D.blue:D.textMuted }}>{w.label}</button>)}
         </div>
         {vel&&<div style={{ marginTop:6,fontSize:11,color:D.blue,fontWeight:500 }}>{vel}</div>}
         {tier==="sub100K"&&days&&<div style={{ marginTop:6,fontSize:11,color:D.textMuted,fontStyle:"italic" }}>Rotation tracking — no spend threshold reached</div>}
@@ -454,7 +456,7 @@ function SpendTagger({ entry, onSave, lib }: { entry: DNAEntry; onSave: (fields:
       <div style={{ marginBottom:12 }}>
         <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Networks</span>
         <div style={{ display:"flex",gap:5,flexWrap:"wrap" as const }}>
-          {NETWORK_OPTIONS.map(n => <button key={n} onClick={()=>setNetworks(p=>p.includes(n)?p.filter(x=>x!==n):[...p,n])} style={chipStyle(networks.includes(n),"green")}>{n}</button>)}
+          {NETWORK_OPTIONS.map(n=><button key={n} onClick={()=>setNetworks(p=>p.includes(n)?p.filter(x=>x!==n):[...p,n])} style={chipStyle(networks.includes(n),"green")}>{n}</button>)}
         </div>
       </div>
       <div style={{ marginBottom:12 }}>
@@ -472,156 +474,303 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
   lib: DNAEntry[]; saveLib: (l: DNAEntry[]) => void;
   reanalyzingIds: Set<number>; handleReanalyzeSingle: (e: DNAEntry) => void;
 }) {
-  const canTag = d.ad_type==="moc";
-  const spendSt = SPEND_TIERS.find(t=>t.value===d.spend_tier);
-  const statusSt = CREATIVE_STATUS.find(s=>s.value===d.creative_status);
-  const isFatigued = d.creative_status==="fatigued";
-  const isExpanded = expandedDNA===di;
+  const canTag = d.ad_type === "moc";
+  const spendSt = SPEND_TIERS.find(t => t.value === d.spend_tier);
+  const statusSt = CREATIVE_STATUS.find(s => s.value === d.creative_status);
+  const isFatigued = d.creative_status === "fatigued";
+  const isExpanded = expandedDNA === di;
   const chain = buildLineageChain(d, lib);
   const displayId = d.creative_id?.trim();
-  const vel = velocityPerDay(d.spend_tier??"", d.spend_window_days);
+  const vel = velocityPerDay(d.spend_tier ?? "", d.spend_window_days);
+  const accentColor = isFatigued ? "#8957e5" : TIER_ACCENT[d.tier] ?? D.border2;
 
   return (
-    <div style={{ borderBottom:`0.5px solid ${D.border}`,padding:"14px 16px",opacity:isFatigued?0.55:1,transition:"opacity .15s,border-left .15s",borderLeft:`3px solid ${isExpanded?D.blue:"transparent"}` }}>
-      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
-        <div style={{ flex:1,cursor:"pointer" }} onClick={()=>setExpandedDNA(isExpanded?null:di)}>
-          {/* Primary: ID + title */}
-          <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap" as const }}>
-            {isFatigued&&<span style={{ fontSize:9,padding:"1px 6px",background:D.redBg,color:D.red,border:`0.5px solid #6e2020`,borderRadius:20 }}>fatigued</span>}
-            {displayId
-              ? <span style={{ fontSize:14,fontWeight:600,color:isExpanded?D.text:D.textMuted,letterSpacing:"0.02em",transition:"color .15s" }}>{displayId}</span>
-              : <span style={{ fontSize:13,fontWeight:500,color:isExpanded?D.text:D.textMuted,transition:"color .15s" }}>{d.title}</span>}
-          </div>
-          {displayId&&<div style={{ fontSize:11,color:D.textMuted,marginBottom:4 }}>{d.title}</div>}
+    <div style={{
+      borderBottom: `0.5px solid ${D.border}`,
+      opacity: isFatigued ? 0.72 : 1,
+      transition: "opacity .2s",
+      borderLeft: `3px solid ${accentColor}`,  // always visible accent
+    }}>
+      {/* ── Collapsed card body ── */}
+      <div style={{
+        padding: "14px 16px",
+        background: isExpanded ? D.surface2 : "transparent",
+        transition: "background .15s",
+      }}>
 
-          {/* Tier + status + spend + networks row */}
-          <div style={{ display:"flex",gap:5,flexWrap:"wrap" as const,marginBottom:4 }}>
-            <span style={pill(TIER_STYLE[d.tier].bg,TIER_STYLE[d.tier].text,TIER_STYLE[d.tier].border)}>{d.tier}</span>
-            {statusSt&&!isFatigued&&<span style={pill(statusSt.bg,statusSt.text,statusSt.border)}>{statusSt.label}</span>}
-            {spendSt&&<span style={pill(spendSt.bg,spendSt.text,spendSt.border)}>{spendSt.label}{d.spend_window_days?` / ${WINDOW_OPTIONS.find(w=>w.value===d.spend_window_days)?.label??d.spend_window_days+"d"}`:""}</span>}
-            {vel&&<span style={pill(D.blueBg,D.blue,D.blueDark)}>{vel}</span>}
-            {d.spend_networks&&d.spend_networks.length>0&&<span style={pill(D.greenBg,D.green,D.greenBdr)}>{d.spend_networks.join(", ")}</span>}
-            {d.ad_type!=="moc"&&<span style={pill(D.purpleBg,D.purple,D.purpleBdr)}>{d.ad_type}</span>}
-            {d.is_compound&&<span style={pill(D.goldBg,D.gold,D.goldBdr)}>compound</span>}
-            {d.reanalyzed&&<span style={pill(D.greenBg,D.green,D.greenBdr)}>re-analyzed</span>}
-          </div>
-
-          {/* Lineage */}
-          {chain&&(
-            <div style={{ display:"flex",alignItems:"center",gap:4,marginBottom:4,overflowX:"auto",flexWrap:"nowrap" as const,paddingBottom:2 }}>
-              <span style={{ fontSize:9,color:D.textDim,letterSpacing:"0.07em",marginRight:2,flexShrink:0 }}>LINEAGE</span>
-              {chain.map((id,i)=>(
-                <span key={i} style={{ display:"flex",alignItems:"center",gap:3,flexShrink:0 }}>
-                  <span style={{ fontSize:9,padding:"2px 7px",borderRadius:20,fontWeight:id===displayId?700:400,background:id===displayId?D.blueBg:D.surface2,color:id===displayId?D.blue:D.textDim,border:`0.5px solid ${id===displayId?D.blueDark:D.border2}` }}>{id}</span>
-                  {i<chain.length-1&&<span style={{ fontSize:9,color:D.textDim }}>→</span>}
-                </span>
-              ))}
-            </div>
-          )}
-          <div style={{ fontSize:10,color:D.textDim }}>{d.file_name} · {new Date(d.added_at).toLocaleDateString()}</div>
+        {/* Row 1: ID + tier + status badges only */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" as const }}>
+          {displayId
+            ? <span style={{ fontSize: 20, fontWeight: 700, color: D.text, letterSpacing: "0.01em", lineHeight: 1 }}>{displayId}</span>
+            : <span style={{ fontSize: 14, fontWeight: 600, color: D.textMuted }}>{d.title}</span>}
+          <span style={pill(TIER_STYLE[d.tier].bg, TIER_STYLE[d.tier].text, TIER_STYLE[d.tier].border)}>{d.tier}</span>
+          {statusSt && <span style={pill(statusSt.bg, statusSt.text, statusSt.border)}>{statusSt.label}</span>}
+          {d.ad_type !== "moc" && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)}>{d.ad_type}</span>}
+          {d.is_compound && <span style={pill(D.goldBg, D.gold, D.goldBdr)}>compound</span>}
+          {d.reanalyzed && <span style={pill(D.greenBg, D.green, D.greenBdr)}>re-analyzed</span>}
         </div>
 
-        {/* Actions */}
-        <div style={{ display:"flex",gap:5,alignItems:"center",marginLeft:10,flexShrink:0 }}>
-          <button style={{ ...btnSec,fontSize:10,padding:"4px 8px" }} onClick={()=>handleReanalyzeSingle(d)} disabled={reanalyzingIds.has(d.id)}>{reanalyzingIds.has(d.id)?"…":"Re-analyze"}</button>
-          <select value={d.tier} onChange={e=>saveLib(lib.map(x=>x.id===d.id?{...x,tier:e.target.value as DNAEntry["tier"]}:x))} style={{ fontSize:10,padding:"3px 6px",borderRadius:6,border:`0.5px solid ${D.border2}`,background:D.surface2,color:D.text }}>
-            {TIERS.map(t=><option key={t} value={t}>{t}</option>)}
-          </select>
-          <button style={btnDanger} onClick={()=>{ if(confirm(`Remove "${displayId||d.title}" from library?`)) saveLib(lib.filter(x=>x.id!==d.id)); }}>Remove</button>
+        {/* Row 2: Full title subtitle */}
+        {displayId && (
+          <div style={{ fontSize: 12, color: D.textMuted, marginBottom: 10, lineHeight: 1.4 }}>
+            {d.title}
+          </div>
+        )}
+
+        {/* Row 3: Spend block — 3-column layout */}
+        {(spendSt || vel || d.spend_networks?.length) ? (
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr 1fr",
+            alignItems: "center",
+            padding: "8px 12px",
+            background: D.surface2,
+            borderRadius: 7,
+            marginBottom: 8,
+            border: `0.5px solid ${D.border}`,
+            gap: 8,
+          }}>
+            {/* Left: spend + window */}
+            <div>
+              {spendSt
+                ? <span style={{ fontSize: 13, fontWeight: 600, color: spendSt.text }}>
+                    {spendSt.label}
+                    {d.spend_window_days ? ` / ${WINDOW_OPTIONS.find(w => w.value === d.spend_window_days)?.label ?? d.spend_window_days + "d"}` : ""}
+                  </span>
+                : <span style={{ fontSize: 11, color: D.textDim, fontStyle: "italic" }}>No spend data</span>}
+            </div>
+            {/* Center: velocity */}
+            <div style={{ textAlign: "center" as const }}>
+              {vel && <span style={{ fontSize: 13, fontWeight: 500, color: D.blue }}>{vel}</span>}
+            </div>
+            {/* Right: networks */}
+            <div style={{ textAlign: "right" as const }}>
+              {d.spend_networks && d.spend_networks.length > 0 && (
+                <span style={{ fontSize: 11, color: D.textMuted }}>{d.spend_networks.join(", ")}</span>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div style={{
+            padding: "6px 12px", background: D.surface2, borderRadius: 7,
+            marginBottom: 8, border: `0.5px solid ${D.border}`,
+            fontSize: 11, color: D.textDim, fontStyle: "italic",
+          }}>
+            No spend data — add metadata in expanded view
+          </div>
+        )}
+
+        {/* Row 4: Lineage */}
+        {chain && (
+          <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 8, flexWrap: "nowrap" as const, overflowX: "auto" }}>
+            <span style={{ fontSize: 9, color: D.textDim, letterSpacing: "0.07em", marginRight: 2, flexShrink: 0 }}>LINEAGE</span>
+            {chain.map((id, i) => (
+              <span key={i} style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
+                <span style={{
+                  fontSize: 9, padding: "2px 7px", borderRadius: 20,
+                  fontWeight: id === displayId ? 700 : 400,
+                  background: id === displayId ? `${accentColor}22` : D.surface2,
+                  color: id === displayId ? accentColor : D.textDim,
+                  border: `0.5px solid ${id === displayId ? accentColor : D.border2}`,
+                }}>{id}</span>
+                {i < chain.length - 1 && <span style={{ fontSize: 9, color: D.textDim }}>→</span>}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Row 5: Footer — filename + date left, Re-analyze + dropdown right */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <span style={{ fontSize: 10, color: D.textDim }}>
+            {d.file_name} · {new Date(d.added_at).toLocaleDateString()}
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+            <button
+              style={{ ...btnSec, fontSize: 10, padding: "4px 9px" }}
+              onClick={e => { e.stopPropagation(); handleReanalyzeSingle(d); }}
+              disabled={reanalyzingIds.has(d.id)}
+            >
+              {reanalyzingIds.has(d.id) ? "…" : "Re-analyze"}
+            </button>
+            <select
+              value={d.tier}
+              onChange={e => { e.stopPropagation(); saveLib(lib.map(x => x.id === d.id ? { ...x, tier: e.target.value as DNAEntry["tier"] } : x)); }}
+              style={{ fontSize: 10, padding: "3px 6px", borderRadius: 6, border: `0.5px solid ${D.border2}`, background: D.surface2, color: D.text, cursor: "pointer" }}
+            >
+              {TIERS.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
         </div>
       </div>
 
-      {/* Expanded details */}
-      {isExpanded&&(
-        <div style={{ marginTop:14,borderTop:`0.5px solid ${D.border}`,paddingTop:14 }}>
-          {canTag&&<SpendTagger entry={d} lib={lib} onSave={fields=>saveLib(lib.map(x=>x.id===d.id?{...x,...fields}:x))} />}
+      {/* ── Bottom action bar — always visible ── */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "8px 16px",
+        borderTop: `0.5px solid ${D.border}`,
+        background: isExpanded ? "#141920" : D.surface,
+      }}>
+        <button
+          onClick={() => setExpandedDNA(isExpanded ? null : di)}
+          style={{
+            ...btnSec,
+            fontSize: 11,
+            padding: "5px 14px",
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            color: isExpanded ? D.blue : D.textMuted,
+            borderColor: isExpanded ? D.blueDark : D.border2,
+          }}
+        >
+          {isExpanded ? "▲ Collapse" : "▼ Expand details"}
+        </button>
+        <button
+          style={btnDanger}
+          onClick={() => { if (confirm(`Remove "${displayId || d.title}" from library?`)) saveLib(lib.filter(x => x.id !== d.id)); }}
+        >
+          Remove from library
+        </button>
+      </div>
 
-          {/* Hook metrics — moved here from collapsed view */}
-          <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginTop:14,marginBottom:10 }}>
-            {[{l:"Hook type",v:d.hook_type},{l:"Hook at",v:d.hook_timing_seconds!=null?`${d.hook_timing_seconds}s`:"—"},{l:"Biome",v:d.biome},{l:"Pacing",v:d.pacing},{l:"Loss event",v:d.loss_event_type},{l:"Swarm peak",v:d.swarm_peak_moment_seconds!=null?`${d.swarm_peak_moment_seconds}s`:"—"}].map(({l,v})=>(
-              <div key={l} style={metricStyle}><div style={metricLabel}>{l}</div><div style={{ fontSize:11,fontWeight:500,color:D.text }}>{v??"—"}</div></div>
+      {/* ── Expanded section ── */}
+      {isExpanded && (
+        <div style={{
+          padding: "14px 16px 20px",
+          borderTop: `0.5px solid ${D.border}`,
+          background: D.surface2,
+          borderLeft: "none", // accent is on parent already
+        }}>
+          {canTag && <SpendTagger entry={d} lib={lib} onSave={fields => saveLib(lib.map(x => x.id === d.id ? { ...x, ...fields } : x))} />}
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 5, marginTop: 14, marginBottom: 10 }}>
+            {[
+              { l: "Hook type", v: d.hook_type },
+              { l: "Hook at", v: d.hook_timing_seconds != null ? `${d.hook_timing_seconds}s` : "—" },
+              { l: "Biome", v: d.biome },
+              { l: "Pacing", v: d.pacing },
+              { l: "Loss event", v: d.loss_event_type },
+              { l: "Swarm peak", v: d.swarm_peak_moment_seconds != null ? `${d.swarm_peak_moment_seconds}s` : "—" },
+            ].map(({ l, v }) => (
+              <div key={l} style={metricStyle}>
+                <div style={metricLabel}>{l}</div>
+                <div style={{ fontSize: 11, fontWeight: 500, color: D.text }}>{v ?? "—"}</div>
+              </div>
             ))}
           </div>
 
-          {d.unit_evolution_chain?.length>0&&(
-            <div style={{ marginBottom:10 }}>
+          {d.unit_evolution_chain?.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
               <span style={labelStyle}>Unit evolution chain</span>
-              <div style={{ display:"flex",gap:4,flexWrap:"wrap" as const,alignItems:"center" }}>
-                {d.unit_evolution_chain.map((step,i)=>(
-                  <span key={i} style={{ display:"flex",alignItems:"center",gap:4 }}>
-                    <span style={{ fontSize:10,padding:"2px 7px",background:D.blueBg,color:D.blue,borderRadius:20,border:`0.5px solid ${D.blueDark}` }}>{step}</span>
-                    {i<d.unit_evolution_chain.length-1&&<span style={{ color:D.textDim,fontSize:10 }}>→</span>}
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const, alignItems: "center" }}>
+                {d.unit_evolution_chain.map((step, i) => (
+                  <span key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <span style={{ fontSize: 10, padding: "2px 7px", background: D.blueBg, color: D.blue, borderRadius: 20, border: `0.5px solid ${D.blueDark}` }}>{step}</span>
+                    {i < d.unit_evolution_chain.length - 1 && <span style={{ color: D.textDim, fontSize: 10 }}>→</span>}
                   </span>
                 ))}
               </div>
             </div>
           )}
-          {d.emotional_beats?.length>0&&(
-            <div style={{ marginBottom:10 }}>
+
+          {d.emotional_beats?.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
               <span style={labelStyle}>Emotional beats</span>
-              <div style={{ display:"flex",flexDirection:"column" as const,gap:3 }}>
-                {d.emotional_beats.map((b,i)=>(
-                  <div key={i} style={{ fontSize:11,padding:"5px 8px",background:D.surface2,borderRadius:6,display:"flex",gap:8 }}>
-                    <span style={{ fontWeight:500,color:D.blue,minWidth:28 }}>{b.timestamp_seconds}s</span>
-                    <span style={{ color:D.text }}>{b.event}</span>
-                    <span style={{ color:D.textDim,fontStyle:"italic",marginLeft:"auto" }}>{b.emotion}</span>
+              <div style={{ display: "flex", flexDirection: "column" as const, gap: 3 }}>
+                {d.emotional_beats.map((b, i) => (
+                  <div key={i} style={{ fontSize: 11, padding: "5px 8px", background: D.surface, borderRadius: 6, display: "flex", gap: 8 }}>
+                    <span style={{ fontWeight: 500, color: D.blue, minWidth: 28 }}>{b.timestamp_seconds}s</span>
+                    <span style={{ color: D.text }}>{b.event}</span>
+                    <span style={{ color: D.textDim, fontStyle: "italic", marginLeft: "auto" }}>{b.emotion}</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
-          {d.gate_sequence?.length>0&&(
-            <div style={{ marginBottom:10 }}>
+
+          {d.gate_sequence?.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
               <span style={labelStyle}>Gate sequence</span>
-              <div style={{ display:"flex",gap:4,flexWrap:"wrap" as const }}>
-                {d.gate_sequence.map((g,i)=><span key={i} style={{ fontSize:10,padding:"2px 7px",background:g.toLowerCase().includes("death")?D.redBg:D.blueBg,color:g.toLowerCase().includes("death")?D.red:D.blue,borderRadius:20,border:`0.5px solid ${g.toLowerCase().includes("death")?"#6e2020":D.blueDark}` }}>{g}</span>)}
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const }}>
+                {d.gate_sequence.map((g, i) => (
+                  <span key={i} style={{ fontSize: 10, padding: "2px 7px", background: g.toLowerCase().includes("death") ? D.redBg : D.blueBg, color: g.toLowerCase().includes("death") ? D.red : D.blue, borderRadius: 20, border: `0.5px solid ${g.toLowerCase().includes("death") ? "#6e2020" : D.blueDark}` }}>{g}</span>
+                ))}
               </div>
             </div>
           )}
-          {d.champions_visible?.length>0&&(
-            <div style={{ marginBottom:10 }}>
+
+          {d.champions_visible?.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
               <span style={labelStyle}>Champions</span>
-              <div style={{ display:"flex",gap:4,flexWrap:"wrap" as const }}>
-                {d.champions_visible.map((c,i)=><span key={i} style={{ fontSize:10,padding:"2px 7px",background:D.purpleBg,color:D.purple,borderRadius:20,border:`0.5px solid ${D.purpleBdr}` }}>{c}</span>)}
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const }}>
+                {d.champions_visible.map((c, i) => (
+                  <span key={i} style={{ fontSize: 10, padding: "2px 7px", background: D.purpleBg, color: D.purple, borderRadius: 20, border: `0.5px solid ${D.purpleBdr}` }}>{c}</span>
+                ))}
               </div>
             </div>
           )}
-          {d.creative_gaps_structured&&(
-            <div style={{ marginBottom:10 }}>
+
+          {d.creative_gaps_structured && (
+            <div style={{ marginBottom: 10 }}>
               <span style={labelStyle}>Creative gaps</span>
-              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6 }}>
-                {[{l:"Hook strength",v:d.creative_gaps_structured.hook_strength},{l:"Mechanic clarity",v:d.creative_gaps_structured.mechanic_clarity},{l:"Emotional payoff",v:d.creative_gaps_structured.emotional_payoff}].map(({l,v})=>(
-                  <div key={l} style={{ padding:"7px 9px",background:D.goldBg,borderRadius:7,border:`0.5px solid ${D.goldBdr}` }}>
-                    <div style={{ fontSize:9,fontWeight:600,color:D.gold,textTransform:"uppercase" as const,letterSpacing:"0.07em",marginBottom:2 }}>{l}</div>
-                    <p style={{ margin:0,fontSize:10,color:"#c9a227" }}>{v}</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                {[
+                  { l: "Hook strength", v: d.creative_gaps_structured.hook_strength },
+                  { l: "Mechanic clarity", v: d.creative_gaps_structured.mechanic_clarity },
+                  { l: "Emotional payoff", v: d.creative_gaps_structured.emotional_payoff },
+                ].map(({ l, v }) => (
+                  <div key={l} style={{ padding: "7px 9px", background: D.goldBg, borderRadius: 7, border: `0.5px solid ${D.goldBdr}` }}>
+                    <div style={{ fontSize: 9, fontWeight: 600, color: D.gold, textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 2 }}>{l}</div>
+                    <p style={{ margin: 0, fontSize: 10, color: "#c9a227" }}>{v}</p>
                   </div>
                 ))}
               </div>
             </div>
           )}
-          {d.strategic_notes&&<div style={{ marginBottom:10 }}><span style={labelStyle}>Strategic notes</span><p style={{ margin:0,fontSize:11,color:D.blue,lineHeight:1.5 }}>{d.strategic_notes}</p></div>}
-          {[{l:"Key mechanic",v:d.key_mechanic},{l:"Emotional arc",v:d.emotional_arc},{l:"Why it works",v:d.why_it_works},{l:"Why it fails",v:d.why_it_fails},{l:"Frame gaps",v:d.frame_extraction_gaps},{l:"Replication instructions",v:d.replication_instructions}].filter(x=>x.v).map(({l,v})=>(
-            <div key={l} style={{ marginBottom:10 }}><span style={labelStyle}>{l}</span><p style={{ margin:0,fontSize:11,color:D.textMuted,lineHeight:1.6 }}>{v}</p></div>
+
+          {d.strategic_notes && (
+            <div style={{ marginBottom: 10 }}>
+              <span style={labelStyle}>Strategic notes</span>
+              <p style={{ margin: 0, fontSize: 11, color: D.blue, lineHeight: 1.5 }}>{d.strategic_notes}</p>
+            </div>
+          )}
+
+          {[
+            { l: "Key mechanic", v: d.key_mechanic },
+            { l: "Emotional arc", v: d.emotional_arc },
+            { l: "Why it works", v: d.why_it_works },
+            { l: "Why it fails", v: d.why_it_fails },
+            { l: "Frame gaps", v: d.frame_extraction_gaps },
+            { l: "Replication instructions", v: d.replication_instructions },
+          ].filter(x => x.v).map(({ l, v }) => (
+            <div key={l} style={{ marginBottom: 10 }}>
+              <span style={labelStyle}>{l}</span>
+              <p style={{ margin: 0, fontSize: 11, color: D.textMuted, lineHeight: 1.6 }}>{v}</p>
+            </div>
           ))}
-          {d.is_compound&&d.segments&&d.segments.length>0&&(
-            <div style={{ marginBottom:10 }}>
+
+          {d.is_compound && d.segments && d.segments.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
               <span style={labelStyle}>Segments ({d.segments.length})</span>
-              {d.segments.map((seg,si)=>(
-                <div key={si} style={{ padding:"9px 11px",background:D.surface2,borderRadius:7,border:`0.5px solid ${D.border}`,marginBottom:5 }}>
-                  <div style={{ fontWeight:500,fontSize:11,marginBottom:3,color:D.text }}>Segment {si+1}: {seg.biome} ({seg.start_seconds}s–{seg.end_seconds}s)</div>
-                  <div style={{ fontSize:10,color:D.textMuted }}>Hook: {seg.hook_type} at {seg.hook_timing_seconds}s · {seg.key_mechanic}</div>
+              {d.segments.map((seg, si) => (
+                <div key={si} style={{ padding: "9px 11px", background: D.surface, borderRadius: 7, border: `0.5px solid ${D.border}`, marginBottom: 5 }}>
+                  <div style={{ fontWeight: 500, fontSize: 11, marginBottom: 3, color: D.text }}>Segment {si + 1}: {seg.biome} ({seg.start_seconds}s–{seg.end_seconds}s)</div>
+                  <div style={{ fontSize: 10, color: D.textMuted }}>Hook: {seg.hook_type} at {seg.hook_timing_seconds}s · {seg.key_mechanic}</div>
                 </div>
               ))}
             </div>
           )}
-          {d.auto_frames&&d.auto_frames.length>0&&(
-            <div style={{ marginBottom:10 }}>
+
+          {d.auto_frames && d.auto_frames.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
               <span style={labelStyle}>Auto-extracted frames</span>
-              <div style={{ display:"flex",flexDirection:"column" as const,gap:3 }}>
-                {d.auto_frames.map((f,fi)=>(
-                  <div key={fi} style={{ fontSize:10,padding:"4px 8px",background:D.surface2,borderRadius:5 }}>
-                    <span style={{ fontWeight:500,color:D.blue,marginRight:8 }}>{f.timestamp_seconds}s</span>
-                    <span style={{ color:D.textMuted }}>{f.description}</span>
+              <div style={{ display: "flex", flexDirection: "column" as const, gap: 3 }}>
+                {d.auto_frames.map((f, fi) => (
+                  <div key={fi} style={{ fontSize: 10, padding: "4px 8px", background: D.surface, borderRadius: 5 }}>
+                    <span style={{ fontWeight: 500, color: D.blue, marginRight: 8 }}>{f.timestamp_seconds}s</span>
+                    <span style={{ color: D.textMuted }}>{f.description}</span>
                   </div>
                 ))}
               </div>
@@ -629,9 +778,6 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
           )}
         </div>
       )}
-      <button style={{ ...btnSec,marginTop:10,fontSize:10,padding:"4px 9px" }} onClick={()=>setExpandedDNA(isExpanded?null:di)}>
-        {isExpanded?"Collapse":"Expand details"}
-      </button>
     </div>
   );
 }
@@ -752,10 +898,7 @@ export default function App() {
     finally { setRenderingScene(p=>({...p,[k]:false})); }
   };
 
-  // ─── Sorted library ───────────────────────────────────────────────────────
-  const sortedLib = [...lib].filter(d => libSort==="all" || d.tier===libSort)
-    .sort((a,b) => (SPEND_RANK[b.spend_tier??""]??0) - (SPEND_RANK[a.spend_tier??""]??0));
-
+  const sortedLib = sortLib(lib, libSort);
   const winners=lib.filter(d=>d.tier==="winner").length;
   const activeWinners=lib.filter(d=>d.tier==="winner"&&d.creative_status!=="fatigued").length;
   const topVel=lib.reduce((best,d)=>{ const v=velocityPerDay(d.spend_tier??"",d.spend_window_days); if(!v) return best; const num=parseInt(v.replace(/[^0-9]/g,"")); return num>best?num:best; },0);
@@ -781,7 +924,7 @@ export default function App() {
         ))}
       </div>
 
-      {/* Library side panel — 560px wide */}
+      {/* Library side panel */}
       <div style={{ position:"fixed",top:0,left:SB,width:560,height:"100vh",background:D.surface,borderRight:`0.5px solid ${D.border2}`,display:"flex",flexDirection:"column",zIndex:150,transform:libPanelOpen?"translateX(0)":"translateX(-100%)",transition:"transform .22s ease-out" }}>
         <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 16px",borderBottom:`0.5px solid ${D.border}`,flexShrink:0 }}>
           <div>
@@ -792,13 +935,13 @@ export default function App() {
         </div>
 
         {/* Sort filter */}
-        <div style={{ display:"flex",gap:5,padding:"8px 16px",borderBottom:`0.5px solid ${D.border}`,flexShrink:0,flexWrap:"wrap" as const }}>
+        <div style={{ display:"flex",gap:5,padding:"8px 16px",borderBottom:`0.5px solid ${D.border}`,flexShrink:0,flexWrap:"wrap" as const,alignItems:"center" }}>
           {(["all","winner","scalable","inspiration","failed"] as SortMode[]).map(s=>(
             <button key={s} onClick={()=>setLibSort(s)} style={{ padding:"3px 10px",fontSize:10,borderRadius:20,cursor:"pointer",fontFamily:"inherit",border:`0.5px solid ${libSort===s?(s==="all"?D.border2:TIER_STYLE[s]?.border??D.border2):D.border2}`,background:libSort===s?(s==="all"?D.surface2:TIER_STYLE[s]?.bg??"transparent"):"transparent",color:libSort===s?(s==="all"?D.text:TIER_STYLE[s]?.text??D.text):D.textMuted }}>
               {s==="all"?"All":s.charAt(0).toUpperCase()+s.slice(1)}
             </button>
           ))}
-          <span style={{ fontSize:10,color:D.textDim,alignSelf:"center",marginLeft:"auto" }}>sorted by spend</span>
+          <span style={{ fontSize:10,color:D.textDim,marginLeft:"auto" }}>by spend · fatigued last</span>
         </div>
 
         <div style={{ display:"flex",gap:6,padding:"10px 16px",borderBottom:`0.5px solid ${D.border}`,flexWrap:"wrap" as const,flexShrink:0 }}>
@@ -811,25 +954,24 @@ export default function App() {
         {!libraryLoaded&&<div style={{ fontSize:11,color:D.blue,padding:"12px 16px" }}>Loading library…</div>}
         {lib.length===0&&!analyzing&&libraryLoaded&&<div style={{ padding:"2rem 16px",textAlign:"center" as const }}><p style={{ margin:0,fontSize:12,color:D.textMuted }}>Upload MOC ads to build your Creative DNA library.</p></div>}
         <div style={{ flex:1,overflowY:"auto" }}>
-          {sortedLib.map((d,di)=><LibraryCard key={d.id} d={d} di={lib.indexOf(d)} expandedDNA={expandedDNA} setExpandedDNA={setExpandedDNA} lib={lib} saveLib={saveLib} reanalyzingIds={reanalyzingIds} handleReanalyzeSingle={handleReanalyzeSingle} />)}
+          {sortedLib.map((d) => {
+            const di = lib.indexOf(d);
+            return <LibraryCard key={d.id} d={d} di={di} expandedDNA={expandedDNA} setExpandedDNA={setExpandedDNA} lib={lib} saveLib={saveLib} reanalyzingIds={reanalyzingIds} handleReanalyzeSingle={handleReanalyzeSingle} />;
+          })}
         </div>
       </div>
 
       {/* Main */}
       <div style={{ marginLeft:SB }}>
-        {/* Topbar */}
         <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 20px",borderBottom:`0.5px solid ${D.border}`,background:D.bg,position:"sticky",top:0,zIndex:100 }}>
           <div style={{ display:"flex",alignItems:"center",gap:10 }}>
             <div style={{ width:28,height:28,borderRadius:"50%",background:D.blueDark,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:500,color:"#fff",flexShrink:0 }}>L</div>
             <span style={{ fontSize:15,fontWeight:500 }}>Levelly</span>
             <span style={{ fontSize:12,color:D.textMuted }}>MOC Creative Intelligence</span>
           </div>
-          <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-            {cloudStatus!=="idle"&&<span style={{ fontSize:10,color:cloudColor }}>{cloudLabel}</span>}
-          </div>
+          <div>{cloudStatus!=="idle"&&<span style={{ fontSize:10,color:cloudColor }}>{cloudLabel}</span>}</div>
         </div>
 
-        {/* Stats */}
         <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",borderBottom:`0.5px solid ${D.border}` }}>
           {[{n:lib.length,label:"CREATIVES",color:D.text},{n:winners,label:"WINNERS",color:D.blue},{n:topVel>0?`$${topVel>=1000?Math.round(topVel/1000)+"K":topVel}`:"—",label:"TOP VELOCITY",color:D.gold},{n:networkSet.size||"—",label:"NETWORKS",color:D.green}].map(({n,label,color},i)=>(
             <div key={label} style={{ padding:"20px 24px",borderRight:i<3?`0.5px solid ${D.border}`:"none" }}>
@@ -839,9 +981,7 @@ export default function App() {
           ))}
         </div>
 
-        {/* Home content */}
         <div style={{ padding:20,maxWidth:960,margin:"0 auto" }}>
-          {/* Mode cards */}
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20 }}>
             {[
               { key:"brief",icon:<svg width="20" height="20" viewBox="0 0 16 16" fill="#58a6ff"><path d="M2 2h9l3 3v9H2V2zm1 1v10h10V6.5L9.5 3H3z"/></svg>,iconBg:D.blueBg,badgeText:"Primary",badgeColor:D.blue,badgeBorder:D.blueDark,title:"Generate brief",desc:"Describe your idea. Levelly matches it to winning DNA patterns and generates a master brief with network adaptations.",active:briefPanelOpen,onClick:()=>{ setBriefPanelOpen(p=>!p); setAnalysePanelOpen(false); } },
@@ -859,7 +999,6 @@ export default function App() {
             ))}
           </div>
 
-          {/* Brief panel */}
           {briefPanelOpen&&(
             <div style={{ background:D.surface,border:`1.5px solid ${D.blueDark}`,borderRadius:10,overflow:"hidden",marginBottom:14,animation:"slideIn .2s ease-out" }}>
               <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:`0.5px solid ${D.border}` }}>
@@ -901,7 +1040,6 @@ export default function App() {
             </div>
           )}
 
-          {/* Analyse panel */}
           {analysePanelOpen&&(
             <div style={{ background:D.surface,border:`1.5px solid ${D.greenBdr}`,borderRadius:10,padding:"20px",marginBottom:14,animation:"slideIn .2s ease-out" }}>
               <p style={{ margin:0,fontSize:13,color:D.textMuted }}>Drop a video file or paste a URL to analyse it and add it to the DNA library.</p>
@@ -912,7 +1050,6 @@ export default function App() {
             </div>
           )}
 
-          {/* Brief analysis */}
           {briefAnalysis&&(
             <div style={{ background:D.surface2,border:`0.5px solid ${D.border2}`,borderRadius:10,padding:"14px 16px",marginBottom:14 }}>
               <span style={labelStyle}>Creative strategy</span>
@@ -924,10 +1061,9 @@ export default function App() {
             </div>
           )}
 
-          {/* Concept cards */}
           {concepts.map((c,ci)=>(
-            <div key={ci} style={{ background:expandedConcept===ci?"#161f2e":D.surface,border:`${expandedConcept===ci?"1.5px":"0.5px"} solid ${expandedConcept===ci?D.blue:(c as any).is_experimental?"#9d174d":D.border}`,borderRadius:10,padding:"14px 16px",marginBottom:10,transition:"border-color .15s,background .15s,box-shadow .15s",boxShadow:expandedConcept===ci?`0 0 0 3px ${D.blueBg}`:"none",borderLeft:`3px solid ${expandedConcept===ci?D.blue:"transparent"}` }}>
-              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",cursor:"pointer" }} onClick={()=>setExpandedConcept(expandedConcept===ci?null:ci)}>
+            <div key={ci} style={{ background:expandedConcept===ci?"#161f2e":D.surface,border:`0.5px solid ${(c as any).is_experimental?"#9d174d":D.border}`,borderRadius:10,padding:0,marginBottom:10,overflow:"hidden",transition:"background .15s,box-shadow .15s",boxShadow:expandedConcept===ci?`0 0 0 2px ${D.blueBg}`:"none",borderLeft:`3px solid ${expandedConcept===ci?D.blue:"transparent"}` }}>
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",cursor:"pointer",padding:"14px 16px" }} onClick={()=>setExpandedConcept(expandedConcept===ci?null:ci)}>
                 <div style={{ flex:1 }}>
                   <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap" as const }}>
                     <span style={{ fontSize:9,fontWeight:700,color:D.textDim,letterSpacing:"0.1em" }}>CONCEPT {ci+1}</span>
@@ -943,11 +1079,11 @@ export default function App() {
                 </div>
                 <div style={{ display:"flex",flexDirection:"column" as const,alignItems:"flex-end",gap:4,marginLeft:16,flexShrink:0 }}>
                   {c.quality_score&&<><div style={{ fontSize:24,fontWeight:600,color:scoreColor(c.quality_score.overall),lineHeight:1 }}>{c.quality_score.overall}</div><div style={{ fontSize:9,color:D.textDim }}>quality</div></>}
-                  <div style={{ fontSize:9,color:expandedConcept===ci?D.blue:D.textDim,marginTop:4 }}>{expandedConcept===ci?"▲ collapse":"▼ expand"}</div>
+                  <div style={{ fontSize:9,color:expandedConcept===ci?D.blue:D.textDim,marginTop:4 }}>{expandedConcept===ci?"▲":"▼"}</div>
                 </div>
               </div>
               {expandedConcept===ci&&(
-                <div style={{ marginTop:16,borderTop:`0.5px solid ${D.border}`,paddingTop:16 }}>
+                <div style={{ padding:"0 16px 16px",borderTop:`0.5px solid ${D.border}`,paddingTop:16 }}>
                   {(c as any).hook_timing_seconds!=null&&<div style={{ marginBottom:12,padding:"8px 12px",background:D.blueBg,borderRadius:8,fontSize:11,color:D.blue,border:`0.5px solid ${D.blueDark}` }}>Hook at <strong>{(c as any).hook_timing_seconds}s</strong> — {c.performance_hooks?.[0]?.type||"Challenge"}</div>}
                   {(c as any).unit_evolution_chain?.length>0&&(
                     <div style={{ marginBottom:14 }}>
@@ -1064,10 +1200,10 @@ export default function App() {
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes slideIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
         * { box-sizing: border-box; }
-        select option { background: ${D.surface}; color: ${D.text}; }
+        select option { background: #161b22; color: #e6edf3; }
         ::-webkit-scrollbar { width: 5px; }
-        ::-webkit-scrollbar-track { background: ${D.bg}; }
-        ::-webkit-scrollbar-thumb { background: ${D.border2}; border-radius: 3px; }
+        ::-webkit-scrollbar-track { background: #0d1117; }
+        ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
       `}</style>
     </div>
   );
