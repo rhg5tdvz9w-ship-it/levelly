@@ -1,13 +1,7 @@
 import type { Handler } from "@netlify/functions";
+import { getStore } from "@netlify/blobs";
 
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN!;
-const GITHUB_REPO  = process.env.GITHUB_REPO!;
-const FILE_PATH    = "library/library.json";
-const BRANCH       = "main";
-const API          = "https://api.github.com";
-
-// ── Spend data from Miro table — all 19 entries ──────────────────────────────
-// Keyed by file_name to match against library entries
+// ── Spend data patch map ──────────────────────────────────────────────────────
 const SPEND_PATCH: Record<string, object> = {
   "Mob Control-CN28 polished version_Video 02.mp4": {
     spend_tier: "1M", spend_window_days: 90,
@@ -112,36 +106,12 @@ const SPEND_PATCH: Record<string, object> = {
   },
 };
 
-async function ghGet(path: string) {
-  const res = await fetch(`${API}/repos/${GITHUB_REPO}/contents/${path}?ref=${BRANCH}`, {
-    headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: "application/vnd.github+json" },
-  });
-  if (!res.ok) throw new Error(`GitHub GET ${path}: ${res.status}`);
-  return res.json();
-}
-
-async function ghPut(path: string, content: string, sha: string) {
-  const res = await fetch(`${API}/repos/${GITHUB_REPO}/contents/${path}`, {
-    method: "PUT",
-    headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message: `chore: patch spend data ${new Date().toISOString()}`,
-      content: Buffer.from(content).toString("base64"),
-      sha, branch: BRANCH,
-    }),
-  });
-  if (!res.ok) throw new Error(`GitHub PUT ${path}: ${res.status} ${await res.text()}`);
-}
-
 export const handler: Handler = async (event) => {
   if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method not allowed" };
-
   try {
-    // Fetch current library from GitHub
-    const file   = await ghGet(FILE_PATH);
-    const sha    = file.sha as string;
-    const decoded = Buffer.from(file.content as string, "base64").toString("utf-8");
-    const library: any[] = JSON.parse(decoded);
+    const store = getStore("levelly");
+    const existing = await store.get("library");
+    const library: any[] = JSON.parse(existing ?? "[]");
 
     let patched = 0;
     const updated = library.map(entry => {
@@ -151,8 +121,7 @@ export const handler: Handler = async (event) => {
       return { ...entry, ...patch };
     });
 
-    await ghPut(FILE_PATH, JSON.stringify(updated, null, 2), sha);
-
+    await store.set("library", JSON.stringify(updated));
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },
