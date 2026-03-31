@@ -35,7 +35,7 @@ interface DNAEntry {
   auto_frames?: FrameExtraction[]; manual_frames?: string[];
   is_compound?: boolean; segments?: DNASegment[]; transition_type?: string;
 }
-interface FrameExtraction { timestamp_seconds: number; description: string; significance: string; }
+interface FrameExtraction { timestamp_seconds: number; description: string; significance: string; image_data?: string; }
 interface UploadConfig {
   tier: "winner" | "scalable" | "failed" | "inspiration";
   ad_type: "moc" | "competitor" | "compound";
@@ -239,7 +239,7 @@ async function extractFramesFromVideo(
     const safeTimestamps = timestamps
       .map(t => Math.min(Math.max(t, 0), Math.max(duration - 0.1, 0)))
       .filter((t, i, arr) => arr.indexOf(t) === i) // dedupe
-      .slice(0, 20); // hard cap — no more than 20 frames
+      .slice(0, 14); // hard cap — matches frameExtractionSystem max
 
     let idx = 0;
 
@@ -331,11 +331,12 @@ const TIMESTAMP_RULES = `TIMESTAMPS: Real seconds only (0,2,5,8,14,22). NEVER fr
 const frameExtractionSystem = () => `Precise video timestamp analyst. Extract key moments from this video.
 
 RULES:
-1. Identify ALL significant events: hook, every gate pass, every upgrade/level-up, swarm peaks, boss encounters, loss/fail moment, win attempt
-2. ALSO add a timestamp every 5-7 seconds even if nothing notable happens — fill the gaps
-3. Total timestamps: between 15 and 20. Never fewer than 15 for a 30s video.
+1. Identify significant events: hook, gate passes, upgrades/level-ups, swarm peaks, boss encounters, loss/fail moment
+2. Fill gaps larger than 8 seconds with a filler timestamp — no coverage gap longer than 8s
+3. Total timestamps: between 10 and 14. Never more than 14.
 4. ${TIMESTAMP_RULES}
 5. No two timestamps closer than 2 seconds apart
+6. ONLY report what you can clearly see. If a moment is ambiguous, skip it — do not guess.
 
 Return ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":number,"description":string,"significance":"hook|gate|upgrade|swarm|boss|loss|win|fail|transition|filler"}]}`;
 const hookDetectionSystem = () => `Expert mobile ad hook analyst.\n${HOOK_GUIDE}\n${TIMESTAMP_RULES}\nReturn ONLY JSON: {"hook_timing_seconds":number,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_description":string}`;
@@ -1073,12 +1074,28 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
 
           {d.auto_frames && d.auto_frames.length > 0 && (
             <div style={{ marginBottom: 10 }}>
-              <span style={labelStyle}>Auto-extracted frames</span>
+              <span style={labelStyle}>Extracted frames</span>
+              {/* Filmstrip — only shown if images were saved */}
+              {d.auto_frames.some(f => f.image_data) && (
+                <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 6, marginBottom: 8 }}>
+                  {d.auto_frames.filter(f => f.image_data).map((f, fi) => (
+                    <div key={fi} style={{ flexShrink: 0, position: "relative" as const }}>
+                      <img src={`data:image/jpeg;base64,${f.image_data}`} alt={`${f.timestamp_seconds}s`}
+                        style={{ width: 72, height: 128, objectFit: "cover", borderRadius: 6, border: `0.5px solid ${D.border2}`, display: "block" }} />
+                      <div style={{ position: "absolute" as const, bottom: 3, left: 0, right: 0, textAlign: "center" as const }}>
+                        <span style={{ fontSize: 8, background: "rgba(0,0,0,0.75)", color: "#fff", padding: "1px 4px", borderRadius: 3 }}>{f.timestamp_seconds}s</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Text list */}
               <div style={{ display: "flex", flexDirection: "column" as const, gap: 3 }}>
                 {d.auto_frames.map((f, fi) => (
-                  <div key={fi} style={{ fontSize: 10, padding: "4px 8px", background: D.surface, borderRadius: 5 }}>
-                    <span style={{ fontWeight: 500, color: D.blue, marginRight: 8 }}>{f.timestamp_seconds}s</span>
-                    <span style={{ color: D.textMuted }}>{f.description}</span>
+                  <div key={fi} style={{ fontSize: 10, padding: "4px 8px", background: D.surface, borderRadius: 5, display: "flex", gap: 8, alignItems: "flex-start" }}>
+                    <span style={{ fontWeight: 500, color: D.blue, minWidth: 28, flexShrink: 0 }}>{f.timestamp_seconds}s</span>
+                    <span style={{ color: D.textMuted, flex: 1 }}>{f.description}</span>
+                    {f.significance !== "filler" && <span style={{ fontSize: 9, color: D.textDim, flexShrink: 0 }}>{f.significance}</span>}
                   </div>
                 ))}
               </div>
@@ -1106,6 +1123,7 @@ export default function App() {
   const [analyzeStep, setAnalyzeStep] = useState("");
   const [analyzeFileName, setAnalyzeFileName] = useState("");
   const [analyzeErr, setAnalyzeErr] = useState("");
+  const [lastAnalyzedId, setLastAnalyzedId] = useState<number|null>(null);
   const [reanalyzingIds, setReanalyzingIds] = useState<Set<number>>(new Set());
   const [reanalyzingAll, setReanalyzingAll] = useState(false);
   const [reanalysisProgress, setReanalysisProgress] = useState("");
@@ -1187,7 +1205,19 @@ export default function App() {
           : [];
         const dna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
         setAnalyzeStep("saving");
-        saveLib([...lib,{...dna,id:Date.now()+Math.random(),tier:cfg.tier,ad_type:cfg.ad_type,upload_context:cfg.context,file_name:file.name,added_at:new Date().toISOString(),creative_id:cfg.creative_id,parent_id:cfg.parent_id,auto_frames:autoFrames,manual_frames:cfg.manual_frames.map(f=>f.name)}]);
+        // Merge canvas-extracted images into auto_frames for filmstrip display
+        const autoFramesWithImages: FrameExtraction[] = autoFrames.map((f, i) => {
+          const imagePart = extractedFrameParts.find((_: any, pi: number) =>
+            extractedFrameParts[pi]?.text === `[FRAME at ${f.timestamp_seconds}s]`
+              ? false : pi % 2 === 1 && extractedFrameParts[pi - 1]?.text === `[FRAME at ${f.timestamp_seconds}s]`
+          );
+          return imagePart?.inlineData?.data
+            ? { ...f, image_data: imagePart.inlineData.data }
+            : f;
+        });
+        const newId = Date.now() + Math.random();
+        saveLib([...lib,{...dna,id:newId,tier:cfg.tier,ad_type:cfg.ad_type,upload_context:cfg.context,file_name:file.name,added_at:new Date().toISOString(),creative_id:cfg.creative_id,parent_id:cfg.parent_id,auto_frames:autoFramesWithImages,manual_frames:cfg.manual_frames.map(f=>f.name)}]);
+        setLastAnalyzedId(newId);
         setAnalyzeStep("");
       }
     } catch(err: any){ setAnalyzeErr(err.message); }
@@ -1321,6 +1351,55 @@ export default function App() {
           {(analyzing || (!analyzing && analyzeErr)) && (
             <AnalysisProgressPanel step={analyzeStep} fileName={analyzeFileName} error={analyzeErr} />
           )}
+
+          {/* ── Analysis complete: show result inline ── */}
+          {!analyzing && !analyzeErr && lastAnalyzedId && (() => {
+            const entry = lib.find(e => e.id === lastAnalyzedId);
+            if (!entry) return null;
+            const accentColor = TIER_ACCENT[entry.tier] ?? D.border2;
+            return (
+              <div style={{ marginBottom: 20, border: `1.5px solid ${accentColor}`, borderRadius: 12, background: D.surface, overflow: "hidden", animation: "slideIn .25s ease-out" }}>
+                {/* Header */}
+                <div style={{ padding: "12px 16px", borderBottom: `0.5px solid ${D.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11, color: accentColor }}>✓</span>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: D.text }}>Analysis complete</span>
+                    <span style={pill(TIER_STYLE[entry.tier].bg, TIER_STYLE[entry.tier].text, TIER_STYLE[entry.tier].border)}>{entry.tier}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <button onClick={() => { setLibPanelOpen(true); setLastAnalyzedId(null); }} style={{ ...btnPri, fontSize: 11, padding: "5px 12px" }}>View in library →</button>
+                    <button onClick={() => setLastAnalyzedId(null)} style={{ background: "none", border: "none", color: D.textDim, cursor: "pointer", fontSize: 13, padding: "0 4px" }}>✕</button>
+                  </div>
+                </div>
+                {/* Key fields */}
+                <div style={{ padding: "12px 16px" }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: D.text, marginBottom: 4 }}>{entry.creative_id ? `${entry.creative_id} — ` : ""}{entry.title}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6, marginBottom: entry.auto_frames?.some(f => f.image_data) ? 12 : 0 }}>
+                    {[{l:"Biome",v:entry.biome},{l:"Hook type",v:entry.hook_type},{l:"Hook at",v:entry.hook_timing_seconds!=null?`${entry.hook_timing_seconds}s`:"—"},{l:"Pacing",v:entry.pacing}].map(({l,v})=>(
+                      <div key={l} style={metricStyle}><div style={metricLabel}>{l}</div><div style={{ fontSize:11,fontWeight:500,color:D.text }}>{v??"—"}</div></div>
+                    ))}
+                  </div>
+                  {/* Filmstrip */}
+                  {entry.auto_frames?.some(f => f.image_data) && (
+                    <div>
+                      <span style={{ ...labelStyle, marginBottom: 8 }}>Extracted frames</span>
+                      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4 }}>
+                        {entry.auto_frames.filter(f => f.image_data).map((f, fi) => (
+                          <div key={fi} style={{ flexShrink: 0, position: "relative" as const }}>
+                            <img src={`data:image/jpeg;base64,${f.image_data}`} alt={`${f.timestamp_seconds}s`}
+                              style={{ width: 80, height: 142, objectFit: "cover", borderRadius: 6, border: `0.5px solid ${D.border2}`, display: "block" }} />
+                            <div style={{ position: "absolute" as const, bottom: 4, left: 0, right: 0, textAlign: "center" as const }}>
+                              <span style={{ fontSize: 9, background: "rgba(0,0,0,0.7)", color: "#fff", padding: "1px 5px", borderRadius: 3 }}>{f.timestamp_seconds}s</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20 }}>
             {[
