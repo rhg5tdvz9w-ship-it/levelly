@@ -81,6 +81,8 @@ const WINDOW_OPTIONS = [
   { value: 7, label: "7d" }, { value: 14, label: "14d" }, { value: 30, label: "30d" },
   { value: 60, label: "60d" }, { value: 90, label: "90d" }, { value: 180, label: "6mo" }, { value: 365, label: "1yr+" },
 ];
+const SPEND_RANK: Record<string, number> = { "1M": 5, "500K": 4, "300K": 3, "100K": 2, "sub100K": 1 };
+type SortMode = "all" | "winner" | "scalable" | "inspiration" | "failed";
 
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 const GEMINI_TEXT_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
@@ -112,7 +114,7 @@ const pill = (bg: string, text: string, border: string): React.CSSProperties => 
 });
 const btnSec: React.CSSProperties = { padding: "6px 12px", fontSize: 11, background: "transparent", border: `0.5px solid ${D.border2}`, borderRadius: 7, color: D.textMuted, cursor: "pointer", fontFamily: "inherit" };
 const btnPri: React.CSSProperties = { padding: "7px 14px", fontSize: 11, background: D.blueDark, border: "none", borderRadius: 7, color: "#fff", cursor: "pointer", fontFamily: "inherit", fontWeight: 500 };
-const btnDel: React.CSSProperties = { padding: "4px 9px", fontSize: 11, background: "transparent", border: `0.5px solid #6e2020`, borderRadius: 6, color: D.red, cursor: "pointer" };
+const btnDanger: React.CSSProperties = { padding: "4px 10px", fontSize: 10, background: "transparent", border: `0.5px solid #6e2020`, borderRadius: 6, color: D.red, cursor: "pointer", fontFamily: "inherit" };
 const metricStyle: React.CSSProperties = { background: "#1c2128", borderRadius: 7, padding: "8px 10px", textAlign: "center" };
 const metricLabel: React.CSSProperties = { fontSize: 9, color: D.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 3 };
 const labelStyle: React.CSSProperties = { fontSize: 9, fontWeight: 600, color: D.textDim, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6, display: "block" };
@@ -236,7 +238,6 @@ const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtra
 const reanalysisSystem = (entry: DNAEntry) =>
   `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate hallucinations 4.unit_evolution_chain 5.emotional_beats 6.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
 
-// briefSystem — Gemini-direct, single call, all 4 concepts. Live flow.
 const briefSystem = (lib: DNAEntry[], ctx: string, seg: string, iterateFrom?: string) => {
   const activeWinners = lib.filter(d => d.tier === "winner" && d.creative_status !== "fatigued");
   const refBlock = iterateFrom ? `\nITERATE FROM: "${iterateFrom}" — creative starting point, DNA rules are primary.\n` : "";
@@ -287,7 +288,6 @@ const imagePromptFn = (concept: Concept, scene: "start"|"middle"|"end", continui
 };
 
 // ─── Dynamic lineage chain builder ───────────────────────────────────────────
-// Walks parent_id → creative_id links to build full chain, root first.
 function buildLineageChain(entry: DNAEntry, lib: DNAEntry[]): string[] | null {
   try {
     const id = entry.creative_id?.trim();
@@ -324,7 +324,7 @@ function buildLineageChain(entry: DNAEntry, lib: DNAEntry[]): string[] | null {
   } catch { return null; }
 }
 
-// ─── Parent ID validator helper ───────────────────────────────────────────────
+// ─── Parent ID validator ──────────────────────────────────────────────────────
 function parentValidation(parentId: string, currentId: string, lib: DNAEntry[]) {
   const pid = parentId.trim();
   if (!pid) return null;
@@ -380,7 +380,9 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
         <div style={{ marginBottom:16 }}>
           <span style={labelStyle}>Manual storyboard frames (optional)</span>
           <input ref={frameRef} type="file" accept="image/*" multiple style={{ display:"none" }} onChange={e=>setManualFrames(Array.from(e.target.files??[]))} />
-          <button style={{ ...btnSec, ...(manualFrames.length>0?{border:`1.5px solid ${D.greenBdr}`,color:D.green,background:D.greenBg}:{}) }} onClick={()=>frameRef.current?.click()}>{manualFrames.length>0?`✓ ${manualFrames.length} frame(s) selected`:"+ Add frames"}</button>
+          <button style={{ ...btnSec, ...(manualFrames.length>0?{border:`1.5px solid ${D.greenBdr}`,color:D.green,background:D.greenBg}:{}) }} onClick={()=>frameRef.current?.click()}>
+            {manualFrames.length>0?`✓ ${manualFrames.length} frame(s) selected`:"+ Add frames"}
+          </button>
         </div>
         <div style={{ marginBottom:16,padding:"8px 12px",background:D.surface2,borderRadius:8,fontSize:10,color:D.textMuted,border:`0.5px solid ${D.border}` }}>
           {refCount>0?`✓ ${refCount} MOC refs`:"⚠ No refs"} → Frame extraction → Hook detection → {manualFrames.length>0?`✓ ${manualFrames.length} manual frames`:"No manual frames"} → DNA analysis
@@ -447,7 +449,7 @@ function SpendTagger({ entry, onSave, lib }: { entry: DNAEntry; onSave: (fields:
           {WINDOW_OPTIONS.map(w => <button key={w.value} onClick={()=>setDays(days===w.value?null:w.value)} style={{ padding:"4px 10px",fontSize:11,borderRadius:20,cursor:"pointer",border:`1.5px solid ${days===w.value?D.blueDark:D.border2}`,background:days===w.value?D.blueBg:"transparent",color:days===w.value?D.blue:D.textMuted }}>{w.label}</button>)}
         </div>
         {vel&&<div style={{ marginTop:6,fontSize:11,color:D.blue,fontWeight:500 }}>{vel}</div>}
-        {tier==="sub100K"&&days&&<div style={{ marginTop:6,fontSize:11,color:D.textMuted,fontStyle:"italic" }}>Rotation tracking only — no spend threshold reached</div>}
+        {tier==="sub100K"&&days&&<div style={{ marginTop:6,fontSize:11,color:D.textMuted,fontStyle:"italic" }}>Rotation tracking — no spend threshold reached</div>}
       </div>
       <div style={{ marginBottom:12 }}>
         <span style={{ fontSize:10,color:D.textDim,display:"block",marginBottom:6 }}>Networks</span>
@@ -474,28 +476,37 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
   const spendSt = SPEND_TIERS.find(t=>t.value===d.spend_tier);
   const statusSt = CREATIVE_STATUS.find(s=>s.value===d.creative_status);
   const isFatigued = d.creative_status==="fatigued";
+  const isExpanded = expandedDNA===di;
   const chain = buildLineageChain(d, lib);
   const displayId = d.creative_id?.trim();
+  const vel = velocityPerDay(d.spend_tier??"", d.spend_window_days);
+
   return (
-    <div style={{ borderBottom:`0.5px solid ${D.border}`,padding:"14px 16px",opacity:isFatigued?0.55:1,transition:"opacity .15s" }}>
+    <div style={{ borderBottom:`0.5px solid ${D.border}`,padding:"14px 16px",opacity:isFatigued?0.55:1,transition:"opacity .15s,border-left .15s",borderLeft:`3px solid ${isExpanded?D.blue:"transparent"}` }}>
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
-        <div style={{ flex:1,cursor:"pointer" }} onClick={()=>setExpandedDNA(expandedDNA===di?null:di)}>
+        <div style={{ flex:1,cursor:"pointer" }} onClick={()=>setExpandedDNA(isExpanded?null:di)}>
+          {/* Primary: ID + title */}
           <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap" as const }}>
             {isFatigued&&<span style={{ fontSize:9,padding:"1px 6px",background:D.redBg,color:D.red,border:`0.5px solid #6e2020`,borderRadius:20 }}>fatigued</span>}
             {displayId
-              ? <span style={{ fontSize:14,fontWeight:600,color:D.text,letterSpacing:"0.02em" }}>{displayId}</span>
-              : <span style={{ fontSize:13,fontWeight:500,color:D.text }}>{d.title}</span>}
+              ? <span style={{ fontSize:14,fontWeight:600,color:isExpanded?D.text:D.textMuted,letterSpacing:"0.02em",transition:"color .15s" }}>{displayId}</span>
+              : <span style={{ fontSize:13,fontWeight:500,color:isExpanded?D.text:D.textMuted,transition:"color .15s" }}>{d.title}</span>}
           </div>
           {displayId&&<div style={{ fontSize:11,color:D.textMuted,marginBottom:4 }}>{d.title}</div>}
-          <div style={{ display:"flex",gap:5,flexWrap:"wrap" as const,marginBottom:3 }}>
+
+          {/* Tier + status + spend + networks row */}
+          <div style={{ display:"flex",gap:5,flexWrap:"wrap" as const,marginBottom:4 }}>
             <span style={pill(TIER_STYLE[d.tier].bg,TIER_STYLE[d.tier].text,TIER_STYLE[d.tier].border)}>{d.tier}</span>
             {statusSt&&!isFatigued&&<span style={pill(statusSt.bg,statusSt.text,statusSt.border)}>{statusSt.label}</span>}
+            {spendSt&&<span style={pill(spendSt.bg,spendSt.text,spendSt.border)}>{spendSt.label}{d.spend_window_days?` / ${WINDOW_OPTIONS.find(w=>w.value===d.spend_window_days)?.label??d.spend_window_days+"d"}`:""}</span>}
+            {vel&&<span style={pill(D.blueBg,D.blue,D.blueDark)}>{vel}</span>}
+            {d.spend_networks&&d.spend_networks.length>0&&<span style={pill(D.greenBg,D.green,D.greenBdr)}>{d.spend_networks.join(", ")}</span>}
             {d.ad_type!=="moc"&&<span style={pill(D.purpleBg,D.purple,D.purpleBdr)}>{d.ad_type}</span>}
             {d.is_compound&&<span style={pill(D.goldBg,D.gold,D.goldBdr)}>compound</span>}
             {d.reanalyzed&&<span style={pill(D.greenBg,D.green,D.greenBdr)}>re-analyzed</span>}
-            {spendSt&&<span style={pill(spendSt.bg,spendSt.text,spendSt.border)}>{spendSt.label}{d.spend_window_days?` / ${WINDOW_OPTIONS.find(w=>w.value===d.spend_window_days)?.label??d.spend_window_days+"d"}`:""}</span>}
-            {d.spend_networks&&d.spend_networks.length>0&&<span style={pill(D.greenBg,D.green,D.greenBdr)}>{d.spend_networks.join(", ")}</span>}
           </div>
+
+          {/* Lineage */}
           {chain&&(
             <div style={{ display:"flex",alignItems:"center",gap:4,marginBottom:4,overflowX:"auto",flexWrap:"nowrap" as const,paddingBottom:2 }}>
               <span style={{ fontSize:9,color:D.textDim,letterSpacing:"0.07em",marginRight:2,flexShrink:0 }}>LINEAGE</span>
@@ -509,24 +520,31 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
           )}
           <div style={{ fontSize:10,color:D.textDim }}>{d.file_name} · {new Date(d.added_at).toLocaleDateString()}</div>
         </div>
+
+        {/* Actions */}
         <div style={{ display:"flex",gap:5,alignItems:"center",marginLeft:10,flexShrink:0 }}>
           <button style={{ ...btnSec,fontSize:10,padding:"4px 8px" }} onClick={()=>handleReanalyzeSingle(d)} disabled={reanalyzingIds.has(d.id)}>{reanalyzingIds.has(d.id)?"…":"Re-analyze"}</button>
           <select value={d.tier} onChange={e=>saveLib(lib.map(x=>x.id===d.id?{...x,tier:e.target.value as DNAEntry["tier"]}:x))} style={{ fontSize:10,padding:"3px 6px",borderRadius:6,border:`0.5px solid ${D.border2}`,background:D.surface2,color:D.text }}>
             {TIERS.map(t=><option key={t} value={t}>{t}</option>)}
           </select>
-          <button style={btnDel} onClick={()=>saveLib(lib.filter(x=>x.id!==d.id))}>✕</button>
+          <button style={btnDanger} onClick={()=>{ if(confirm(`Remove "${displayId||d.title}" from library?`)) saveLib(lib.filter(x=>x.id!==d.id)); }}>Remove</button>
         </div>
       </div>
-      <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginTop:10 }}>
-        {[{l:"Hook type",v:d.hook_type},{l:"Hook at",v:d.hook_timing_seconds!=null?`${d.hook_timing_seconds}s`:"—"},{l:"Biome",v:d.biome},{l:"Pacing",v:d.pacing},{l:"Loss event",v:d.loss_event_type},{l:"Swarm peak",v:d.swarm_peak_moment_seconds!=null?`${d.swarm_peak_moment_seconds}s`:"—"}].map(({l,v})=>(
-          <div key={l} style={metricStyle}><div style={metricLabel}>{l}</div><div style={{ fontSize:11,fontWeight:500,color:D.text }}>{v??"—"}</div></div>
-        ))}
-      </div>
-      {expandedDNA===di&&(
+
+      {/* Expanded details */}
+      {isExpanded&&(
         <div style={{ marginTop:14,borderTop:`0.5px solid ${D.border}`,paddingTop:14 }}>
           {canTag&&<SpendTagger entry={d} lib={lib} onSave={fields=>saveLib(lib.map(x=>x.id===d.id?{...x,...fields}:x))} />}
+
+          {/* Hook metrics — moved here from collapsed view */}
+          <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:5,marginTop:14,marginBottom:10 }}>
+            {[{l:"Hook type",v:d.hook_type},{l:"Hook at",v:d.hook_timing_seconds!=null?`${d.hook_timing_seconds}s`:"—"},{l:"Biome",v:d.biome},{l:"Pacing",v:d.pacing},{l:"Loss event",v:d.loss_event_type},{l:"Swarm peak",v:d.swarm_peak_moment_seconds!=null?`${d.swarm_peak_moment_seconds}s`:"—"}].map(({l,v})=>(
+              <div key={l} style={metricStyle}><div style={metricLabel}>{l}</div><div style={{ fontSize:11,fontWeight:500,color:D.text }}>{v??"—"}</div></div>
+            ))}
+          </div>
+
           {d.unit_evolution_chain?.length>0&&(
-            <div style={{ marginBottom:10,marginTop:14 }}>
+            <div style={{ marginBottom:10 }}>
               <span style={labelStyle}>Unit evolution chain</span>
               <div style={{ display:"flex",gap:4,flexWrap:"wrap" as const,alignItems:"center" }}>
                 {d.unit_evolution_chain.map((step,i)=>(
@@ -611,8 +629,8 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
           )}
         </div>
       )}
-      <button style={{ ...btnSec,marginTop:10,fontSize:10,padding:"4px 9px" }} onClick={()=>setExpandedDNA(expandedDNA===di?null:di)}>
-        {expandedDNA===di?"Collapse":"Expand details"}
+      <button style={{ ...btnSec,marginTop:10,fontSize:10,padding:"4px 9px" }} onClick={()=>setExpandedDNA(isExpanded?null:di)}>
+        {isExpanded?"Collapse":"Expand details"}
       </button>
     </div>
   );
@@ -627,6 +645,7 @@ export default function App() {
   const [briefPanelOpen, setBriefPanelOpen] = useState(false);
   const [analysePanelOpen, setAnalysePanelOpen] = useState(false);
   const [expandedDNA, setExpandedDNA] = useState<number|null>(null);
+  const [libSort, setLibSort] = useState<SortMode>("all");
   const [showModal, setShowModal] = useState(false);
   const [uploadConfig, setUploadConfig] = useState<UploadConfig|null>(null);
   const [analyzing, setAnalyzing] = useState(false);
@@ -733,11 +752,15 @@ export default function App() {
     finally { setRenderingScene(p=>({...p,[k]:false})); }
   };
 
+  // ─── Sorted library ───────────────────────────────────────────────────────
+  const sortedLib = [...lib].filter(d => libSort==="all" || d.tier===libSort)
+    .sort((a,b) => (SPEND_RANK[b.spend_tier??""]??0) - (SPEND_RANK[a.spend_tier??""]??0));
+
   const winners=lib.filter(d=>d.tier==="winner").length;
   const activeWinners=lib.filter(d=>d.tier==="winner"&&d.creative_status!=="fatigued").length;
   const topVel=lib.reduce((best,d)=>{ const v=velocityPerDay(d.spend_tier??"",d.spend_window_days); if(!v) return best; const num=parseInt(v.replace(/[^0-9]/g,"")); return num>best?num:best; },0);
   const networkSet=new Set(lib.flatMap(d=>d.spend_networks??[]));
-  const cloudLabel={idle:"",saving:"Saving…",saved:"Saved to GitHub ✓",error:"Cloud save failed"}[cloudStatus];
+  const cloudLabel={idle:"",saving:"Saving…",saved:"Saved ✓",error:"Save failed"}[cloudStatus];
   const cloudColor={idle:D.textDim,saving:D.blue,saved:D.green,error:D.red}[cloudStatus];
   const SB=48;
 
@@ -758,7 +781,7 @@ export default function App() {
         ))}
       </div>
 
-      {/* Library side panel */}
+      {/* Library side panel — 560px wide */}
       <div style={{ position:"fixed",top:0,left:SB,width:560,height:"100vh",background:D.surface,borderRight:`0.5px solid ${D.border2}`,display:"flex",flexDirection:"column",zIndex:150,transform:libPanelOpen?"translateX(0)":"translateX(-100%)",transition:"transform .22s ease-out" }}>
         <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 16px",borderBottom:`0.5px solid ${D.border}`,flexShrink:0 }}>
           <div>
@@ -767,6 +790,17 @@ export default function App() {
           </div>
           <button onClick={()=>setLibPanelOpen(false)} style={{ background:"none",border:"none",color:D.textMuted,fontSize:11,cursor:"pointer",padding:"3px 6px",borderRadius:4,fontFamily:"inherit" }}>✕</button>
         </div>
+
+        {/* Sort filter */}
+        <div style={{ display:"flex",gap:5,padding:"8px 16px",borderBottom:`0.5px solid ${D.border}`,flexShrink:0,flexWrap:"wrap" as const }}>
+          {(["all","winner","scalable","inspiration","failed"] as SortMode[]).map(s=>(
+            <button key={s} onClick={()=>setLibSort(s)} style={{ padding:"3px 10px",fontSize:10,borderRadius:20,cursor:"pointer",fontFamily:"inherit",border:`0.5px solid ${libSort===s?(s==="all"?D.border2:TIER_STYLE[s]?.border??D.border2):D.border2}`,background:libSort===s?(s==="all"?D.surface2:TIER_STYLE[s]?.bg??"transparent"):"transparent",color:libSort===s?(s==="all"?D.text:TIER_STYLE[s]?.text??D.text):D.textMuted }}>
+              {s==="all"?"All":s.charAt(0).toUpperCase()+s.slice(1)}
+            </button>
+          ))}
+          <span style={{ fontSize:10,color:D.textDim,alignSelf:"center",marginLeft:"auto" }}>sorted by spend</span>
+        </div>
+
         <div style={{ display:"flex",gap:6,padding:"10px 16px",borderBottom:`0.5px solid ${D.border}`,flexWrap:"wrap" as const,flexShrink:0 }}>
           {lib.length>0&&(<><button style={btnSec} onClick={handleReanalyzeAll} disabled={reanalyzingAll||analyzing}>{reanalyzingAll?"Re-analyzing…":"Re-analyze all"}</button><button style={btnSec} onClick={exportLibrary}>Export</button><button style={btnSec} onClick={()=>{ if(confirm("Clear library?")) saveLib([]); }}>Clear</button></>)}
           <button style={btnSec} onClick={()=>importRef.current?.click()}>Import</button>
@@ -774,10 +808,10 @@ export default function App() {
         </div>
         {(analyzeErr||reanalysisProgress)&&<div style={{ fontSize:11,color:reanalysisProgress?D.blue:D.red,background:reanalysisProgress?D.blueBg:D.redBg,border:`0.5px solid ${reanalysisProgress?D.blueDark:"#6e2020"}`,borderRadius:7,padding:"7px 12px",margin:"8px 16px" }}>{analyzeErr||reanalysisProgress}</div>}
         {analyzeInfo&&<div style={{ fontSize:11,color:D.blue,background:D.blueBg,border:`0.5px solid ${D.blueDark}`,borderRadius:7,padding:"7px 12px",margin:"8px 16px" }}>{analyzeInfo}</div>}
-        {!libraryLoaded&&<div style={{ fontSize:11,color:D.blue,padding:"12px 16px" }}>Loading library from GitHub…</div>}
+        {!libraryLoaded&&<div style={{ fontSize:11,color:D.blue,padding:"12px 16px" }}>Loading library…</div>}
         {lib.length===0&&!analyzing&&libraryLoaded&&<div style={{ padding:"2rem 16px",textAlign:"center" as const }}><p style={{ margin:0,fontSize:12,color:D.textMuted }}>Upload MOC ads to build your Creative DNA library.</p></div>}
         <div style={{ flex:1,overflowY:"auto" }}>
-          {lib.map((d,di)=><LibraryCard key={d.id} d={d} di={di} expandedDNA={expandedDNA} setExpandedDNA={setExpandedDNA} lib={lib} saveLib={saveLib} reanalyzingIds={reanalyzingIds} handleReanalyzeSingle={handleReanalyzeSingle} />)}
+          {sortedLib.map((d,di)=><LibraryCard key={d.id} d={d} di={lib.indexOf(d)} expandedDNA={expandedDNA} setExpandedDNA={setExpandedDNA} lib={lib} saveLib={saveLib} reanalyzingIds={reanalyzingIds} handleReanalyzeSingle={handleReanalyzeSingle} />)}
         </div>
       </div>
 
@@ -791,7 +825,7 @@ export default function App() {
             <span style={{ fontSize:12,color:D.textMuted }}>MOC Creative Intelligence</span>
           </div>
           <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-            {cloudStatus!=="idle"?<span style={{ fontSize:10,color:cloudColor }}>{cloudLabel}</span>:lib.length>0&&<div style={{ display:"flex",alignItems:"center",gap:5,background:D.surface,border:`0.5px solid ${D.border2}`,borderRadius:20,padding:"4px 12px" }}><div style={{ width:6,height:6,borderRadius:"50%",background:D.green }} /><span style={{ fontSize:11,color:D.blue }}>Saved to GitHub</span></div>}
+            {cloudStatus!=="idle"&&<span style={{ fontSize:10,color:cloudColor }}>{cloudLabel}</span>}
           </div>
         </div>
 
@@ -892,7 +926,7 @@ export default function App() {
 
           {/* Concept cards */}
           {concepts.map((c,ci)=>(
-            <div key={ci} style={{ background:expandedConcept===ci?"#161f2e":D.surface,border:`${expandedConcept===ci?"1.5px":"0.5px"} solid ${expandedConcept===ci?D.blue:(c as any).is_experimental?"#9d174d":D.border}`,borderRadius:10,padding:"14px 16px",marginBottom:10,transition:"border-color .15s,background .15s,box-shadow .15s",boxShadow:expandedConcept===ci?`0 0 0 3px ${D.blueBg}`:"none" }}>
+            <div key={ci} style={{ background:expandedConcept===ci?"#161f2e":D.surface,border:`${expandedConcept===ci?"1.5px":"0.5px"} solid ${expandedConcept===ci?D.blue:(c as any).is_experimental?"#9d174d":D.border}`,borderRadius:10,padding:"14px 16px",marginBottom:10,transition:"border-color .15s,background .15s,box-shadow .15s",boxShadow:expandedConcept===ci?`0 0 0 3px ${D.blueBg}`:"none",borderLeft:`3px solid ${expandedConcept===ci?D.blue:"transparent"}` }}>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",cursor:"pointer" }} onClick={()=>setExpandedConcept(expandedConcept===ci?null:ci)}>
                 <div style={{ flex:1 }}>
                   <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap" as const }}>
@@ -903,9 +937,7 @@ export default function App() {
                     {iterateFrom.trim()&&<span style={pill(D.purpleBg,D.purple,D.purpleBdr)}>iterates {iterateFrom.trim()}</span>}
                     <span style={pill(TIER_STYLE["scalable"].bg,TIER_STYLE["scalable"].text,TIER_STYLE["scalable"].border)}>{c.target_segment}</span>
                   </div>
-                  <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:4 }}>
-                    <span style={{ fontSize:15,fontWeight:600,color:expandedConcept===ci?D.text:D.textMuted }}>{c.title}</span>
-                  </div>
+                  <div style={{ fontSize:15,fontWeight:600,color:expandedConcept===ci?D.text:D.textMuted,marginBottom:4,transition:"color .15s" }}>{c.title}</div>
                   {c.is_experimental&&c.experimental_note&&<p style={{ margin:"0 0 4px",fontSize:11,color:"#f472b6",fontStyle:"italic" }}>{c.experimental_note}</p>}
                   <p style={{ margin:0,fontSize:12,color:D.textMuted,lineHeight:1.5 }}>{c.objective}</p>
                 </div>
@@ -954,21 +986,26 @@ export default function App() {
                   <div style={{ marginBottom:14 }}>
                     <span style={labelStyle}>Scene renders</span>
                     {c.is_experimental&&<div style={{ marginBottom:8,padding:"7px 12px",background:"#2a1a2e",border:"0.5px solid #9d174d",borderRadius:7,fontSize:11,color:"#f472b6" }}>⚠ Experimental biome — no spend data. Use for inspiration only.</div>}
-                    {!c.is_experimental&&PROVEN_BIOMES.includes(c.visual_identity?.environment)&&<div style={{ marginBottom:8,padding:"7px 12px",background:D.greenBg,border:`0.5px solid ${D.greenBdr}`,borderRadius:7,fontSize:11,color:D.green }}>Proven biome — render Start first, then Middle, then End for best consistency.</div>}
+                    {!c.is_experimental&&PROVEN_BIOMES.includes(c.visual_identity?.environment)&&<div style={{ marginBottom:8,padding:"7px 12px",background:D.greenBg,border:`0.5px solid ${D.greenBdr}`,borderRadius:7,fontSize:11,color:D.green }}>Proven biome — render Start first, then Middle, then End.</div>}
                     <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10 }}>
                       {(["start","middle","end"] as const).map(scene=>{
                         const imgUrl=c[`visual_${scene}` as keyof Concept] as string|undefined;
                         const loading=renderingScene[`${ci}-${scene}`];
                         const needsStart=(scene==="middle"||scene==="end")&&!c.visual_start;
-                        const isStart = scene==="start";
+                        const isStart=scene==="start";
+                        const isNext=(scene==="middle"&&!!c.visual_start&&!c.visual_middle)||(scene==="end"&&!!c.visual_middle&&!c.visual_end);
+                        const borderColor=isStart&&!imgUrl?D.blue:isNext?D.gold:D.border;
+                        const borderWidth=isStart&&!imgUrl||isNext?"1.5px":"0.5px";
                         return (
-                          <div key={scene} style={{ aspectRatio:"9/16",background:D.surface2,borderRadius:10,border:`${isStart&&!imgUrl?"1.5px":"0.5px"} solid ${isStart&&!imgUrl?D.blue:D.border}`,overflow:"hidden",display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"center",cursor:needsStart?"not-allowed":"pointer",position:"relative" as const }}
+                          <div key={scene} style={{ aspectRatio:"9/16",background:D.surface2,borderRadius:10,border:`${borderWidth} solid ${borderColor}`,overflow:"hidden",display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"center",cursor:needsStart?"not-allowed":"pointer",position:"relative" as const,transition:"border-color .2s" }}
                             onClick={()=>!imgUrl&&!loading&&!needsStart&&handleRenderScene(ci,scene)}>
-                            {isStart&&!imgUrl&&<div style={{ position:"absolute" as const,top:8,left:0,right:0,display:"flex",justifyContent:"center" }}><span style={{ fontSize:9,padding:"2px 8px",background:D.blueDark,color:"#fff",borderRadius:20,fontWeight:600,letterSpacing:"0.05em" }}>START HERE</span></div>}
+                            {(isStart&&!imgUrl||isNext)&&<div style={{ position:"absolute" as const,top:8,left:0,right:0,display:"flex",justifyContent:"center" }}>
+                              <span style={{ fontSize:9,padding:"2px 8px",background:isStart?D.blueDark:"#9e6a03",color:"#fff",borderRadius:20,fontWeight:600,letterSpacing:"0.05em" }}>{isStart?"START HERE":"RENDER NEXT"}</span>
+                            </div>}
                             {imgUrl?<img src={imgUrl} alt={scene} style={{ width:"100%",height:"100%",objectFit:"cover" }} />
-                              :loading?<p style={{ margin:0,fontSize:11,color:D.textMuted }}>Rendering…</p>
-                              :needsStart?<div style={{ textAlign:"center" as const,padding:12 }}><p style={{ margin:0,fontSize:9,color:D.textDim,textTransform:"uppercase" as const }}>{scene}</p><p style={{ margin:"4px 0 0",fontSize:9,color:D.textDim }}>Render Start first</p></div>
-                              :<div style={{ textAlign:"center" as const,padding:12,marginTop:isStart?16:0 }}><p style={{ margin:0,fontSize:10,fontWeight:500,textTransform:"uppercase" as const,color:isStart?D.blue:D.textDim }}>{scene}</p><p style={{ margin:"4px 0 0",fontSize:9,color:isStart?D.blue:D.textDim }}>{isStart?"Render first":"Click to render"}</p></div>}
+                              :loading?<p style={{ margin:0,fontSize:13,fontWeight:500,color:D.textMuted }}>Rendering…</p>
+                              :needsStart?<div style={{ textAlign:"center" as const,padding:12 }}><p style={{ margin:0,fontSize:11,color:D.textDim,textTransform:"uppercase" as const }}>{scene}</p><p style={{ margin:"6px 0 0",fontSize:10,color:D.textDim }}>Render Start first</p></div>
+                              :<div style={{ textAlign:"center" as const,padding:12,marginTop:isStart||isNext?20:0 }}><p style={{ margin:0,fontSize:12,fontWeight:500,textTransform:"uppercase" as const,color:isStart?D.blue:isNext?D.gold:D.textDim }}>{scene}</p><p style={{ margin:"6px 0 0",fontSize:10,color:isStart?D.blue:isNext?D.gold:D.textDim }}>{isStart?"Render first":isNext?"Render next":"Click to render"}</p></div>}
                           </div>
                         );
                       })}
@@ -1020,41 +1057,6 @@ export default function App() {
               )}
             </div>
           ))}
-
-          {/* Library preview */}
-          <div style={{ background:D.surface,border:`0.5px solid ${D.border}`,borderRadius:10,overflow:"hidden" }}>
-            <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px" }}>
-              <span style={{ fontSize:12,color:D.textMuted }}>Creative library <span style={{ fontSize:11 }}>{lib.length} entries · {activeWinners} active winners</span></span>
-              <span style={{ fontSize:11,color:D.blue,cursor:"pointer" }} onClick={()=>setLibPanelOpen(true)}>View all →</span>
-            </div>
-            <div style={{ display:"grid",gridTemplateColumns:"1fr 80px 100px 70px",padding:"6px 16px",fontSize:9,letterSpacing:".1em",color:D.textDim,borderBottom:`0.5px solid ${D.border}` }}>
-              {["CREATIVE","SPEND","NETWORKS","VELOCITY"].map(h=><div key={h}>{h}</div>)}
-            </div>
-            {lib.length===0?<div style={{ padding:"16px",fontSize:12,color:D.textDim }}>No creatives yet.</div>
-              :lib.slice(0,5).map((d,i)=>{
-                const spendSt=SPEND_TIERS.find(t=>t.value===d.spend_tier);
-                const vel=velocityPerDay(d.spend_tier??"",d.spend_window_days);
-                return (
-                  <div key={d.id} onClick={()=>setLibPanelOpen(true)}
-                    style={{ display:"grid",gridTemplateColumns:"1fr 80px 100px 70px",padding:"9px 16px",borderBottom:i<Math.min(lib.length,5)-1?`0.5px solid ${D.border}`:"none",cursor:"pointer",alignItems:"center",transition:"background .12s",opacity:d.creative_status==="fatigued"?0.45:1 }}
-                    onMouseEnter={e=>(e.currentTarget as HTMLDivElement).style.background=D.surface2}
-                    onMouseLeave={e=>(e.currentTarget as HTMLDivElement).style.background=""}>
-                    <div>
-                      <div style={{ display:"flex",alignItems:"center",fontSize:12,fontWeight:500 }}>
-                        <div style={{ width:6,height:6,borderRadius:"50%",background:d.tier==="scalable"?D.blue:D.green,marginRight:8,flexShrink:0 }} />
-                        {d.creative_id?.trim()
-                          ? <><span style={{ fontWeight:600,marginRight:6 }}>{d.creative_id.trim()}</span><span style={{ color:D.textMuted,fontWeight:400,fontSize:11 }}>{d.title.length>22?d.title.slice(0,22)+"…":d.title}</span></>
-                          : (d.title.length>35?d.title.slice(0,35)+"…":d.title)}
-                      </div>
-                      <div style={{ fontSize:10,color:D.textDim,paddingLeft:14 }}>{d.creative_status||"Open"}</div>
-                    </div>
-                    <div style={{ fontSize:12,color:"#c9d1d9" }}>{spendSt?spendSt.label:"—"}</div>
-                    <div style={{ fontSize:11,color:D.textMuted }}>{d.spend_networks?.join(", ")||"—"}</div>
-                    <div style={{ fontSize:12,color:D.green }}>{vel??"—"}</div>
-                  </div>
-                );
-              })}
-          </div>
         </div>
       </div>
 
