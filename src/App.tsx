@@ -87,7 +87,8 @@ type SortMode = "all" | "winner" | "scalable" | "inspiration" | "failed";
 // Analysis steps for homepage progress indicator (#7)
 const ANALYSIS_STEPS = [
   { key: "uploading",  label: "Uploading video" },
-  { key: "frames",     label: "Extracting frames" },
+  { key: "frames",     label: "Identifying key moments" },
+  { key: "extracting", label: "Extracting frames" },
   { key: "hook",       label: "Detecting hook" },
   { key: "analyzing",  label: "Analysing DNA" },
   { key: "saving",     label: "Saving to library" },
@@ -203,6 +204,84 @@ async function uploadToGeminiFileAPI(file: File, onStatus: (m: string) => void):
 
 async function fileToBase64(file: File): Promise<string> {
   return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res((r.result as string).split(",")[1]); r.onerror = rej; r.readAsDataURL(file); });
+}
+
+// ─── Canvas frame extraction ──────────────────────────────────────────────────
+// Extracts frames from a video file at given timestamps using HTML5 canvas.
+// Returns inlineData parts ready to pass to Gemini. Fully non-blocking —
+// if anything fails the returned array is empty and analysis runs as before.
+async function extractFramesFromVideo(
+  file: File,
+  timestamps: number[],
+  duration: number
+): Promise<any[]> {
+  if (!timestamps.length) return [];
+  return new Promise(resolve => {
+    const parts: any[] = [];
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.preload = "auto";
+    video.muted = true;
+    video.crossOrigin = "anonymous";
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+
+    // Cap render size to keep payload small (~20KB/frame at JPEG 80%)
+    const MAX_W = 480;
+
+    const cleanup = () => {
+      URL.revokeObjectURL(url);
+      video.src = "";
+      video.load();
+    };
+
+    const safeTimestamps = timestamps
+      .map(t => Math.min(Math.max(t, 0), Math.max(duration - 0.1, 0)))
+      .filter((t, i, arr) => arr.indexOf(t) === i) // dedupe
+      .slice(0, 12); // hard cap — no more than 12 frames
+
+    let idx = 0;
+
+    const seekNext = () => {
+      if (idx >= safeTimestamps.length || !ctx) {
+        cleanup();
+        resolve(parts);
+        return;
+      }
+      video.currentTime = safeTimestamps[idx];
+    };
+
+    video.addEventListener("seeked", () => {
+      try {
+        const scale = Math.min(1, MAX_W / (video.videoWidth || MAX_W));
+        canvas.width = Math.round((video.videoWidth || MAX_W) * scale);
+        canvas.height = Math.round((video.videoHeight || 854) * scale);
+        ctx!.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const jpeg = canvas.toDataURL("image/jpeg", 0.80).split(",")[1];
+        if (jpeg) {
+          parts.push({ text: `[FRAME at ${safeTimestamps[idx]}s]` });
+          parts.push({ inlineData: { mimeType: "image/jpeg", data: jpeg } });
+        }
+      } catch {
+        // drawImage failed — skip this frame silently
+      }
+      idx++;
+      seekNext();
+    });
+
+    video.addEventListener("error", () => { cleanup(); resolve(parts); });
+
+    // Timeout safety — if video never loads, resolve with empty
+    const timeout = setTimeout(() => { cleanup(); resolve(parts); }, 15000);
+    video.addEventListener("loadedmetadata", () => {
+      clearTimeout(timeout);
+      seekNext();
+    });
+
+    video.src = url;
+    video.load();
+  });
 }
 
 // ─── Ref image helpers ────────────────────────────────────────────────────────
@@ -1056,6 +1135,17 @@ export default function App() {
         setAnalyzeStep("frames");
         let autoFrames: FrameExtraction[]=[],duration=30;
         try { const fr=await callGeminiDirect(frameExtractionSystem(),[{text:"Extract 8 key frames:"},videoPart]); autoFrames=fr?.frames||[]; duration=fr?.duration_seconds||30; } catch {}
+
+        // Extract actual frame images at Gemini's chosen timestamps (non-blocking fallback)
+        let extractedFrameParts: any[] = [];
+        try {
+          const timestamps = autoFrames.map(f => f.timestamp_seconds).filter(t => typeof t === "number");
+          if (timestamps.length > 0) {
+            setAnalyzeStep("extracting");
+            extractedFrameParts = await extractFramesFromVideo(file, timestamps, duration);
+          }
+        } catch { /* silent fallback — analysis continues without frames */ }
+
         setAnalyzeStep("hook");
         let hookData: any={};
         try { hookData=await callGeminiDirect(hookDetectionSystem(),[{text:`Frames:${JSON.stringify(autoFrames)}.Context:${cfg.context}.Find hook:`},videoPart]); } catch {}
@@ -1063,7 +1153,10 @@ export default function App() {
         if(cfg.manual_frames.length>0){ for(const mf of cfg.manual_frames){ manualParts.push({text:`Manual:${mf.name}`}); manualParts.push({inlineData:{mimeType:mf.type,data:await fileToBase64(mf)}}); } }
         setAnalyzeStep("analyzing");
         const refParts=buildReferenceParts();
-        const dna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,manualParts.length>0,refParts.length>0),[...refParts,...(manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
+        const frameParts = extractedFrameParts.length > 0
+          ? [{text:"### EXTRACTED FRAMES — key moments at exact timestamps:"},...extractedFrameParts]
+          : [];
+        const dna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,manualParts.length>0||frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
         setAnalyzeStep("saving");
         saveLib([...lib,{...dna,id:Date.now()+Math.random(),tier:cfg.tier,ad_type:cfg.ad_type,upload_context:cfg.context,file_name:file.name,added_at:new Date().toISOString(),creative_id:cfg.creative_id,parent_id:cfg.parent_id,auto_frames:autoFrames,manual_frames:cfg.manual_frames.map(f=>f.name)}]);
         setAnalyzeStep("");
