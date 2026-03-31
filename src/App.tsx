@@ -239,7 +239,7 @@ function pickRelevantRefs(vi: VisualIdentity): any[] {
 
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 const BIOME_GUIDE = `BIOMES: Foggy Forest(grey/white atmospheric fog,dark pines,grey road—NOT snow), Desert(tan sand,blue sky), Water(grey bridge over blue water), Bunker(grey concrete tunnel,pipes,industrial), Cyber-City(grey metal,orange/blue neon), Volcanic(red/orange lava,black rocks), Snow(white snow ground), Toxic(purple paths,green slime), Meadow(green hills,grey brick bridge)`;
-const CHAMPION_GUIDE = `CHAMPIONS: Captain Kaboom(SMALL skeleton pirate,mushroom hat,dual pistols), Gold Golem(LARGE golden muscular humanoid), Caveman(blue-skin,blonde,club), Mobzilla(purple/yellow robotic T-Rex), Nexus(blue/white/orange mech,orange sword), Red Hulk(large red humanoid), Kraken(red octopus), Femme Zombie(crawling female zombie boss), Yellow Normie(small yellow round—BOSS ENEMY), Unknown`;
+const CHAMPION_GUIDE = `CHAMPIONS (ONLY these exist in Mob Control — NEVER invent new ones): Captain Kaboom(SMALL skeleton pirate,mushroom hat,dual pistols), Gold Golem(LARGE golden muscular humanoid), Caveman(blue-skin,blonde,club), Mobzilla(purple/yellow robotic T-Rex), Nexus(blue/white/orange mech,orange sword), Red Hulk(large red humanoid), Kraken(red octopus), Femme Zombie(crawling female zombie boss), Yellow Normie(small yellow round—BOSS ENEMY), Unknown(generic enemy tower). If a champion name is not on this list, use Unknown and draw a generic enemy tower/boss. NEVER invent champion appearances or names.`;
 const GATE_GUIDE = `GATES: Multiplication(X value rect), Addition(+ value rect), Death(RED rect+SKULL kills ALL), Dynamic(combine when structures broken). Report ONLY gates you see.`;
 const HOOK_GUIDE = `HOOK: EXACT SECOND thumb stops scrolling. NEVER 0 unless frame-0 drama. hook_timing_seconds=REAL SECOND (2,4,8) NEVER fraction.`;
 const TIMESTAMP_RULES = `TIMESTAMPS: Real seconds only (0,2,5,8,14,22). NEVER fractions (0.03,0.28). 30s video midpoint=15.`;
@@ -273,31 +273,64 @@ Return ONLY valid JSON:
 
 const imagePromptFn = (concept: Concept, scene: "start"|"middle"|"end", continuityNote?: string) => {
   const vi = concept.visual_identity;
-  const sceneDesc = { start: "OPENING: Player cannon at bottom center. Small mob wave just launched toward first gate. Enemy base visible far at top with full health bar. Very few mobs — start of the ad.", middle: "MID-BATTLE: Massive swarm of player mobs completely fills the center lane after passing multiplier gates. Overwhelming mob count. Cannon still at bottom center. Multiple gates ahead.", end: "DRAMATIC ALMOST-WIN / FAIL: Player mob count nearly wiped out — only a tiny cluster remains. Enemy boss still standing with paper-thin health sliver. Maximum tension before defeat." }[scene];
+  const chain: string[] = (concept as any).unit_evolution_chain || [];
+  const unitAtScene = {
+    start: chain[0] || "basic mob",
+    middle: chain[Math.floor(chain.length / 2)] || chain[0] || "evolved mob",
+    end: chain[chain.length - 1] || chain[0] || "final evolved mob",
+  }[scene];
+
+  const sceneDesc = {
+    start: `OPENING SCENE — game state at start of ad:
+- Player cannon at bottom center, just fired first shot
+- VERY FEW player mobs (5-10 blobs) marching toward the FIRST gate ahead
+- First gate clearly visible and readable in the center lane
+- Enemy base visible far at top with FULL health bar (completely filled)
+- Unit type: ${unitAtScene} — small, basic blobs at this stage, NO upgrades yet
+- This is before any gate has been passed — the lane is mostly empty`,
+    middle: `MID-BATTLE SCENE — game state after passing several gates:
+- Massive swarm of player mobs FLOODS the center lane — hundreds of blobs
+- Player mobs have visually UPGRADED: they now look like ${unitAtScene} — larger, evolved, different shape from start
+- 1-2 gates still ahead, partially passed
+- Enemy mobs visible near the top, outnumbered
+- Enemy boss still standing with ~50% health bar remaining
+- Gates show multiplier values — some already passed (player side of lane)`,
+    end: `DRAMATIC ALMOST-WIN / FAIL — final game state:
+- Player has reached the final evolved unit: ${unitAtScene}
+- Only a TINY cluster of player mobs remains (3-8 blobs) — almost wiped out
+- Enemy boss at the top with a paper-thin sliver of health remaining (1-5 HP)
+- Maximum tension — player army nearly destroyed, victory just out of reach
+- No gates remaining ahead — this is the final confrontation`,
+  }[scene];
+
   const biomeRules: Record<string, string> = {
-    "Bunker": "ENVIRONMENT: Grey concrete walls both sides, metal ceiling with industrial pipes, fluorescent strips, dark tunnel. NO lava, NO neon, NO outdoor sky, NO trees, NO sand, NO space.",
-    "Desert": "ENVIRONMENT: Tan/beige sand dunes both sides, bright warm sunlight, blue sky, sparse dry brush. NO concrete walls, NO neon, NO fog, NO lava.",
-    "Foggy Forest": "ENVIRONMENT: Dense grey/white atmospheric fog fills background, dark green pine trees barely visible through mist, grey asphalt road. FOG IS NOT SNOW. NO lava, NO neon, NO bunker walls.",
-    "Volcanic": "ENVIRONMENT: Red/orange glowing lava flows both sides, dark black cracked rocks, orange glow. NO concrete, NO neon, NO trees, NO sand.",
+    "Bunker": "ENVIRONMENT: Grey concrete walls both sides, metal ceiling with industrial pipes, fluorescent strips, dark tunnel. NO lava, NO neon, NO outdoor sky, NO trees, NO sand, NO desert.",
+    "Desert": "ENVIRONMENT: Tan/beige sand dunes both sides, bright warm sunlight, blue sky, sparse dry brush. NO concrete walls, NO neon, NO fog, NO lava, NO snow, NO water.",
+    "Foggy Forest": "ENVIRONMENT: Dense grey/white atmospheric fog fills background, dark green pine trees barely visible through mist, grey asphalt road. FOG IS NOT SNOW. NO lava, NO neon, NO bunker walls, NO desert sand.",
+    "Volcanic": "ENVIRONMENT: Red/orange glowing lava flows both sides, dark black cracked rocks, strong orange glow. NO concrete, NO neon, NO trees, NO sand, NO desert.",
     "Water": "ENVIRONMENT: Grey elevated bridge/path over clear blue water visible both sides. NO lava, NO neon, NO concrete walls, NO sand.",
-    "Cyber-City": "ENVIRONMENT: Grey metal industrial path, orange and blue neon tech structures both sides, futuristic city backdrop. NO lava, NO sand, NO trees, NO concrete bunker.",
-    "Meadow": "ENVIRONMENT: Rolling green hills both sides, scattered leafy trees, grey brick bridge/path, bright blue sky. NO lava, NO neon, NO concrete, NO fog.",
-    "Snow": "ENVIRONMENT: White snow covering ground and surroundings, icy frozen structures, blue-white cold lighting. NO lava, NO neon, NO sand, NO fog.",
-    "Toxic": "ENVIRONMENT: Purple crystalline ground paths, green glowing slime pools both sides, luminescent toxic crystals. NO lava, NO concrete, NO sand, NO neon tech.",
+    "Cyber-City": "ENVIRONMENT: Grey metal industrial path, orange and blue neon tech structures both sides, futuristic city backdrop. NO lava, NO sand, NO trees, NO concrete bunker, NO desert.",
+    "Meadow": "ENVIRONMENT: Rolling green hills both sides, scattered leafy trees, grey brick bridge/path, bright blue sky. NO lava, NO neon, NO concrete, NO fog, NO desert.",
+    "Snow": "ENVIRONMENT: White snow covering ground, icy frozen structures, blue-white cold lighting. NO lava, NO neon, NO sand, NO fog, NO desert.",
+    "Toxic": "ENVIRONMENT: Purple crystalline ground paths, green glowing slime pools both sides, luminescent toxic crystals. NO lava, NO concrete, NO sand, NO neon tech, NO desert.",
   };
-  const biomeRule = biomeRules[vi.environment] || `ENVIRONMENT: ${vi.environment} biome only.`;
+  const biomeRule = biomeRules[vi.environment] || `ENVIRONMENT: ${vi.environment} setting. This is NOT a desert. Draw the environment exactly as described.`;
+
+  // Cannon is always a ground-based shooter — never a vehicle like a tank
+  const cannonNote = `PLAYER CANNON: A stationary ground-based cannon shooting blobs — it is called "${vi.cannon_type}" but it is ALWAYS a cannon, NEVER a vehicle, NEVER a tank, NEVER a car. It fires player mobs upward. Positioned at bottom center.`;
+
   return [
     "Mob Control mobile game screenshot. MATCH the MOC reference images above EXACTLY in art style, 3D render quality, colour palette, and game aesthetic.",
     "", sceneDesc, "", biomeRule, "",
-    `PLAYER CANNON: ${vi.cannon_type} — ${vi.player_champion||"standard cannon"} — bottom center of screen`,
-    `ENEMY BOSS: ${vi.enemy_champion||"Yellow Normie boss"} — visible at top`,
-    `PLAYER MOBS: ${vi.player_mob_color} round blob creatures — small, cartoonish, 3D`,
-    `ENEMY MOBS: ${vi.enemy_mob_color} round blob creatures`,
-    `GATES: ${(vi.gate_values||[]).join(", ")} — large flat coloured rectangles spanning full lane width, bold white text showing value`,
+    cannonNote,
+    `ENEMY BOSS: ${vi.enemy_champion||"generic enemy boss"} at top of lane. IMPORTANT: Only draw champions that actually exist in Mob Control. If the champion name is unfamiliar, draw a generic large enemy boss tower instead — do NOT invent champion appearances.`,
+    `PLAYER MOBS: ${vi.player_mob_color} round blob creatures — small, cartoonish, 3D. Current evolution stage: ${unitAtScene}.`,
+    `ENEMY MOBS: ${vi.enemy_mob_color} round blob creatures near the top`,
+    `GATES: ${(vi.gate_values||[]).join(", ")} — large flat rectangular gates spanning full lane width, bold white text. Gates are flat signs, NOT 3D structures.`,
     `LIGHTING: ${vi.lighting} | MOOD: ${vi.mood_notes}`,
     continuityNote ? `ASSET CONTINUITY: ${continuityNote}` : "",
-    "", "COMPOSITION: Cinematic 3/4 top-down angle. Cannon bottom center. Path up center of screen. Gates large and readable. NO HUD, NO score text, NO UI, NO watermarks.",
-    "ART STYLE: Match exact 3D cartoon render style from reference images — same colour saturation, same mob blob design, same gate rectangle style.",
+    "", "COMPOSITION: Cinematic 3/4 top-down angle. Cannon at bottom center. Lane runs up center. Gates clearly readable. NO HUD overlay, NO score counter, NO hearts UI, NO watermarks.",
+    "ART STYLE: Exact 3D cartoon render style from reference images — same colour saturation, same mob blob shape, same gate rectangle style. Match references precisely.",
   ].filter(Boolean).join("\n");
 };
 
@@ -382,11 +415,13 @@ function AnalysisProgressPanel({ step, fileName, error }: { step: string; fileNa
   );
 }
 
-// ─── #8 Reference Drop Zone ───────────────────────────────────────────────────
-function ReferenceDropZone({ onRef, currentRef, onClear }: {
+// ─── #8 Reference Zone (merged: file drop + creative ID) ─────────────────────
+function ReferenceDropZone({ onRef, currentRef, onClear, iterateFrom, onIterateFrom }: {
   onRef: (data: { base64: string; mimeType: string; name: string }) => void;
   currentRef: { base64: string; mimeType: string; name: string } | null;
   onClear: () => void;
+  iterateFrom: string;
+  onIterateFrom: (v: string) => void;
 }) {
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -395,35 +430,56 @@ function ReferenceDropZone({ onRef, currentRef, onClear }: {
     const base64 = await fileToBase64(file);
     onRef({ base64, mimeType: file.type, name: file.name });
   };
-  if (currentRef) {
-    return (
-      <div style={{ marginBottom: 10, padding: "9px 14px", background: D.purpleBg, border: `1px solid ${D.purpleBdr}`, borderRadius: 8, display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{ fontSize: 16, flexShrink: 0 }}>{currentRef.mimeType.startsWith("image/") ? "🖼" : "🎬"}</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 11, fontWeight: 500, color: D.purple, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{currentRef.name}</div>
-          <div style={{ fontSize: 10, color: D.textDim, marginTop: 1 }}>Visual reference · DNA patterns stay primary</div>
-        </div>
-        <button onClick={onClear} style={{ background: "none", border: "none", color: D.textDim, cursor: "pointer", fontSize: 16, padding: "0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
-      </div>
-    );
-  }
+  const hasAnyRef = currentRef || iterateFrom.trim();
   return (
-    <>
+    <div style={{ marginBottom: 10, borderRadius: 8, border: `1.5px solid ${dragging ? D.purple : hasAnyRef ? D.purpleBdr : D.border2}`, background: hasAnyRef ? D.purpleBg : "transparent", transition: "border-color .15s, background .15s", overflow: "hidden" }}>
       <input ref={inputRef} type="file" accept="image/*,video/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); e.target.value = ""; }} />
+
+      {/* Drop area */}
       <div
         onDragOver={e => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files?.[0]; if (f) processFile(f); }}
-        onClick={() => inputRef.current?.click()}
-        style={{ marginBottom: 10, padding: "10px 14px", borderRadius: 8, cursor: "pointer", border: `1.5px dashed ${dragging ? D.purple : D.border2}`, background: dragging ? D.purpleBg : "transparent", display: "flex", alignItems: "center", gap: 10, transition: "border-color .15s, background .15s" }}
+        onClick={() => !currentRef && inputRef.current?.click()}
+        style={{ padding: "9px 14px", display: "flex", alignItems: "center", gap: 10, cursor: currentRef ? "default" : "pointer" }}
       >
-        <div style={{ fontSize: 16, opacity: 0.45 }}>🖼</div>
-        <div>
-          <div style={{ fontSize: 11, color: dragging ? D.purple : D.textMuted, fontWeight: 500 }}>{dragging ? "Drop to add reference" : "Drop a reference image or video"}</div>
-          <div style={{ fontSize: 10, color: D.textDim, marginTop: 1 }}>Optional · Levelly DNA stays primary</div>
-        </div>
+        {currentRef ? (
+          <>
+            <div style={{ fontSize: 15, flexShrink: 0 }}>{currentRef.mimeType.startsWith("image/") ? "🖼" : "🎬"}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 11, fontWeight: 500, color: D.purple, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{currentRef.name}</div>
+              <div style={{ fontSize: 10, color: D.textDim, marginTop: 1 }}>Visual ref · DNA primary</div>
+            </div>
+            <button onClick={e => { e.stopPropagation(); onClear(); }} style={{ background: "none", border: "none", color: D.textDim, cursor: "pointer", fontSize: 14, padding: "0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 15, opacity: dragging ? 1 : 0.4 }}>🖼</div>
+            <div style={{ fontSize: 11, color: dragging ? D.purple : D.textMuted, fontWeight: 500 }}>
+              {dragging ? "Drop to add visual reference" : "Drop image or video reference"}
+            </div>
+          </>
+        )}
       </div>
-    </>
+
+      {/* Divider + creative ID input */}
+      <div style={{ borderTop: `0.5px solid ${hasAnyRef ? D.purpleBdr : D.border2}`, padding: "7px 14px", display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 9, fontWeight: 600, color: D.textDim, letterSpacing: "0.08em", flexShrink: 0 }}>ITERATE FROM</span>
+        {iterateFrom.trim() ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, background: `${D.purpleBdr}22`, border: `0.5px solid ${D.purpleBdr}`, borderRadius: 5, padding: "2px 8px", flex: 1 }}>
+            <span style={{ fontSize: 11, color: D.purple, fontWeight: 500, flex: 1 }}>{iterateFrom.trim()}</span>
+            <button onClick={() => onIterateFrom("")} style={{ background: "none", border: "none", color: D.textDim, cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1 }}>✕</button>
+          </div>
+        ) : (
+          <input
+            style={{ ...inputStyle, flex: 1, fontSize: 11, padding: "4px 8px", background: "transparent", border: "none", outline: "none" }}
+            placeholder="Library ID, e.g. CT43"
+            value={iterateFrom}
+            onChange={e => onIterateFrom(e.target.value)}
+          />
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1118,26 +1174,9 @@ export default function App() {
                 <textarea style={{ width:"100%",boxSizing:"border-box",fontSize:14,padding:"9px 11px",background:"transparent",border:"none",minHeight:64,resize:"vertical",outline:"none",fontFamily:"inherit",color:D.text,lineHeight:1.6 } as React.CSSProperties}
                   placeholder="Describe your idea — biome, hook type, emotional arc, network target…" value={briefCtx} onChange={e=>setBriefCtx(e.target.value)} />
               </div>
-              {/* ── #8 Reference drop zone ── */}
-              <div style={{ padding:"0 16px 4px" }}>
-                <ReferenceDropZone onRef={setBriefRef} currentRef={briefRef} onClear={() => setBriefRef(null)} />
-              </div>
-              <div style={{ padding:"4px 16px 12px" }}>
-                <div style={{ fontSize:9,letterSpacing:".1em",color:D.textMuted,marginBottom:6,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap" as const }}>
-                  <svg width="10" height="10" viewBox="0 0 16 16" fill={D.textMuted}><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
-                  ITERATE FROM <span style={{ fontSize:9,color:D.textDim,fontWeight:400,letterSpacing:0 }}>— optional. MOC DNA is the primary guide.</span>
-                </div>
-                <div style={{ display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" as const }}>
-                  {iterateFrom.trim()&&(
-                    <div style={{ display:"flex",alignItems:"center",gap:6,background:D.purpleBg,border:`0.5px solid ${D.purpleBdr}`,borderRadius:6,padding:"4px 10px" }}>
-                      <div style={{ width:16,height:16,borderRadius:3,background:D.purpleBdr,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:"#fff",flexShrink:0 }}>ref</div>
-                      <span style={{ fontSize:11,color:D.purple }}>{iterateFrom.trim()}</span>
-                      <span style={{ fontSize:10,color:D.textDim }}>· MOC DNA primary</span>
-                      <button onClick={()=>setIterateFrom("")} style={{ fontSize:9,color:D.textDim,background:"none",border:"none",cursor:"pointer" }}>✕</button>
-                    </div>
-                  )}
-                  <input style={{ ...inputStyle,width:iterateFrom.trim()?"140px":"220px",fontSize:11 }} placeholder="Library ID, e.g. CT43" value={iterateFrom} onChange={e=>setIterateFrom(e.target.value)} />
-                </div>
+              {/* ── #8 Reference + iterate from (merged) ── */}
+              <div style={{ padding:"0 16px 8px" }}>
+                <ReferenceDropZone onRef={setBriefRef} currentRef={briefRef} onClear={() => setBriefRef(null)} iterateFrom={iterateFrom} onIterateFrom={setIterateFrom} />
               </div>
               <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderTop:`0.5px solid ${D.border}`,flexWrap:"wrap" as const,gap:8 }}>
                 <div style={{ display:"flex",gap:6,flexWrap:"wrap" as const }}>
