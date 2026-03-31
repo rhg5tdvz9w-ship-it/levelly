@@ -1,7 +1,6 @@
 import type { Handler } from "@netlify/functions";
 import { getStore } from "@netlify/blobs";
 
-// ── Spend data patch map ──────────────────────────────────────────────────────
 const SPEND_PATCH: Record<string, object> = {
   "Mob Control-CN28 polished version_Video 02.mp4": {
     spend_tier: "1M", spend_window_days: 90,
@@ -18,13 +17,13 @@ const SPEND_PATCH: Record<string, object> = {
   "MOC_9876_CY38-CT43_1080x1920_EN.mp4": {
     spend_tier: "sub100K", spend_window_days: null,
     spend_networks: ["AppLovin"],
-    spend_notes: "Side cam iteration of CX18. Barely spending. Custom cam hurt performance vs default cam here.",
+    spend_notes: "Side cam iteration of CX18. Barely spending.",
     iteration_of: "CX18 (cam)",
   },
   "MOC_10218_DA01-CX25_1080x1920_EN.mp4": {
     spend_tier: "100K", spend_window_days: 30,
     spend_networks: ["AppLovin", "Voodoo Ads", "TikTok"],
-    spend_notes: "Mix of femme zombie hook (DA01/CX25) + CT43 gameplay. Multi-network performer.",
+    spend_notes: "Mix of femme zombie hook + CT43 gameplay. Multi-network performer.",
     iteration_of: "CT43 + CX18 hook",
   },
   "CZ94.mp4": {
@@ -35,12 +34,12 @@ const SPEND_PATCH: Record<string, object> = {
   "DB24.mp4": {
     spend_tier: "100K", spend_window_days: 30,
     spend_networks: ["AppLovin", "Voodoo Ads"],
-    spend_notes: "Dynamic column gate mechanic. AppLovin + Voodoo Ads.",
+    spend_notes: "Dynamic column gate mechanic.",
   },
   "CZ66.mp4": {
     spend_tier: "100K", spend_window_days: 30,
     spend_networks: ["Facebook", "TikTok"],
-    spend_notes: "Black/white/green palette, foggy forest. Desert+blue/red variant (CZ65) now top-1 FB.",
+    spend_notes: "Black/white/green palette, foggy forest.",
   },
   "CR17.mp4": {
     spend_tier: "500K", spend_window_days: 90,
@@ -56,23 +55,23 @@ const SPEND_PATCH: Record<string, object> = {
   "MOC_8810_CJ10-CJ23_1080x1920_EN.mp4": {
     spend_tier: "1M", spend_window_days: 90,
     spend_networks: ["AppLovin"],
-    spend_notes: "Old performer. AppLovin only. 2min mixes performed on Unity.",
+    spend_notes: "Old performer. AppLovin only.",
   },
   "CC21.mp4": {
     spend_tier: "1M", spend_window_days: 90,
     spend_networks: ["AppLovin"],
-    spend_notes: "Beige biome, pink/black palette. AppLovin. FF variant (CB57) → FB+Google.",
+    spend_notes: "Beige biome, pink/black palette. FF variant (CB57) → FB+Google.",
   },
   "MOC_10324_DA01-CX25-CR17_1080x1920_EN.mp4": {
     spend_tier: "100K", spend_window_days: 30,
     spend_networks: ["AppLovin"],
-    spend_notes: "Mix of 2 AppLovin performers. AppLovin only.",
+    spend_notes: "Mix of 2 AppLovin performers.",
     iteration_of: "10218 + CR17",
   },
   "CR86.mp4": {
     spend_tier: "100K", spend_window_days: 90,
     spend_networks: ["Facebook", "TikTok"],
-    spend_notes: "Default cam vs CT43 custom cam. 5x lower velocity. Hook variant → AppLovin.",
+    spend_notes: "Default cam vs CT43 custom cam. 5x lower velocity.",
     iteration_of: "CT43 (cam)",
   },
   "MOC_8924_CJ77_1080x1920_EN.mp4": {
@@ -83,25 +82,25 @@ const SPEND_PATCH: Record<string, object> = {
   "CX18.mp4": {
     spend_tier: "100K", spend_window_days: 30,
     spend_networks: ["Facebook", "Google", "TikTok", "Voodoo Ads"],
-    spend_notes: "Widest network reach of all entries. Default MOC cam.",
+    spend_notes: "Widest network reach. Default MOC cam.",
     iteration_of: "9876 (cam)",
   },
   "CZ65.mp4": {
     spend_tier: "100K", spend_window_days: 14,
     spend_networks: ["Facebook"],
-    spend_notes: "Desert + classic blue/red. Currently top-1 FB (last 2 weeks). Total spend still < CZ66 cumulative.",
+    spend_notes: "Desert + classic blue/red. Top-1 FB last 2 weeks.",
     iteration_of: "CZ66",
   },
   "CR85.mp4": {
     spend_tier: "100K", spend_window_days: 60,
     spend_networks: ["AppLovin"],
-    spend_notes: "Knight boss hook instead of skeleton. CR85 → AppLovin, CR86 → Facebook. Hook determines network.",
+    spend_notes: "Knight boss hook. CR85 → AppLovin, CR86 → Facebook.",
     iteration_of: "CR86",
   },
   "CB57.mp4": {
     spend_tier: "1M", spend_window_days: 180,
     spend_networks: ["Facebook", "Google"],
-    spend_notes: "Foggy forest biome vs CC21 beige. Better almost-win (4HP). Biome determines network.",
+    spend_notes: "Foggy forest vs CC21 beige. Better almost-win (4HP).",
     iteration_of: "CC21",
   },
 };
@@ -112,7 +111,6 @@ export const handler: Handler = async (event) => {
     const store = getStore("levelly");
     const existing = await store.get("library");
     const library: any[] = JSON.parse(existing ?? "[]");
-
     let patched = 0;
     const updated = library.map(entry => {
       const patch = SPEND_PATCH[entry.file_name];
@@ -120,7 +118,6 @@ export const handler: Handler = async (event) => {
       patched++;
       return { ...entry, ...patch };
     });
-
     await store.set("library", JSON.stringify(updated));
     return {
       statusCode: 200,
