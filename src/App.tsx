@@ -495,8 +495,13 @@ function sortLib(lib: DNAEntry[], mode: SortMode): DNAEntry[] {
   const filtered = mode === "all" ? lib : lib.filter(d => d.tier === mode);
   const active = filtered.filter(d => d.creative_status !== "fatigued");
   const fatigued = filtered.filter(d => d.creative_status === "fatigued");
-  const bySpend = (a: DNAEntry, b: DNAEntry) => (SPEND_RANK[b.spend_tier??""]??0) - (SPEND_RANK[a.spend_tier??""]??0);
-  return [...active.sort(bySpend), ...fatigued.sort(bySpend)];
+  const bySpendThenNewest = (a: DNAEntry, b: DNAEntry) => {
+    const spendDiff = (SPEND_RANK[b.spend_tier??""]??0) - (SPEND_RANK[a.spend_tier??""]??0);
+    if (spendDiff !== 0) return spendDiff;
+    // Same spend tier (or no spend) — newest first
+    return new Date(b.added_at).getTime() - new Date(a.added_at).getTime();
+  };
+  return [...active.sort(bySpendThenNewest), ...fatigued.sort(bySpendThenNewest)];
 }
 
 // ─── #7 Analysis Progress Panel ───────────────────────────────────────────────
@@ -605,8 +610,25 @@ function ReferenceDropZone({ onRef, currentRef, onClear, iterateFrom, onIterateF
 // ─── AI text enhancement (Claude via Netlify) ─────────────────────────────────
 async function enhanceText(raw: string, mode: "upload" | "brief"): Promise<string> {
   const systemPrompt = mode === "upload"
-    ? `You are a Mob Control creative analyst. The user has typed a rough note describing a video ad they're about to upload for DNA analysis. Rewrite it into a precise, structured context note for Gemini that covers: biome/environment, hook type and timing, key mechanics shown, gate sequence if mentioned, unit evolution if visible, why it's interesting or unusual. Be specific and concise — max 4 sentences. Use plain text, no bullet points. Preserve all facts the user mentioned.`
-    : `You are a Mob Control creative producer. The user has typed a rough brief idea. Expand it into a clear structured brief for Gemini that specifies: biome, hook type, target network, emotional arc, key mechanic, unit evolution direction, and what makes this concept distinctive vs existing library. Be specific and actionable — max 5 sentences. Use plain text, no bullet points. Preserve all facts and preferences the user mentioned.`;
+    ? `You are a Mob Control creative analyst helping structure upload notes for Gemini DNA analysis.
+
+RULES — follow strictly:
+- PRESERVE every fact, detail, and observation the user wrote. Do not change, remove, or contradict anything they said.
+- ONLY add: MOC-specific terminology where appropriate (biome name, hook type label, gate type clarification), and structure for clarity.
+- Do NOT invent new creative directions, mechanics, or details not mentioned by the user.
+- Output: plain text, max 4 sentences, no bullet points.
+
+Your job is to make the user's note more precise for Gemini — not to rewrite it.`
+    : `You are a Mob Control creative producer helping structure brief prompts for generation.
+
+RULES — follow strictly:
+- PRESERVE the user's exact creative intent, all specific details, unit names, mechanics, and preferences. Do not change or replace anything they said.
+- ONLY add: the specific biome name if mentioned vaguely, target network if implied, MOC gate terminology (+N = cannon upgrade, xN = mob multiplier) if gates are mentioned.
+- Do NOT invent new biomes, hooks, champions, mechanics, camera rules, or creative directions not mentioned by the user.
+- Do NOT expand the scope, add cinematic language, or make it more elaborate than the user intended.
+- Output: plain text, max 5 sentences, no bullet points.
+
+Your job is to clarify and structure the user's idea — not to creatively reimagine it.`;
   const r = await fetch("/api/enhance", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1205,16 +1227,20 @@ export default function App() {
           : [];
         const dna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
         setAnalyzeStep("saving");
-        // Merge canvas-extracted images into auto_frames for filmstrip display
-        const autoFramesWithImages: FrameExtraction[] = autoFrames.map((f, i) => {
-          const imagePart = extractedFrameParts.find((_: any, pi: number) =>
-            extractedFrameParts[pi]?.text === `[FRAME at ${f.timestamp_seconds}s]`
-              ? false : pi % 2 === 1 && extractedFrameParts[pi - 1]?.text === `[FRAME at ${f.timestamp_seconds}s]`
-          );
-          return imagePart?.inlineData?.data
-            ? { ...f, image_data: imagePart.inlineData.data }
-            : f;
-        });
+        // Build a lookup: timestamp → base64 image from extractedFrameParts
+        // extractedFrameParts alternates: [{text:"[FRAME at Xs]"}, {inlineData:{...}}, ...]
+        const frameImageMap: Record<number, string> = {};
+        for (let pi = 0; pi < extractedFrameParts.length - 1; pi += 2) {
+          const label = extractedFrameParts[pi]?.text ?? "";
+          const match = label.match(/\[FRAME at ([\d.]+)s\]/);
+          const imgData = extractedFrameParts[pi + 1]?.inlineData?.data;
+          if (match && imgData) frameImageMap[parseFloat(match[1])] = imgData;
+        }
+        const autoFramesWithImages: FrameExtraction[] = autoFrames.map(f =>
+          frameImageMap[f.timestamp_seconds]
+            ? { ...f, image_data: frameImageMap[f.timestamp_seconds] }
+            : f
+        );
         const newId = Date.now() + Math.random();
         saveLib([...lib,{...dna,id:newId,tier:cfg.tier,ad_type:cfg.ad_type,upload_context:cfg.context,file_name:file.name,added_at:new Date().toISOString(),creative_id:cfg.creative_id,parent_id:cfg.parent_id,auto_frames:autoFramesWithImages,manual_frames:cfg.manual_frames.map(f=>f.name)}]);
         setLastAnalyzedId(newId);
@@ -1352,7 +1378,7 @@ export default function App() {
             <AnalysisProgressPanel step={analyzeStep} fileName={analyzeFileName} error={analyzeErr} />
           )}
 
-          {/* ── Analysis complete: show result inline ── */}
+          {/* ── Analysis complete: full inline report ── */}
           {!analyzing && !analyzeErr && lastAnalyzedId && (() => {
             const entry = lib.find(e => e.id === lastAnalyzedId);
             if (!entry) return null;
@@ -1365,24 +1391,53 @@ export default function App() {
                     <span style={{ fontSize: 11, color: accentColor }}>✓</span>
                     <span style={{ fontSize: 13, fontWeight: 500, color: D.text }}>Analysis complete</span>
                     <span style={pill(TIER_STYLE[entry.tier].bg, TIER_STYLE[entry.tier].text, TIER_STYLE[entry.tier].border)}>{entry.tier}</span>
+                    {entry.ad_type !== "moc" && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)}>{entry.ad_type}</span>}
                   </div>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <button onClick={() => { setLibPanelOpen(true); setLastAnalyzedId(null); }} style={{ ...btnPri, fontSize: 11, padding: "5px 12px" }}>View in library →</button>
+                    <button onClick={() => setLibPanelOpen(true)} style={{ ...btnSec, fontSize: 11, padding: "5px 12px" }}>Also in library</button>
                     <button onClick={() => setLastAnalyzedId(null)} style={{ background: "none", border: "none", color: D.textDim, cursor: "pointer", fontSize: 13, padding: "0 4px" }}>✕</button>
                   </div>
                 </div>
-                {/* Key fields */}
-                <div style={{ padding: "12px 16px" }}>
-                  <div style={{ fontSize: 15, fontWeight: 600, color: D.text, marginBottom: 4 }}>{entry.creative_id ? `${entry.creative_id} — ` : ""}{entry.title}</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6, marginBottom: entry.auto_frames?.some(f => f.image_data) ? 12 : 0 }}>
-                    {[{l:"Biome",v:entry.biome},{l:"Hook type",v:entry.hook_type},{l:"Hook at",v:entry.hook_timing_seconds!=null?`${entry.hook_timing_seconds}s`:"—"},{l:"Pacing",v:entry.pacing}].map(({l,v})=>(
+
+                <div style={{ padding: "16px 16px 20px" }}>
+                  {/* Title */}
+                  <div style={{ fontSize: 16, fontWeight: 600, color: D.text, marginBottom: 12 }}>
+                    {entry.creative_id ? <><span style={{ color: accentColor }}>{entry.creative_id}</span> — </> : ""}{entry.title}
+                  </div>
+
+                  {/* Key metrics */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 6, marginBottom: 14 }}>
+                    {[
+                      {l:"Biome",v:entry.biome},
+                      {l:"Hook type",v:entry.hook_type},
+                      {l:"Hook at",v:entry.hook_timing_seconds!=null?`${entry.hook_timing_seconds}s`:"—"},
+                      {l:"Pacing",v:entry.pacing},
+                      {l:"Loss event",v:entry.loss_event_type},
+                      {l:"Swarm peak",v:entry.swarm_peak_moment_seconds!=null?`${entry.swarm_peak_moment_seconds}s`:"—"},
+                    ].map(({l,v})=>(
                       <div key={l} style={metricStyle}><div style={metricLabel}>{l}</div><div style={{ fontSize:11,fontWeight:500,color:D.text }}>{v??"—"}</div></div>
                     ))}
                   </div>
+
+                  {/* Unit evolution chain */}
+                  {entry.unit_evolution_chain?.length > 0 && (
+                    <div style={{ marginBottom: 14 }}>
+                      <span style={labelStyle}>Unit evolution chain</span>
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const, alignItems: "center" }}>
+                        {entry.unit_evolution_chain.map((step, i) => (
+                          <span key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            <span style={{ fontSize: 11, padding: "2px 8px", background: D.blueBg, color: D.blue, borderRadius: 20, border: `0.5px solid ${D.blueDark}` }}>{step}</span>
+                            {i < entry.unit_evolution_chain.length - 1 && <span style={{ color: D.textDim, fontSize: 10 }}>→</span>}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Filmstrip */}
                   {entry.auto_frames?.some(f => f.image_data) && (
-                    <div>
-                      <span style={{ ...labelStyle, marginBottom: 8 }}>Extracted frames</span>
+                    <div style={{ marginBottom: 14 }}>
+                      <span style={labelStyle}>Extracted frames</span>
                       <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4 }}>
                         {entry.auto_frames.filter(f => f.image_data).map((f, fi) => (
                           <div key={fi} style={{ flexShrink: 0, position: "relative" as const }}>
@@ -1394,6 +1449,38 @@ export default function App() {
                           </div>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {/* Emotional beats */}
+                  {entry.emotional_beats?.length > 0 && (
+                    <div style={{ marginBottom: 14 }}>
+                      <span style={labelStyle}>Emotional beats</span>
+                      <div style={{ display: "flex", flexDirection: "column" as const, gap: 3 }}>
+                        {entry.emotional_beats.map((b, i) => (
+                          <div key={i} style={{ fontSize: 11, padding: "5px 8px", background: D.surface2, borderRadius: 6, display: "flex", gap: 8 }}>
+                            <span style={{ fontWeight: 500, color: D.blue, minWidth: 28, flexShrink: 0 }}>{b.timestamp_seconds}s</span>
+                            <span style={{ color: D.text, flex: 1 }}>{b.event}</span>
+                            <span style={{ color: D.textDim, fontStyle: "italic", flexShrink: 0 }}>{b.emotion}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Why it works */}
+                  {entry.why_it_works && (
+                    <div style={{ marginBottom: 10 }}>
+                      <span style={labelStyle}>Why it works</span>
+                      <p style={{ margin: 0, fontSize: 11, color: D.textMuted, lineHeight: 1.6 }}>{entry.why_it_works}</p>
+                    </div>
+                  )}
+
+                  {/* Replication instructions */}
+                  {entry.replication_instructions && (
+                    <div>
+                      <span style={labelStyle}>Replication instructions</span>
+                      <p style={{ margin: 0, fontSize: 11, color: D.textMuted, lineHeight: 1.6 }}>{entry.replication_instructions}</p>
                     </div>
                   )}
                 </div>
