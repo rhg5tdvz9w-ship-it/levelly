@@ -50,6 +50,12 @@ interface NetworkAdaptations { AppLovin?: string; Facebook?: string; Google?: st
 interface Concept {
   title: string; is_data_backed: boolean; is_experimental?: boolean; experimental_note?: string;
   objective: string; target_segment: string; player_motivation: string;
+  hook_description?: string;
+  unit_evolution_chain?: string[];
+  cannon_count_progression?: string;
+  lane_design?: string;
+  upgrade_triggers?: string[];
+  tension_moments?: string[];
   visual_identity: VisualIdentity; layout: string;
   production_script: ScriptStep[]; performance_hooks: PerformanceHook[];
   engagement_hooks: string; quality_score: QualityScore;
@@ -394,82 +400,113 @@ ${JSON.stringify(lib, null, 2)}
 
 BRIEF: ${ctx} | SEGMENT: ${seg}${refBlock}${visualRefBlock}
 
-RULES: AppLovin=custom cam+blue+evolution. Facebook=default cam+almost-win 1-5HP+colour/biome swap. Google=almost-win+foggy forest/water. Concepts 1-2: proven biomes (Desert/Foggy Forest/Water/Bunker/Meadow). Concept 3: experimental biome (is_experimental:true).
+MOC MECHANICS TO UNDERSTAND BEFORE GENERATING:
+- CANNON EVOLUTION: Destroying a breakable obstacle on the road upgrades the cannon tier (Simple→Double→Triple→Tank→Golden Jet). Each tier looks visually distinct and fires more mobs.
+- INVESTMENT ELEMENTS (+N gates): Multiply the NUMBER OF CANNONS firing. +1 adds 1 cannon. Multiple +N gates in sequence rapidly scale firepower. Can appear anywhere on the path.
+- DANGER ELEMENTS (xN gates + enemy mobs): xN gates multiply the mob count already in the lane. Often adjacent to or guarded by enemy mobs. Can appear anywhere — sometimes on the same path as investment elements.
+- LANE ARCHITECTURE: MOC ads contain three structural elements regardless of environment — investment path (+gates), upgrade path (breakable obstacles), danger zone (xN gates/enemies). The `lane_design` field should describe HOW these elements are arranged relative to each other (e.g. "upgrade obstacle blocks the investment gate path forcing player to fight through enemy zone first") — not fixed left/right positions.
+- ALMOST-FAIL TENSION: Top performers have 2-3 near-defeat moments mid-video where mob count drops critically before recovering. This oscillating tension curve IS the emotional engine.
+- PROGRESSION = cannon tier evolution + cannon count growth (via +gates) + mob swarm density. All three must be visible and distinct across scenes.
 
-Return ONLY valid JSON — be maximally concise:
-{"analysis":{"patterns_used":string,"dna_sources":[string],"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"is_experimental":boolean,"experimental_note":string|null,"objective":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"hook_timing_seconds":number,"hook_description":string,"unit_evolution_chain":[string],"network_adaptations":{"AppLovin":string,"Facebook":string,"Google":string},"engagement_hooks":string,"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}]}`;
+NETWORK RULES: AppLovin=custom side cam+skeleton/knight hook+blue+3+ evolution steps. Facebook=default cam+almost-win 1-5HP+colour/biome swap. Google=almost-win+foggy forest/water.
+9-STEP CURVE: Pressure→Investment→Validate→Investment2→Payoff→FalseSafety→Pressure++→AlmostWin→Fail
+BIOMES (concepts 1-2): Desert, Foggy Forest, Water, Bunker, Meadow ONLY. Concept 3: experimental biome (is_experimental:true).
+
+Return ONLY valid JSON — be concise:
+{"analysis":{"patterns_used":string,"dna_sources":[string],"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"is_experimental":boolean,"experimental_note":string|null,"objective":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"hook_timing_seconds":number,"hook_description":string,"unit_evolution_chain":[string],"cannon_count_progression":string,"lane_design":string,"upgrade_triggers":[string],"tension_moments":[string],"network_adaptations":{"AppLovin":string,"Facebook":string,"Google":string},"engagement_hooks":string,"production_script":[{"time":string,"action":string,"visual_cue":string,"audio_cue":string}],"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}]}`;
 };
 
 const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", continuityNote?: string) => {
   const vi = concept.visual_identity;
-  const chain: string[] = (concept as any).unit_evolution_chain || [];
-  const hookDesc = (concept as any).hook_description || "";
+  const chain: string[] = concept.unit_evolution_chain || (concept as any).unit_evolution_chain || [];
+  const hookDesc = concept.hook_description || "";
+  const laneDesign = concept.lane_design || "";
+  const cannonCount = concept.cannon_count_progression || "";
+  const tensionMoments = concept.tension_moments || [];
+  const upgradeTriggers = concept.upgrade_triggers || [];
+
   const unitAtScene = {
-    hook:   chain[0] || "basic mob",
-    start:  chain[0] || "basic mob",
-    middle: chain[Math.floor(chain.length / 2)] || chain[0] || "evolved mob",
-    end:    chain[chain.length - 1] || chain[0] || "final evolved mob",
+    hook:   chain[0] || "Simple Cannon",
+    start:  chain[0] || "Simple Cannon",
+    middle: chain[Math.floor(chain.length / 2)] || chain[0] || "Triple Cannon",
+    end:    chain[chain.length - 1] || chain[0] || "Tank",
+  }[scene];
+
+  const cannonCountAtScene = {
+    hook: "1 cannon",
+    start: "1 cannon",
+    middle: cannonCount ? `cannon count: ${cannonCount.split("→")[1]?.trim() || "multiple cannons"}` : "3-4 cannons firing",
+    end: cannonCount ? `final count: ${cannonCount.split("→").pop()?.trim() || "maximum cannons"}` : "maximum cannons",
   }[scene];
 
   const sceneDesc = {
-    hook: `HOOK SCENE — the dramatic opening moment that stops the thumb (0-2 seconds):
-- This is the VERY FIRST FRAME of the ad — maximum visual impact
-- Hook event: ${hookDesc || "enemy boss dramatically kicks the player cannon backward"}
-- The player cannon is shown being violently knocked back or in a losing/surprised state
-- Enemy boss looms large and threatening at the top, dominant presence
-- Player mobs are few or scattered — player is clearly losing at this moment
-- DRAMATIC composition — this is the thumb-stopper, NOT a neutral game state
-- Unit type: ${unitAtScene} — basic starting units`,
-    start: `OPENING SCENE — game state at start of ad:
-- Player cannon at bottom center, just fired first shot
-- VERY FEW player mobs (5-10 blobs) marching toward the FIRST gate ahead
-- First gate clearly visible and readable in the center lane
-- Enemy base visible far at top with FULL health bar (completely filled)
-- Unit type: ${unitAtScene} — small, basic blobs at this stage, NO upgrades yet
-- This is before any gate has been passed — the lane is mostly empty`,
-    middle: `MID-BATTLE SCENE — game state after passing several gates:
-- Massive swarm of player mobs FLOODS the center lane — hundreds of blobs
-- Player mobs have visually UPGRADED to: ${unitAtScene} — larger, evolved, visually distinct from start
-- UPGRADE CONTAINERS visible on the road: 1-2 breakable crate/box objects on the lane that the mobs are about to hit or have just broken — these are the cannon upgrade pickups
-- 1-2 multiplier gates still ahead, showing values like ${(vi.gate_values||["x3","x5"]).slice(0,2).join(", ")}
-- Enemy mobs visible near the top, being overwhelmed
-- Enemy boss at ~50% health bar`,
-    end: `DRAMATIC ALMOST-WIN / FAIL — final game state:
-- Player has reached the final evolved unit: ${unitAtScene}
-- Only a TINY cluster of player mobs remains (3-8 blobs) — almost wiped out
-- Enemy boss at the top with a paper-thin sliver of health remaining (1-5 HP)
-- Maximum tension — player army nearly destroyed, victory just out of reach
-- No gates remaining ahead — this is the final confrontation`,
+    hook: `HOOK SCENE — cinematic close-up, NOT top-down:
+- Hook: ${hookDesc || "enemy boss dominates screen, player cannon tiny and threatened"}
+- Enemy boss fills 60-70% of frame
+- Player cannon at bottom, dwarfed
+- Cinematic, thumb-stopping. Match art style from scene references.`,
+
+    start: `OPENING SCENE — top-down, game start:
+- Cannon: ${unitAtScene}, single, bottom 12% center
+- 6-10 ${vi.player_mob_color} blobs, bottom 25% of lane only
+- STRUCTURAL ELEMENTS VISIBLE: ${laneDesign || "investment gates (+N) visible ahead on the path, enemy mobs forming a barrier, breakable obstacle on the road blocking progress"}
+- Investment gate (+N) clearly visible and readable ahead
+- Enemy mobs: ${vi.enemy_mob_color} blobs visible as a threat barrier
+- Enemy base: top, health bar 100% full
+- Key visual: the player faces real obstacles between them and what they need — frustration before payoff`,
+
+    middle: `MID-BATTLE SCENE — top-down, investment + tension:
+- Cannon: ${unitAtScene} (visually upgraded from start), ${cannonCountAtScene}
+- Player mobs: large ${vi.player_mob_color} swarm, 40-55% of lane — MORE than start scene
+- CANNON UPGRADE VISIBLE: ${upgradeTriggers[0] || "container recently broken, cannon transformed"} — show the evolution happened
+- ALMOST-FAIL TENSION: ${tensionMoments[0] || "mob count critically low near top — barely surviving enemy pressure"} — thin stream of mobs at the front line being depleted
+- xN gate at 35% height (${(vi.gate_values||["x3"]).find(g => g.startsWith("x")) || "x3"}): recently passed, mobs multiplied
+- Enemy base: 50% health bar
+- This shows: investment paid off AND new danger. Not just "more mobs."`,
+
+    end: `END SCENE — top-down, final confrontation:
+- Cannon: ${unitAtScene} (final evolution), ${cannonCountAtScene}
+- TINY cluster: only 3-5 ${vi.player_mob_color} blobs near top of lane
+- No gates — all passed
+- Enemy base: health bar CRITICAL — paper-thin sliver, nearly invisible
+- ${tensionMoments[tensionMoments.length-1] || "army nearly wiped, boss on last HP — maximum tension"}`,
   }[scene];
 
   const biomeRules: Record<string, string> = {
-    "Bunker": "ENVIRONMENT: Grey concrete walls both sides, metal ceiling with industrial pipes, fluorescent strips, dark tunnel. NO lava, NO neon, NO outdoor sky, NO trees, NO sand, NO desert.",
-    "Desert": "ENVIRONMENT: Tan/beige sand dunes both sides, bright warm sunlight, blue sky, sparse dry brush. NO concrete walls, NO neon, NO fog, NO lava, NO snow, NO water.",
-    "Foggy Forest": "ENVIRONMENT: Dense grey/white atmospheric fog fills background, dark green pine trees barely visible through mist, grey asphalt road. FOG IS NOT SNOW. NO lava, NO neon, NO bunker walls, NO desert sand.",
-    "Volcanic": "ENVIRONMENT: Red/orange glowing lava flows both sides, dark black cracked rocks, strong orange glow. NO concrete, NO neon, NO trees, NO sand, NO desert.",
-    "Water": "ENVIRONMENT: Grey elevated bridge/path over clear blue water visible both sides. NO lava, NO neon, NO concrete walls, NO sand.",
-    "Cyber-City": "ENVIRONMENT: Grey metal industrial path, orange and blue neon tech structures both sides, futuristic city backdrop. NO lava, NO sand, NO trees, NO concrete bunker, NO desert.",
-    "Meadow": "ENVIRONMENT: Rolling green hills both sides, scattered leafy trees, grey brick bridge/path, bright blue sky. NO lava, NO neon, NO concrete, NO fog, NO desert.",
-    "Snow": "ENVIRONMENT: White snow covering ground, icy frozen structures, blue-white cold lighting. NO lava, NO neon, NO sand, NO fog, NO desert.",
-    "Toxic": "ENVIRONMENT: Purple crystalline ground paths, green glowing slime pools both sides, luminescent toxic crystals. NO lava, NO concrete, NO sand, NO neon tech, NO desert.",
+    "Bunker": "ENVIRONMENT: Grey concrete walls both sides, industrial pipes ceiling, fluorescent strips, dark tunnel. NO lava, NO neon, NO sky, NO trees, NO sand.",
+    "Desert": "ENVIRONMENT: Tan/beige sand dunes both sides, bright sunlight, blue sky. NO concrete, NO neon, NO fog, NO lava, NO snow.",
+    "Foggy Forest": "ENVIRONMENT: Dense grey/white fog, dark pines barely visible, grey asphalt road. NOT snow. NO lava, NO neon, NO desert sand.",
+    "Volcanic": "ENVIRONMENT: Red/orange lava flows both sides, black cracked rocks, orange glow. NO concrete, NO neon, NO trees, NO sand.",
+    "Water": "ENVIRONMENT: Grey elevated bridge over clear blue water both sides. NO lava, NO neon, NO concrete, NO sand.",
+    "Cyber-City": "ENVIRONMENT: Grey metal path, orange/blue neon structures both sides. NO lava, NO sand, NO trees, NO desert.",
+    "Meadow": "ENVIRONMENT: Green hills both sides, scattered trees, grey brick path, blue sky. NO lava, NO neon, NO concrete, NO desert.",
+    "Snow": "ENVIRONMENT: White snow ground, icy structures, blue-white lighting. NO lava, NO neon, NO sand, NO desert.",
+    "Toxic": "ENVIRONMENT: Purple crystal paths, green slime pools, toxic crystals. NO lava, NO concrete, NO sand, NO desert.",
   };
-  const biomeRule = biomeRules[vi.environment] || `ENVIRONMENT: ${vi.environment} setting. This is NOT a desert. Draw the environment exactly as described.`;
+  const biomeRule = scene === "hook"
+    ? `ENVIRONMENT: Match ${vi.environment} from scene references.`
+    : (biomeRules[vi.environment] || `ENVIRONMENT: ${vi.environment}. NOT a desert.`);
 
-  // Cannon is always a ground-based shooter — never a vehicle like a tank
-  const cannonNote = `PLAYER CANNON: A stationary ground-based cannon shooting blobs — it is called "${vi.cannon_type}" but it is ALWAYS a cannon, NEVER a vehicle, NEVER a tank, NEVER a car. It fires player mobs upward. Positioned at bottom center.`;
+  const cannonNote = scene === "hook"
+    ? `PLAYER UNIT: ${unitAtScene} — match from scene references.`
+    : `PLAYER CANNON: "${vi.cannon_type}" is the upgrade tier name. Always a STATIONARY GROUND CANNON — NEVER a vehicle, NEVER a tank. Fires mobs upward. Bottom center.`;
+
+  const compositionRule = scene === "hook"
+    ? "COMPOSITION: Cinematic close-up, NOT top-down. Boss dominates frame. NO HUD."
+    : "COMPOSITION: 3/4 top-down angle. Lane center. Cannon bottom center. Follow composition above. NO HUD, NO score, NO watermarks.";
 
   return [
-    "Mob Control mobile game screenshot. MATCH the MOC reference images above EXACTLY in art style, 3D render quality, colour palette, and game aesthetic.",
+    "Mob Control mobile game screenshot. MATCH MOC reference images above EXACTLY in art style, 3D quality, colour palette.",
     "", sceneDesc, "", biomeRule, "",
     cannonNote,
-    `ENEMY BOSS: ${vi.enemy_champion||"generic enemy boss"} at top of lane. IMPORTANT: Only draw champions that actually exist in Mob Control. If the champion name is unfamiliar, draw a generic large enemy boss tower instead — do NOT invent champion appearances.`,
-    `PLAYER MOBS: ${vi.player_mob_color} round blob creatures — small, cartoonish, 3D. Current evolution stage: ${unitAtScene}.`,
-    `ENEMY MOBS: ${vi.enemy_mob_color} round blob creatures near the top`,
-    `GATES: ${(vi.gate_values||[]).join(", ")} — large flat rectangular gates spanning full lane width, bold white text. Gates are flat signs, NOT 3D structures.`,
+    scene !== "hook" ? `ENEMY BOSS: ${vi.enemy_champion||"generic boss tower"} at top. Only real MOC champions — unknown names = generic tower.` : "",
+    scene !== "hook" ? `PLAYER MOBS: ${vi.player_mob_color} round blobs, cartoonish 3D. Stage: ${unitAtScene}.` : "",
+    scene !== "hook" ? `ENEMY MOBS: ${vi.enemy_mob_color} blobs near top.` : "",
+    scene !== "hook" ? `GATES: ${(vi.gate_values||[]).join(", ")} — flat rectangular signs, full lane width, bold white text. FLAT SIGNS, not 3D.` : "",
     `LIGHTING: ${vi.lighting} | MOOD: ${vi.mood_notes}`,
-    continuityNote ? `ASSET CONTINUITY: ${continuityNote}` : "",
-    "", "COMPOSITION: Cinematic 3/4 top-down angle. Cannon at bottom center. Lane runs up center. Gates clearly readable. NO HUD overlay, NO score counter, NO hearts UI, NO watermarks.",
-    "ART STYLE: Exact 3D cartoon render style from reference images — same colour saturation, same mob blob shape, same gate rectangle style. Match references precisely.",
+    continuityNote ? `CONTINUITY: ${continuityNote}` : "",
+    "", compositionRule,
+    "ART STYLE: Exact 3D cartoon from references. Same colour saturation, blob shape, gate rectangle style.",
   ].filter(Boolean).join("\n");
 };
 
@@ -1319,10 +1356,10 @@ export default function App() {
         }));
 
       const conceptDefs = [
-        { num: 1, instruction: "proven biome (Desert/Foggy Forest/Water/Bunker/Meadow), data-backed, is_experimental:false" },
-        { num: 2, instruction: "proven biome, different from concept 1, data-backed, is_experimental:false" },
-        { num: 3, instruction: "experimental biome (Cyber-City/Volcanic/Snow/Toxic), is_experimental:true" },
-        { num: 4, instruction: "wildcard/bold creative departure, any biome, is_experimental:true" },
+        { num: 1, instruction: "proven biome (Desert/Foggy Forest/Water/Bunker/Meadow), data-backed, is_experimental:false", model: "sonnet" },
+        { num: 2, instruction: "proven biome, different from concept 1, data-backed, is_experimental:false", model: "sonnet" },
+        { num: 3, instruction: "experimental biome (Cyber-City/Volcanic/Snow/Toxic), is_experimental:true", model: "haiku" },
+        { num: 4, instruction: "wildcard/bold creative departure, any biome, is_experimental:true", model: "haiku" },
       ];
 
       // Generate analysis once with concept 1
@@ -1337,7 +1374,7 @@ export default function App() {
         const r = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ system: systemPrompt, prompt, max_tokens: 1500 }),
+          body: JSON.stringify({ system: systemPrompt, prompt, max_tokens: 1500, model: def.model }),
         });
         if (!r.ok) {
           const errData = await r.json().catch(() => ({}));
@@ -1362,11 +1399,25 @@ export default function App() {
       const concept=concepts[ci]; const vi=concept.visual_identity;
       const refParts=pickRelevantRefs(vi);
       const prevParts: any[]=[];
-      // Continuity chain: hook is rendered first (no ref), start uses hook, middle uses start, end uses middle
-      if(scene==="start"&&concept.visual_hook){ prevParts.push({text:"### HOOK SCENE — match ALL assets, environment, lighting, cannon, and art style exactly:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_hook.replace("data:image/png;base64,","")}}); }
-      if((scene==="middle"||scene==="end")&&concept.visual_start){ prevParts.push({text:"### START SCENE — match ALL assets, environment, lighting, and art style exactly:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_start.replace("data:image/png;base64,","")}}); }
-      if(scene==="end"&&concept.visual_middle){ prevParts.push({text:"### MIDDLE SCENE — also match this for additional asset consistency:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_middle.replace("data:image/png;base64,","")}}); }
-      const continuityNote=scene!=="hook"?`Match ALL visual assets from the reference scene image(s) above — same cannon model, same mob blob design, same gate style, same environment. Only the GAME STATE changes.`:undefined;
+
+      if(scene==="hook"){
+        // Hook rendered LAST — uses Start/Middle/End as style anchors
+        if(concept.visual_start){ prevParts.push({text:"### START SCENE — match art style, cannon, mobs, environment exactly:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_start.replace("data:image/png;base64,","")}}); }
+        if(concept.visual_middle){ prevParts.push({text:"### MIDDLE SCENE — also match:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_middle.replace("data:image/png;base64,","")}}); }
+        if(concept.visual_end){ prevParts.push({text:"### END SCENE — also match:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_end.replace("data:image/png;base64,","")}}); }
+      } else {
+        // Start→Middle→End chain: each scene references the previous
+        if(scene==="middle"&&concept.visual_start){ prevParts.push({text:"### START SCENE — match ALL assets exactly. Only change: mob count and HP bar:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_start.replace("data:image/png;base64,","")}}); }
+        if(scene==="end"&&concept.visual_start){ prevParts.push({text:"### START SCENE — match environment and art style:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_start.replace("data:image/png;base64,","")}}); }
+        if(scene==="end"&&concept.visual_middle){ prevParts.push({text:"### MIDDLE SCENE — match ALL assets. Only change: mob count reduced to 3-6, HP bar near empty:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_middle.replace("data:image/png;base64,","")}}); }
+      }
+
+      const continuityNote = scene === "hook"
+        ? `This is a CINEMATIC CLOSE-UP, not top-down. Match the exact art style, colours, cannon design, and mob appearance from the 3 scene references above. Only the composition and framing changes.`
+        : scene !== "start"
+          ? `Match ALL visual assets from the reference scene(s) — same cannon, same mob blob design, same gate style, same environment colours. ONLY change what the composition rules specify (mob count, HP bar).`
+          : undefined;
+
       const url=await callImageDirect(imagePromptFn(concept,scene,continuityNote),[...refParts,...prevParts]);
       setConcepts(p=>p.map((c,i)=>i===ci?{...c,[`visual_${scene}`]:url}:c));
     } catch(err: any){ alert(`Render failed: ${err.message}`); }
@@ -1688,7 +1739,7 @@ export default function App() {
                 <div style={{ display:"flex",gap:6,flexWrap:"wrap" as const }}>
                   {SEGMENTS_LIST.map(seg=><button key={seg} onClick={()=>setSegment(seg)} style={chipStyle(segment===seg)}>{seg}</button>)}
                 </div>
-                <button onClick={handleGenerateBrief} disabled={generating} style={{ ...btnPri,display:"flex",alignItems:"center",gap:6,opacity:generating?.7:1 }}>
+                <button onClick={handleGenerateBrief} disabled={generating} style={{ ...btnPri,display:"flex",alignItems:"center",gap:6,background:generating?"#1a7f37":undefined,borderColor:generating?D.greenBdr:undefined,transition:"background .3s,border-color .3s" }}>
                   {generating?<><span style={{ width:10,height:10,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.3)",borderTopColor:"#fff",display:"inline-block",animation:"spin .6s linear infinite" }} />Generating…</>:"Generate concepts ↗"}
                 </button>
               </div>
@@ -1752,6 +1803,33 @@ export default function App() {
                           </span>
                         ))}
                       </div>
+                      {c.cannon_count_progression&&<div style={{ marginTop:6,fontSize:11,color:D.textMuted }}><span style={{ color:D.gold,fontWeight:500 }}>Cannon count: </span>{c.cannon_count_progression}</div>}
+                    </div>
+                  )}
+                  {c.lane_design&&(
+                    <div style={{ marginBottom:14 }}>
+                      <span style={labelStyle}>Lane design</span>
+                      <p style={{ margin:0,fontSize:11,color:D.textMuted,lineHeight:1.6 }}>{c.lane_design}</p>
+                    </div>
+                  )}
+                  {c.upgrade_triggers && c.upgrade_triggers.length > 0 && (
+                    <div style={{ marginBottom:14 }}>
+                      <span style={labelStyle}>Upgrade triggers</span>
+                      <div style={{ display:"flex",flexDirection:"column" as const,gap:3 }}>
+                        {c.upgrade_triggers.map((t: string,i: number)=>(
+                          <div key={i} style={{ fontSize:11,color:D.textMuted,padding:"4px 8px",background:D.surface2,borderRadius:5 }}>↑ {t}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {c.tension_moments && c.tension_moments.length > 0 && (
+                    <div style={{ marginBottom:14 }}>
+                      <span style={labelStyle}>Tension moments</span>
+                      <div style={{ display:"flex",flexDirection:"column" as const,gap:3 }}>
+                        {c.tension_moments.map((t: string,i: number)=>(
+                          <div key={i} style={{ fontSize:11,color:D.red,padding:"4px 8px",background:D.redBg,borderRadius:5,border:`0.5px solid #6e2020` }}>⚡ {t}</div>
+                        ))}
+                      </div>
                     </div>
                   )}
                   {c.visual_identity&&(
@@ -1778,27 +1856,36 @@ export default function App() {
                   <div style={{ marginBottom:14 }}>
                     <span style={labelStyle}>Scene renders</span>
                     {c.is_experimental&&<div style={{ marginBottom:8,padding:"7px 12px",background:"#2a1a2e",border:"0.5px solid #9d174d",borderRadius:7,fontSize:11,color:"#f472b6" }}>⚠ Experimental biome — no spend data. Use for inspiration only.</div>}
-                    {!c.is_experimental&&PROVEN_BIOMES.includes(c.visual_identity?.environment)&&<div style={{ marginBottom:8,padding:"7px 12px",background:D.greenBg,border:`0.5px solid ${D.greenBdr}`,borderRadius:7,fontSize:11,color:D.green }}>Render Hook first — then Start → Middle → End for continuity.</div>}
+                    {!c.is_experimental&&PROVEN_BIOMES.includes(c.visual_identity?.environment)&&<div style={{ marginBottom:8,padding:"7px 12px",background:D.greenBg,border:`0.5px solid ${D.greenBdr}`,borderRadius:7,fontSize:11,color:D.green }}>Render Start → Middle → End first, then Hook last.</div>}
                     <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8 }}>
-                      {(["hook","start","middle","end"] as const).map(scene=>{
+                      {(["start","middle","end","hook"] as const).map(scene=>{
                         const imgUrl=c[`visual_${scene}` as keyof Concept] as string|undefined;
                         const loading=renderingScene[`${ci}-${scene}`];
                         const isHook=scene==="hook";
-                        const needsHook=(scene==="start"||scene==="middle"||scene==="end")&&!c.visual_hook;
-                        const isNext=(scene==="hook"&&!c.visual_hook)||(scene==="start"&&!!c.visual_hook&&!c.visual_start)||(scene==="middle"&&!!c.visual_start&&!c.visual_middle)||(scene==="end"&&!!c.visual_middle&&!c.visual_end);
-                        const sceneColor={hook:D.red,start:D.blue,middle:D.gold,end:D.green}[scene];
+                        // Hook needs all 3 scenes first. Others need previous scene.
+                        const needsPrev=isHook
+                          ? (!c.visual_start||!c.visual_middle||!c.visual_end)
+                          : (scene==="middle"&&!c.visual_start)||(scene==="end"&&!c.visual_middle);
+                        const isNext=!imgUrl&&!needsPrev&&(
+                          (scene==="start"&&!c.visual_start)||
+                          (scene==="middle"&&!!c.visual_start&&!c.visual_middle)||
+                          (scene==="end"&&!!c.visual_middle&&!c.visual_end)||
+                          (scene==="hook"&&!!c.visual_start&&!!c.visual_middle&&!!c.visual_end&&!c.visual_hook)
+                        );
+                        const sceneColor={start:D.blue,middle:D.gold,end:D.green,hook:D.red}[scene];
                         const borderColor=isNext?sceneColor:D.border;
                         const borderWidth=isNext?"1.5px":"0.5px";
-                        const sceneLabel={hook:"Hook",start:"Start",middle:"Middle",end:"End"}[scene];
+                        const sceneLabel={start:"Start",middle:"Middle",end:"End",hook:"Hook"}[scene];
+                        const lockedMsg=isHook?"Render Start, Middle, End first":scene==="middle"?"Render Start first":"Render Middle first";
                         return (
-                          <div key={scene} style={{ aspectRatio:"9/16",background:D.surface2,borderRadius:10,border:`${borderWidth} solid ${borderColor}`,overflow:"hidden",display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"center",cursor:needsHook?"not-allowed":"pointer",position:"relative" as const,transition:"border-color .2s" }}
-                            onClick={()=>!imgUrl&&!loading&&!needsHook&&handleRenderScene(ci,scene)}>
+                          <div key={scene} style={{ aspectRatio:"9/16",background:D.surface2,borderRadius:10,border:`${borderWidth} solid ${borderColor}`,overflow:"hidden",display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"center",cursor:needsPrev?"not-allowed":"pointer",position:"relative" as const,transition:"border-color .2s" }}
+                            onClick={()=>!imgUrl&&!loading&&!needsPrev&&handleRenderScene(ci,scene)}>
                             {isNext&&!imgUrl&&<div style={{ position:"absolute" as const,top:6,left:0,right:0,display:"flex",justifyContent:"center" }}>
-                              <span style={{ fontSize:9,padding:"2px 7px",background:sceneColor,color:"#fff",borderRadius:20,fontWeight:600,letterSpacing:"0.05em" }}>{isHook?"START HERE":"RENDER NEXT"}</span>
+                              <span style={{ fontSize:9,padding:"2px 7px",background:sceneColor,color:"#fff",borderRadius:20,fontWeight:600,letterSpacing:"0.05em" }}>{scene==="start"?"START HERE":"RENDER NEXT"}</span>
                             </div>}
                             {imgUrl?<img src={imgUrl} alt={scene} style={{ width:"100%",height:"100%",objectFit:"cover" }} />
                               :loading?<p style={{ margin:0,fontSize:11,fontWeight:500,color:D.textMuted }}>Rendering…</p>
-                              :needsHook?<div style={{ textAlign:"center" as const,padding:10 }}><p style={{ margin:0,fontSize:10,color:D.textDim,textTransform:"uppercase" as const }}>{sceneLabel}</p><p style={{ margin:"4px 0 0",fontSize:9,color:D.textDim }}>Render Hook first</p></div>
+                              :needsPrev?<div style={{ textAlign:"center" as const,padding:10 }}><p style={{ margin:0,fontSize:10,color:D.textDim,textTransform:"uppercase" as const }}>{sceneLabel}</p><p style={{ margin:"4px 0 0",fontSize:9,color:D.textDim }}>{lockedMsg}</p></div>
                               :<div style={{ textAlign:"center" as const,padding:10,marginTop:isNext?18:0 }}><p style={{ margin:0,fontSize:11,fontWeight:500,textTransform:"uppercase" as const,color:isNext?sceneColor:D.textDim }}>{sceneLabel}</p><p style={{ margin:"4px 0 0",fontSize:9,color:isNext?sceneColor:D.textDim }}>{isNext?"Render next":"Click to render"}</p></div>}
                           </div>
                         );
