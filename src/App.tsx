@@ -1355,37 +1355,41 @@ export default function App() {
           spend_networks: d.spend_networks||[],
         }));
       const systemPrompt = briefSystem(trimmedLib, briefCtx, segment, iterateFrom.trim()||undefined, refNote);
-      const userPrompt = "Generate the analysis and all 4 concepts. Return only JSON.";
       const jobId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
       // Start background job (returns immediately, Claude runs async)
       const startRes = await fetch("/api/generate-brief-background", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ system: systemPrompt, prompt: userPrompt, jobId, max_tokens: 3000 }),
+        body: JSON.stringify({ system: systemPrompt, jobId, max_tokens: 2000 }),
       });
       if (!startRes.ok) {
         const err = await startRes.json().catch(() => ({}));
         throw new Error(err?.error || `Failed to start: ${startRes.status}`);
       }
 
-      // Poll every 2s for up to 3 minutes
-      for (let i = 0; i < 90; i++) {
+      // Poll every 2s for up to 5 minutes
+      let lastConceptCount = 0;
+      for (let i = 0; i < 150; i++) {
         await new Promise(r => setTimeout(r, 2000));
         const pollRes = await fetch(`/api/brief-result?id=${jobId}`);
         if (!pollRes.ok) continue;
         const job = await pollRes.json();
         if (job.status === "error") throw new Error(job.error || "Brief generation failed");
-        if (job.status === "done" && job.result) {
-          if (job.result.analysis) setBriefAnalysis(job.result.analysis);
-          if (Array.isArray(job.result.concepts)) {
-            job.result.concepts.forEach((concept: Concept, i: number) => {
-              setConcepts(prev => [...prev, concept]);
-              if (i === 0) setExpandedConcept(0);
-            });
-          }
-          return;
+
+        // Handle partial or done — show concepts as they arrive
+        if ((job.status === "partial" || job.status === "done") && Array.isArray(job.concepts)) {
+          if (job.analysis) setBriefAnalysis(job.analysis);
+          // Only add newly arrived concepts
+          const newConcepts = job.concepts.slice(lastConceptCount);
+          newConcepts.forEach((concept: Concept, i: number) => {
+            setConcepts(prev => [...prev, concept]);
+            if (lastConceptCount === 0 && i === 0) setExpandedConcept(0);
+          });
+          lastConceptCount = job.concepts.length;
         }
+
+        if (job.status === "done") return;
       }
       throw new Error("Brief generation timed out — please try again");
     } catch (err: any) { setBriefErr(err.message); }
