@@ -1308,11 +1308,21 @@ export default function App() {
     setGenerating(true); setBriefErr(""); setConcepts([]); setBriefAnalysis(null);
     try {
       const refNote = briefRef ? `User provided visual reference: "${briefRef.name}". It is included as an inline file below.` : undefined;
-      const refParts: any[] = briefRef ? [
-        { text: "### USER VISUAL REFERENCE — visual inspiration only, DNA and spend rules are primary:" },
-        { inlineData: { mimeType: briefRef.mimeType, data: briefRef.base64 } },
-      ] : [];
-      const result = await callGeminiDirect(briefSystem(lib, briefCtx, segment, iterateFrom.trim()||undefined, refNote), [...refParts, { text: "Generate the analysis and all 4 concepts. Return only JSON." }]);
+      const systemPrompt = briefSystem(lib, briefCtx, segment, iterateFrom.trim()||undefined, refNote);
+      const userPrompt = briefRef
+        ? `Visual reference provided: ${briefRef.name} (${briefRef.mimeType})\nGenerate the analysis and all 4 concepts. Return only JSON.`
+        : "Generate the analysis and all 4 concepts. Return only JSON.";
+
+      const r = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ system: systemPrompt, prompt: userPrompt, max_tokens: 4000 }),
+      });
+      if (!r.ok) {
+        const errData = await r.json().catch(() => ({}));
+        throw new Error(errData?.error?.message || errData?.error || `Generate failed: ${r.status}`);
+      }
+      const result = await r.json();
       if (result.analysis) setBriefAnalysis(result.analysis);
       if (Array.isArray(result.concepts)) {
         result.concepts.forEach((concept: Concept, i: number) => {

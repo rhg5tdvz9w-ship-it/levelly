@@ -12,13 +12,30 @@ export const handler: Handler = async (event) => {
 
   try {
     const store = getStore("levelly");
+
+    // Try new per-entry format first (index + individual entry keys)
+    const indexRaw = await store.get("index");
+    if (indexRaw) {
+      const ids: string[] = JSON.parse(indexRaw);
+      const entries = await Promise.all(
+        ids.map(async (key) => {
+          try {
+            const raw = await store.get(key);
+            return raw ? JSON.parse(raw) : null;
+          } catch { return null; }
+        })
+      );
+      const data = entries.filter(Boolean);
+      return { statusCode: 200, headers, body: JSON.stringify(data) };
+    }
+
+    // Fallback: old single-key format (migration path)
     const existing = await store.get("library");
     const data = JSON.parse(existing ?? "[]");
-
     return { statusCode: 200, headers, body: JSON.stringify(data) };
+
   } catch (err: any) {
     console.error("load-library error:", err);
-    // Return empty array so UI still loads
     return { statusCode: 200, headers, body: JSON.stringify([]) };
   }
 };
