@@ -1356,8 +1356,8 @@ export default function App() {
         }));
 
       const conceptDefs = [
-        { num: 1, instruction: "proven biome (Desert/Foggy Forest/Water/Bunker/Meadow), data-backed, is_experimental:false", model: "sonnet" },
-        { num: 2, instruction: "proven biome, different from concept 1, data-backed, is_experimental:false", model: "sonnet" },
+        { num: 1, instruction: "proven biome (Desert/Foggy Forest/Water/Bunker/Meadow), data-backed, is_experimental:false", model: "haiku" },
+        { num: 2, instruction: "proven biome, different from concept 1, data-backed, is_experimental:false", model: "haiku" },
         { num: 3, instruction: "experimental biome (Cyber-City/Volcanic/Snow/Toxic), is_experimental:true", model: "haiku" },
         { num: 4, instruction: "wildcard/bold creative departure, any biome, is_experimental:true", model: "haiku" },
       ];
@@ -1739,7 +1739,7 @@ export default function App() {
                 <div style={{ display:"flex",gap:6,flexWrap:"wrap" as const }}>
                   {SEGMENTS_LIST.map(seg=><button key={seg} onClick={()=>setSegment(seg)} style={chipStyle(segment===seg)}>{seg}</button>)}
                 </div>
-                <button onClick={handleGenerateBrief} disabled={generating} style={{ ...btnPri,display:"flex",alignItems:"center",gap:6,background:generating?"#1a7f37":undefined,borderColor:generating?D.greenBdr:undefined,transition:"background .3s,border-color .3s" }}>
+                <button onClick={generating ? undefined : handleGenerateBrief} style={{ ...btnPri,display:"flex",alignItems:"center",gap:6,background:generating?"#1a7f37":undefined,borderColor:generating?D.greenBdr:undefined,transition:"background .3s,border-color .3s",cursor:generating?"default":"pointer" }}>
                   {generating?<><span style={{ width:10,height:10,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.3)",borderTopColor:"#fff",display:"inline-block",animation:"spin .6s linear infinite" }} />Generating…</>:"Generate concepts ↗"}
                 </button>
               </div>
