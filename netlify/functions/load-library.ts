@@ -1,54 +1,41 @@
 import type { Handler } from "@netlify/functions";
-
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN!;
-const GITHUB_REPO  = process.env.GITHUB_REPO!;
-const FILE_PATH    = "library/library.json";
-const BRANCH       = "main";
-
-const API = "https://api.github.com";
+import { getStore } from "@netlify/blobs";
 
 export const handler: Handler = async (event) => {
-  if (event.httpMethod !== "GET") {
-    return { statusCode: 405, body: "Method not allowed" };
-  }
+  const headers = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Content-Type": "application/json",
+  };
+
+  if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers, body: "" };
 
   try {
-    const res = await fetch(
-      `${API}/repos/${GITHUB_REPO}/contents/${FILE_PATH}?ref=${BRANCH}`,
-      {
-        headers: {
-          Authorization: `Bearer ${GITHUB_TOKEN}`,
-          Accept: "application/vnd.github+json",
-        },
-      }
-    );
+    const store = getStore("levelly");
 
-    // File doesn't exist yet — return empty library
-    if (res.status === 404) {
-      return {
-        statusCode: 200,
-        headers: { "Content-Type": "application/json" },
-        body: "[]",
-      };
+    // Try new per-entry format first (index + individual entry keys)
+    const indexRaw = await store.get("index");
+    if (indexRaw) {
+      const ids: string[] = JSON.parse(indexRaw);
+      const entries = await Promise.all(
+        ids.map(async (key) => {
+          try {
+            const raw = await store.get(key);
+            return raw ? JSON.parse(raw) : null;
+          } catch { return null; }
+        })
+      );
+      const data = entries.filter(Boolean);
+      return { statusCode: 200, headers, body: JSON.stringify(data) };
     }
 
-    if (!res.ok) throw new Error(`GitHub GET failed: ${res.status}`);
+    // Fallback: old single-key format (migration path)
+    const existing = await store.get("library");
+    const data = JSON.parse(existing ?? "[]");
+    return { statusCode: 200, headers, body: JSON.stringify(data) };
 
-    const data = await res.json();
-
-    // GitHub returns file content as base64 — decode it
-    const decoded = Buffer.from(data.content, "base64").toString("utf-8");
-
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": "application/json" },
-      body: decoded,
-    };
   } catch (err: any) {
-    console.error("GitHub load error:", err);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: err.message }),
-    };
+    console.error("load-library error:", err);
+    return { statusCode: 200, headers, body: JSON.stringify([]) };
   }
 };

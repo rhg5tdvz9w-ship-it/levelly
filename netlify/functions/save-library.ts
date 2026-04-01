@@ -1,81 +1,52 @@
 import type { Handler } from "@netlify/functions";
-
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN!;
-const GITHUB_REPO  = process.env.GITHUB_REPO!;   // e.g. "rhg5tdvz9w-ship-it/levelly"
-const FILE_PATH    = "library/library.json";       // where the file lives in your repo
-const BRANCH       = "main";
-
-const API = "https://api.github.com";
-
-// Get the current file's SHA (GitHub needs this to update an existing file)
-async function getFileSha(): Promise<string | null> {
-  const res = await fetch(
-    `${API}/repos/${GITHUB_REPO}/contents/${FILE_PATH}?ref=${BRANCH}`,
-    {
-      headers: {
-        Authorization: `Bearer ${GITHUB_TOKEN}`,
-        Accept: "application/vnd.github+json",
-      },
-    }
-  );
-  if (res.status === 404) return null;          // file doesn't exist yet — that's fine
-  if (!res.ok) throw new Error(`GitHub GET failed: ${res.status}`);
-  const data = await res.json();
-  return data.sha as string;
-}
-
-// Save (create or update) the file
-async function saveFile(content: string, sha: string | null) {
-  const body: Record<string, string> = {
-    message: `chore: auto-save library ${new Date().toISOString()}`,
-    content: Buffer.from(content).toString("base64"),
-    branch:  BRANCH,
-  };
-  if (sha) body.sha = sha;                      // required when updating an existing file
-
-  const res = await fetch(
-    `${API}/repos/${GITHUB_REPO}/contents/${FILE_PATH}`,
-    {
-      method:  "PUT",
-      headers: {
-        Authorization: `Bearer ${GITHUB_TOKEN}`,
-        Accept:        "application/vnd.github+json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    }
-  );
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`GitHub PUT failed: ${res.status} — ${err}`);
-  }
-  return res.json();
-}
+import { getStore } from "@netlify/blobs";
 
 export const handler: Handler = async (event) => {
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: "Method not allowed" };
-  }
+  const headers = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Content-Type": "application/json",
+  };
+
+  if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers, body: "" };
+  if (event.httpMethod !== "POST") return { statusCode: 405, headers, body: JSON.stringify({ error: "Method not allowed" }) };
 
   try {
-    const library = event.body ?? "[]";
+    const data = JSON.parse(event.body ?? "[]");
+    if (!Array.isArray(data)) return { statusCode: 400, headers, body: JSON.stringify({ error: "Expected array" }) };
 
-    // Validate it's actually JSON before saving
-    JSON.parse(library);
+    const store = getStore("levelly");
 
-    const sha    = await getFileSha();
-    await saveFile(library, sha);
+    // Store each entry individually by ID — eliminates the 4MB single-value ceiling
+    const ids: string[] = [];
+    await Promise.all(data.map(async (entry: any) => {
+      const key = `entry:${entry.id}`;
+      ids.push(key);
+      // Strip image_data before storing — kept in localStorage only
+      const clean = {
+        ...entry,
+        auto_frames: entry.auto_frames?.map((f: any) => ({
+          timestamp_seconds: f.timestamp_seconds,
+          description: f.description,
+          significance: f.significance,
+        })),
+      };
+      await store.set(key, JSON.stringify(clean));
+    }));
 
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ success: true }),
-    };
+    // Store the index of current entry keys
+    await store.set("index", JSON.stringify(ids));
+
+    // Clean up deleted entries best-effort
+    try {
+      const { blobs } = await store.list({ prefix: "entry:" });
+      const toDelete = blobs.filter(b => !ids.includes(b.key));
+      await Promise.all(toDelete.map(b => store.delete(b.key)));
+    } catch { /* best-effort */ }
+
+    return { statusCode: 200, headers, body: JSON.stringify({ ok: true, count: data.length }) };
   } catch (err: any) {
-    console.error("GitHub save error:", err);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: err.message }),
-    };
+    console.error("save-library error:", err);
+    return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
   }
 };
