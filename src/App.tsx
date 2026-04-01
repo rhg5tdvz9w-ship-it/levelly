@@ -1304,7 +1304,6 @@ export default function App() {
     setGenerating(true); setBriefErr(""); setConcepts([]); setBriefAnalysis(null);
     try {
       const refNote = briefRef ? `User visual reference: "${briefRef.name}"` : undefined;
-      // Ultra-slim library — only what Claude needs for creative decisions
       const trimmedLib = lib
         .filter(d => d.tier === "winner" && d.creative_status !== "fatigued")
         .map(d => ({
@@ -1319,37 +1318,39 @@ export default function App() {
           spend_networks: d.spend_networks||[],
         }));
 
-      const makeCall = async (conceptNums: string, isFirst: boolean) => {
+      const conceptDefs = [
+        { num: 1, instruction: "proven biome (Desert/Foggy Forest/Water/Bunker/Meadow), data-backed, is_experimental:false" },
+        { num: 2, instruction: "proven biome, different from concept 1, data-backed, is_experimental:false" },
+        { num: 3, instruction: "experimental biome (Cyber-City/Volcanic/Snow/Toxic), is_experimental:true" },
+        { num: 4, instruction: "wildcard/bold creative departure, any biome, is_experimental:true" },
+      ];
+
+      // Generate analysis once with concept 1
+      let analysisGenerated = false;
+
+      for (const def of conceptDefs) {
         const systemPrompt = briefSystem(trimmedLib, briefCtx, segment, iterateFrom.trim()||undefined, refNote);
-        const prompt = `Generate ${conceptNums}. ${isFirst ? "Include the analysis block." : "No analysis block — concepts array only, same JSON structure."} Return only JSON.`;
+        const prompt = def.num === 1
+          ? `Generate ONLY concept ${def.num} (${def.instruction}) AND the analysis block. Return JSON: {"analysis":{...},"concepts":[{single concept}]}`
+          : `Generate ONLY concept ${def.num} (${def.instruction}). Return JSON: {"concepts":[{single concept}]}`;
+
         const r = await fetch("/api/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ system: systemPrompt, prompt, max_tokens: 2000 }),
+          body: JSON.stringify({ system: systemPrompt, prompt, max_tokens: 1500 }),
         });
         if (!r.ok) {
           const errData = await r.json().catch(() => ({}));
           throw new Error(errData?.error?.message || errData?.error || `Generate failed: ${r.status}`);
         }
-        return r.json();
-      };
-
-      // Call 1: concepts 1+2 + analysis
-      const result1 = await makeCall("concepts 1 and 2 (proven biomes)", true);
-      if (result1.analysis) setBriefAnalysis(result1.analysis);
-      if (Array.isArray(result1.concepts)) {
-        result1.concepts.forEach((concept: Concept, i: number) => {
-          setConcepts(prev => [...prev, concept]);
-          if (i === 0) setExpandedConcept(0);
-        });
-      }
-
-      // Call 2: concepts 3+4
-      const result2 = await makeCall("concepts 3 (experimental biome, is_experimental:true) and 4 (wildcard/bold)", false);
-      if (Array.isArray(result2.concepts)) {
-        result2.concepts.forEach((concept: Concept) => {
-          setConcepts(prev => [...prev, concept]);
-        });
+        const result = await r.json();
+        if (result.analysis && !analysisGenerated) { setBriefAnalysis(result.analysis); analysisGenerated = true; }
+        if (Array.isArray(result.concepts)) {
+          result.concepts.forEach((concept: Concept, i: number) => {
+            setConcepts(prev => [...prev, concept]);
+            if (def.num === 1 && i === 0) setExpandedConcept(0);
+          });
+        }
       }
     } catch (err: any) { setBriefErr(err.message); }
     finally { setGenerating(false); }
