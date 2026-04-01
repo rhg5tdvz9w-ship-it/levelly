@@ -1,5 +1,5 @@
 import type { Handler } from "@netlify/functions";
-import { getStore } from "@netlify/blobs";
+import { connectLambda, getStore } from "@netlify/blobs";
 
 export const handler: Handler = async (event) => {
   const headers = {
@@ -9,6 +9,9 @@ export const handler: Handler = async (event) => {
   };
 
   if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers, body: "" };
+
+  // Required for Lambda compatibility mode
+  connectLambda(event);
 
   try {
     const jobId = event.queryStringParameters?.id;
@@ -21,7 +24,6 @@ export const handler: Handler = async (event) => {
 
     if (!raw) return { statusCode: 200, headers, body: JSON.stringify({ status: "pending" }) };
 
-    // Return raw string directly — already valid JSON
     return { statusCode: 200, headers, body: raw };
   } catch (err: any) {
     console.error("brief-result error:", err.message);
