@@ -1354,41 +1354,40 @@ export default function App() {
           spend_tier: d.spend_tier||null,
           spend_networks: d.spend_networks||[],
         }));
+      const systemPrompt = briefSystem(trimmedLib, briefCtx, segment, iterateFrom.trim()||undefined, refNote);
+      const userPrompt = "Generate the analysis and all 4 concepts. Return only JSON.";
+      const jobId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-      const conceptDefs = [
-        { num: 1, instruction: "proven biome (Desert/Foggy Forest/Water/Bunker/Meadow), data-backed, is_experimental:false", model: "haiku" },
-        { num: 2, instruction: "proven biome, different from concept 1, data-backed, is_experimental:false", model: "haiku" },
-        { num: 3, instruction: "experimental biome (Cyber-City/Volcanic/Snow/Toxic), is_experimental:true", model: "haiku" },
-        { num: 4, instruction: "wildcard/bold creative departure, any biome, is_experimental:true", model: "haiku" },
-      ];
+      // Start background job (returns immediately, Claude runs async)
+      const startRes = await fetch("/api/generate-brief-background", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ system: systemPrompt, prompt: userPrompt, jobId, max_tokens: 3000 }),
+      });
+      if (!startRes.ok) {
+        const err = await startRes.json().catch(() => ({}));
+        throw new Error(err?.error || `Failed to start: ${startRes.status}`);
+      }
 
-      // Generate analysis once with concept 1
-      let analysisGenerated = false;
-
-      for (const def of conceptDefs) {
-        const systemPrompt = briefSystem(trimmedLib, briefCtx, segment, iterateFrom.trim()||undefined, refNote);
-        const prompt = def.num === 1
-          ? `Generate ONLY concept ${def.num} (${def.instruction}) AND the analysis block. Return JSON: {"analysis":{...},"concepts":[{single concept}]}`
-          : `Generate ONLY concept ${def.num} (${def.instruction}). Return JSON: {"concepts":[{single concept}]}`;
-
-        const r = await fetch("/api/generate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ system: systemPrompt, prompt, max_tokens: 2000, model: def.model }),
-        });
-        if (!r.ok) {
-          const errData = await r.json().catch(() => ({}));
-          throw new Error(errData?.error?.message || errData?.error || `Generate failed: ${r.status}`);
-        }
-        const result = await r.json();
-        if (result.analysis && !analysisGenerated) { setBriefAnalysis(result.analysis); analysisGenerated = true; }
-        if (Array.isArray(result.concepts)) {
-          result.concepts.forEach((concept: Concept, i: number) => {
-            setConcepts(prev => [...prev, concept]);
-            if (def.num === 1 && i === 0) setExpandedConcept(0);
-          });
+      // Poll every 2s for up to 3 minutes
+      for (let i = 0; i < 90; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const pollRes = await fetch(`/api/brief-result?id=${jobId}`);
+        if (!pollRes.ok) continue;
+        const job = await pollRes.json();
+        if (job.status === "error") throw new Error(job.error || "Brief generation failed");
+        if (job.status === "done" && job.result) {
+          if (job.result.analysis) setBriefAnalysis(job.result.analysis);
+          if (Array.isArray(job.result.concepts)) {
+            job.result.concepts.forEach((concept: Concept, i: number) => {
+              setConcepts(prev => [...prev, concept]);
+              if (i === 0) setExpandedConcept(0);
+            });
+          }
+          return;
         }
       }
+      throw new Error("Brief generation timed out — please try again");
     } catch (err: any) { setBriefErr(err.message); }
     finally { setGenerating(false); }
   };
