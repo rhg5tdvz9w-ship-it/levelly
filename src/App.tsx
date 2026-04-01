@@ -384,14 +384,13 @@ Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|
 const reanalysisSystem = (entry: DNAEntry) =>
   `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate type confusion (+ gates = cannon firing count, x gates = mob multiplier) 4.unit_evolution_chain — use exact tier names: Simple Cannon, Double Cannon, Triple Cannon, Tank, Golden Jet. Fix any generic names like "Level 1 Tank" to proper tier names. 5.emotional_beats minimum 8 beats with no gaps >7s 6.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${MOC_EVENTS_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
 
-const briefSystem = (lib: DNAEntry[], ctx: string, seg: string, iterateFrom?: string, refNote?: string) => {
-  const activeWinners = lib.filter(d => d.tier === "winner" && d.creative_status !== "fatigued");
+const briefSystem = (lib: any[], ctx: string, seg: string, iterateFrom?: string, refNote?: string) => {
   const refBlock = iterateFrom ? `\nITERATE FROM: "${iterateFrom}" — creative starting point, DNA rules are primary.\n` : "";
   const visualRefBlock = refNote ? `\nVISUAL REFERENCE PROVIDED BY USER: ${refNote}. Use for visual inspiration only — DNA patterns and spend rules remain primary.\n` : "";
   return `You are a World-Class Lead Creative Producer for Mob Control (MOC) by Voodoo. Ground EVERY concept in proven spend data.
 
-WINNER DNA LIBRARY (${activeWinners.length} active entries — fatigued excluded):
-${JSON.stringify(activeWinners.map(d => ({ title: d.title, creative_id: d.creative_id||null, hook_type: d.hook_type, hook_timing_seconds: d.hook_timing_seconds, gate_sequence: (d.gate_sequence||[]).slice(0,5), unit_evolution_chain: d.unit_evolution_chain, key_mechanic: d.key_mechanic, biome: d.biome, loss_event_type: d.loss_event_type, spend_tier: d.spend_tier||null, spend_networks: d.spend_networks||[], replication_instructions: (d.replication_instructions||"").slice(0,200) })), null, 2)}
+WINNER DNA LIBRARY (${lib.length} active entries — fatigued excluded):
+${JSON.stringify(lib, null, 2)}
 
 BRIEF: ${ctx} | SEGMENT: ${seg}${refBlock}${visualRefBlock}
 
