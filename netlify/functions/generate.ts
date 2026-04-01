@@ -32,7 +32,7 @@ export const handler: Handler = async (event) => {
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: max_tokens ?? 4000,
+        max_tokens: max_tokens ?? 2000,
         system,
         messages: [{ role: "user", content: prompt }],
       }),
