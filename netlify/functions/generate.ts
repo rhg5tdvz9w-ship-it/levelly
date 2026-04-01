@@ -11,12 +11,17 @@ export const handler: Handler = async (event) => {
   if (event.httpMethod !== "POST") return { statusCode: 405, headers, body: JSON.stringify({ error: "Method not allowed" }) };
 
   try {
-    const { system, prompt, max_tokens } = JSON.parse(event.body ?? "{}");
+    const body = event.body ?? "";
+    if (!body) return { statusCode: 400, headers, body: JSON.stringify({ error: "Empty request body" }) };
+
+    const { system, prompt, max_tokens } = JSON.parse(body);
     if (!system || !prompt) return {
       statusCode: 400,
       headers,
       body: JSON.stringify({ error: "Missing system or prompt" }),
     };
+
+    console.log(`generate: system=${system.length} chars, prompt=${prompt.length} chars`);
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",

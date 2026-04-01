@@ -1308,10 +1308,25 @@ export default function App() {
     setGenerating(true); setBriefErr(""); setConcepts([]); setBriefAnalysis(null);
     try {
       const refNote = briefRef ? `User provided visual reference: "${briefRef.name}". It is included as an inline file below.` : undefined;
-      const systemPrompt = briefSystem(lib, briefCtx, segment, iterateFrom.trim()||undefined, refNote);
-      const userPrompt = briefRef
-        ? `Visual reference provided: ${briefRef.name} (${briefRef.mimeType})\nGenerate the analysis and all 4 concepts. Return only JSON.`
-        : "Generate the analysis and all 4 concepts. Return only JSON.";
+      // Build a trimmed library for the prompt — only what Claude needs, no large fields
+      const trimmedLib = lib
+        .filter(d => d.tier === "winner" && d.creative_status !== "fatigued")
+        .map(d => ({
+          id: d.creative_id||null,
+          title: d.title,
+          hook_type: d.hook_type,
+          hook_timing_seconds: d.hook_timing_seconds,
+          gate_sequence: (d.gate_sequence||[]).slice(0,5),
+          unit_evolution_chain: d.unit_evolution_chain,
+          key_mechanic: d.key_mechanic,
+          biome: d.biome,
+          loss_event_type: d.loss_event_type,
+          spend_tier: d.spend_tier||null,
+          spend_networks: d.spend_networks||[],
+          replication_instructions: (d.replication_instructions||"").slice(0,150),
+        }));
+      const systemPrompt = briefSystem(trimmedLib as any, briefCtx, segment, iterateFrom.trim()||undefined, refNote);
+      const userPrompt = "Generate the analysis and all 4 concepts. Return only JSON.";
 
       const r = await fetch("/api/generate", {
         method: "POST",
