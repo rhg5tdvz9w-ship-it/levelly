@@ -1361,7 +1361,7 @@ export default function App() {
       const startRes = await fetch("/api/generate-brief-background", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ system: systemPrompt, jobId, max_tokens: 2000 }),
+        body: JSON.stringify({ system: systemPrompt, jobId, max_tokens: 3000 }),
       });
       if (!startRes.ok) {
         const err = await startRes.json().catch(() => ({}));
