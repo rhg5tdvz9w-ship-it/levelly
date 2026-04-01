@@ -385,22 +385,19 @@ const reanalysisSystem = (entry: DNAEntry) =>
   `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate type confusion (+ gates = cannon firing count, x gates = mob multiplier) 4.unit_evolution_chain — use exact tier names: Simple Cannon, Double Cannon, Triple Cannon, Tank, Golden Jet. Fix any generic names like "Level 1 Tank" to proper tier names. 5.emotional_beats minimum 8 beats with no gaps >7s 6.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${MOC_EVENTS_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
 
 const briefSystem = (lib: any[], ctx: string, seg: string, iterateFrom?: string, refNote?: string) => {
-  const refBlock = iterateFrom ? `\nITERATE FROM: "${iterateFrom}" — creative starting point, DNA rules are primary.\n` : "";
-  const visualRefBlock = refNote ? `\nVISUAL REFERENCE PROVIDED BY USER: ${refNote}. Use for visual inspiration only — DNA patterns and spend rules remain primary.\n` : "";
-  return `You are a World-Class Lead Creative Producer for Mob Control (MOC) by Voodoo. Ground EVERY concept in proven spend data.
+  const refBlock = iterateFrom ? `\nITERATE FROM: "${iterateFrom}" — creative starting point.\n` : "";
+  const visualRefBlock = refNote ? `\nVISUAL REF: ${refNote}. Inspiration only — DNA is primary.\n` : "";
+  return `MOC Lead Creative Producer. Ground concepts in proven spend data.
 
-WINNER DNA LIBRARY (${lib.length} active entries — fatigued excluded):
+DNA LIBRARY (${lib.length} winners):
 ${JSON.stringify(lib, null, 2)}
 
 BRIEF: ${ctx} | SEGMENT: ${seg}${refBlock}${visualRefBlock}
 
-PROVEN SWAP RULES: BIOME SWAP(CC21/AppLovin→CB57/FB+Google), COLOUR SWAP(CZ66→CZ65 $7K+/d top-1 FB, blue/red+desert=strongest FB), HOOK SWAP(CR86 skeleton/FB→CR85 knight/AppLovin), CAMERA(custom side cam→AppLovin/Google, default→FB/TikTok)
-NETWORK RULES: AppLovin=skeleton/knight+custom cam+blue+3+evolution. Facebook=colour/biome swap+default cam+almost-win 1-5HP. Google=strong almost-win+foggy forest/water.
-9-STEP CURVE: Pressure→Investment→Validate→Investment2→Payoff→FalseSafety→Pressure++→AlmostWin→Fail
-BIOMES (concepts 1-3): Desert, Foggy Forest, Water, Bunker, Meadow ONLY. Concept 4 may use experimental biome with is_experimental:true.
+RULES: AppLovin=custom cam+blue+evolution. Facebook=default cam+almost-win 1-5HP+colour/biome swap. Google=almost-win+foggy forest/water. Concepts 1-2: proven biomes (Desert/Foggy Forest/Water/Bunker/Meadow). Concept 3: experimental biome (is_experimental:true).
 
-Return ONLY valid JSON — be concise, no padding:
-{"analysis":{"patterns_used":string,"dna_sources":[string],"segment_insight":string,"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"is_experimental":boolean,"experimental_note":string|null,"objective":string,"target_segment":string,"player_motivation":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"layout":string,"hook_timing_seconds":number,"hook_description":string,"unit_evolution_chain":[string],"network_adaptations":{"AppLovin":string,"Facebook":string,"Google":string},"engagement_hooks":string,"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}]}`;
+Return ONLY valid JSON — be maximally concise:
+{"analysis":{"patterns_used":string,"dna_sources":[string],"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"is_experimental":boolean,"experimental_note":string|null,"objective":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"hook_timing_seconds":number,"hook_description":string,"unit_evolution_chain":[string],"network_adaptations":{"AppLovin":string,"Facebook":string,"Google":string},"engagement_hooks":string,"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}]}`;
 };
 
 const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", continuityNote?: string) => {
@@ -1306,42 +1303,52 @@ export default function App() {
     if (lib.length === 0) { setBriefErr("Add at least one ad first."); return; }
     setGenerating(true); setBriefErr(""); setConcepts([]); setBriefAnalysis(null);
     try {
-      const refNote = briefRef ? `User provided visual reference: "${briefRef.name}". It is included as an inline file below.` : undefined;
-      // Build a trimmed library for the prompt — only what Claude needs, no large fields
+      const refNote = briefRef ? `User visual reference: "${briefRef.name}"` : undefined;
+      // Ultra-slim library — only what Claude needs for creative decisions
       const trimmedLib = lib
         .filter(d => d.tier === "winner" && d.creative_status !== "fatigued")
         .map(d => ({
           id: d.creative_id||null,
-          title: d.title,
+          biome: d.biome,
           hook_type: d.hook_type,
           hook_timing_seconds: d.hook_timing_seconds,
-          gate_sequence: (d.gate_sequence||[]).slice(0,5),
           unit_evolution_chain: d.unit_evolution_chain,
           key_mechanic: d.key_mechanic,
-          biome: d.biome,
           loss_event_type: d.loss_event_type,
           spend_tier: d.spend_tier||null,
           spend_networks: d.spend_networks||[],
-          replication_instructions: (d.replication_instructions||"").slice(0,150),
         }));
-      const systemPrompt = briefSystem(trimmedLib as any, briefCtx, segment, iterateFrom.trim()||undefined, refNote);
-      const userPrompt = "Generate the analysis and all 4 concepts. Return only JSON.";
 
-      const r = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ system: systemPrompt, prompt: userPrompt, max_tokens: 2000 }),
-      });
-      if (!r.ok) {
-        const errData = await r.json().catch(() => ({}));
-        throw new Error(errData?.error?.message || errData?.error || `Generate failed: ${r.status}`);
-      }
-      const result = await r.json();
-      if (result.analysis) setBriefAnalysis(result.analysis);
-      if (Array.isArray(result.concepts)) {
-        result.concepts.forEach((concept: Concept, i: number) => {
+      const makeCall = async (conceptNums: string, isFirst: boolean) => {
+        const systemPrompt = briefSystem(trimmedLib, briefCtx, segment, iterateFrom.trim()||undefined, refNote);
+        const prompt = `Generate ${conceptNums}. ${isFirst ? "Include the analysis block." : "No analysis block — concepts array only, same JSON structure."} Return only JSON.`;
+        const r = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ system: systemPrompt, prompt, max_tokens: 2000 }),
+        });
+        if (!r.ok) {
+          const errData = await r.json().catch(() => ({}));
+          throw new Error(errData?.error?.message || errData?.error || `Generate failed: ${r.status}`);
+        }
+        return r.json();
+      };
+
+      // Call 1: concepts 1+2 + analysis
+      const result1 = await makeCall("concepts 1 and 2 (proven biomes)", true);
+      if (result1.analysis) setBriefAnalysis(result1.analysis);
+      if (Array.isArray(result1.concepts)) {
+        result1.concepts.forEach((concept: Concept, i: number) => {
           setConcepts(prev => [...prev, concept]);
           if (i === 0) setExpandedConcept(0);
+        });
+      }
+
+      // Call 2: concepts 3+4
+      const result2 = await makeCall("concepts 3 (experimental biome, is_experimental:true) and 4 (wildcard/bold)", false);
+      if (Array.isArray(result2.concepts)) {
+        result2.concepts.forEach((concept: Concept) => {
+          setConcepts(prev => [...prev, concept]);
         });
       }
     } catch (err: any) { setBriefErr(err.message); }
