@@ -15,13 +15,16 @@ export const handler: Handler = async (event) => {
     if (!jobId) return { statusCode: 400, headers, body: JSON.stringify({ error: "Missing id" }) };
 
     const store = getStore("levelly");
-    const raw = await store.get(`brief:${jobId}`);
+
+    let raw: string | null = null;
+    try { raw = await store.get(`brief:${jobId}`); } catch { /* key not found yet */ }
 
     if (!raw) return { statusCode: 200, headers, body: JSON.stringify({ status: "pending" }) };
 
-    const job = JSON.parse(raw);
-    return { statusCode: 200, headers, body: JSON.stringify(job) };
+    // Return raw string directly — already valid JSON
+    return { statusCode: 200, headers, body: raw };
   } catch (err: any) {
+    console.error("brief-result error:", err.message);
     return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
   }
 };
