@@ -1522,6 +1522,16 @@ export default function App() {
           <button onClick={()=>setLibPanelOpen(false)} style={{ background:"none",border:"none",color:D.textMuted,fontSize:11,cursor:"pointer",padding:"3px 6px",borderRadius:4,fontFamily:"inherit" }}>✕</button>
         </div>
 
+        {/* Stats strip */}
+        <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",borderBottom:`0.5px solid ${D.border}`,flexShrink:0 }}>
+          {[{n:lib.length,label:"CREATIVES",color:D.text},{n:winners,label:"WINNERS",color:D.blue},{n:topVel>0?`$${topVel>=1000?Math.round(topVel/1000)+"K":topVel}`:"—",label:"TOP VELOCITY",color:D.gold},{n:networkSet.size||"—",label:"NETWORKS",color:D.green}].map(({n,label,color},i)=>(
+            <div key={label} style={{ padding:"12px 16px",borderRight:i<3?`0.5px solid ${D.border}`:"none" }}>
+              <div style={{ fontSize:20,fontWeight:500,color,lineHeight:1 }}>{n}</div>
+              <div style={{ fontSize:9,letterSpacing:"0.1em",color:D.textMuted,marginTop:3 }}>{label}</div>
+            </div>
+          ))}
+        </div>
+
         {/* Sort filter */}
         <div style={{ display:"flex",gap:5,padding:"8px 16px",borderBottom:`0.5px solid ${D.border}`,flexShrink:0,flexWrap:"wrap" as const,alignItems:"center" }}>
           {(["all","winner","scalable","inspiration","failed"] as SortMode[]).map(s=>(
@@ -1557,15 +1567,6 @@ export default function App() {
             <span style={{ fontSize:12,color:D.textMuted }}>MOC Creative Intelligence</span>
           </div>
           <div>{cloudStatus!=="idle"&&<span style={{ fontSize:10,color:cloudColor }}>{cloudLabel}</span>}</div>
-        </div>
-
-        <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",borderBottom:`0.5px solid ${D.border}` }}>
-          {[{n:lib.length,label:"CREATIVES",color:D.text},{n:winners,label:"WINNERS",color:D.blue},{n:topVel>0?`$${topVel>=1000?Math.round(topVel/1000)+"K":topVel}`:"—",label:"TOP VELOCITY",color:D.gold},{n:networkSet.size||"—",label:"NETWORKS",color:D.green}].map(({n,label,color},i)=>(
-            <div key={label} style={{ padding:"20px 24px",borderRight:i<3?`0.5px solid ${D.border}`:"none" }}>
-              <div style={{ fontSize:28,fontWeight:500,color,lineHeight:1 }}>{n}</div>
-              <div style={{ fontSize:10,letterSpacing:"0.1em",color:D.textMuted,marginTop:4 }}>{label}</div>
-            </div>
-          ))}
         </div>
 
         <div style={{ padding:20,maxWidth:960,margin:"0 auto" }}>
@@ -1938,7 +1939,7 @@ export default function App() {
                             {isNext&&!imgUrl&&<div style={{ position:"absolute" as const,top:6,left:0,right:0,display:"flex",justifyContent:"center" }}>
                               <span style={{ fontSize:9,padding:"2px 7px",background:sceneColor,color:"#fff",borderRadius:20,fontWeight:600,letterSpacing:"0.05em" }}>{scene==="start"?"START HERE":"RENDER NEXT"}</span>
                             </div>}
-                            {imgUrl?<img src={imgUrl} alt={scene} style={{ width:"100%",height:"100%",objectFit:"cover" }} />
+                            {imgUrl?<img src={imgUrl} alt={scene} onClick={e=>{e.stopPropagation();setZoomedFrame(imgUrl);}} style={{ width:"100%",height:"100%",objectFit:"cover",cursor:"zoom-in" }} />
                               :loading?<p style={{ margin:0,fontSize:11,fontWeight:500,color:D.textMuted }}>Rendering…</p>
                               :needsPrev?<div style={{ textAlign:"center" as const,padding:10 }}><p style={{ margin:0,fontSize:10,color:D.textDim,textTransform:"uppercase" as const }}>{sceneLabel}</p><p style={{ margin:"4px 0 0",fontSize:9,color:D.textDim }}>{lockedMsg}</p></div>
                               :<div style={{ textAlign:"center" as const,padding:10,marginTop:isNext?18:0 }}><p style={{ margin:0,fontSize:11,fontWeight:500,textTransform:"uppercase" as const,color:isNext?sceneColor:D.textDim }}>{sceneLabel}</p><p style={{ margin:"4px 0 0",fontSize:9,color:isNext?sceneColor:D.textDim }}>{isNext?"Render next":"Click to render"}</p></div>}
