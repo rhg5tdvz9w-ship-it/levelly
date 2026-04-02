@@ -426,19 +426,17 @@ ${JSON.stringify(lib, null, 2)}
 BRIEF: ${ctx} | SEGMENT: ${seg}${refBlock}${visualRefBlock}
 
 MOC MECHANICS TO UNDERSTAND BEFORE GENERATING:
-- CANNON EVOLUTION: Destroying a breakable obstacle on the road upgrades the cannon tier (Simple→Double→Triple→Tank→Golden Jet). Each tier looks visually distinct and fires more mobs.
-- INVESTMENT ELEMENTS (+N gates): Multiply the NUMBER OF CANNONS firing. +1 adds 1 cannon. Multiple +N gates in sequence rapidly scale firepower. Can appear anywhere on the path.
-- DANGER ELEMENTS (xN gates + enemy mobs): xN gates multiply the mob count already in the lane. Often adjacent to or guarded by enemy mobs. Can appear anywhere — sometimes on the same path as investment elements.
-- LANE ARCHITECTURE: MOC ads contain three structural elements regardless of environment — investment path (+gates), upgrade path (breakable obstacles), danger zone (xN gates/enemies). The lane_design field should describe HOW these elements are arranged relative to each other (e.g. "upgrade obstacle blocks the investment gate path forcing player to fight through enemy zone first") — not fixed left/right positions.
-- RED BLOCK: A red pushable/breakable obstacle blocking access to valuable gates or upgrades. Creates frustration — player must push through it. Strong creative tension element.
-- GREEN PIPE: Shortcut tunnel sending mobs directly to boss/tower, bypassing part of the level. Surprise mechanic.
-- SNIPER CANNON + CHAMPION RELEASE: Special cannon with a charging bar — releases a champion unit when full. Champions are powerful allies shown as large character units.
-- ALMOST-FAIL TENSION: Top performers have 2-3 near-defeat moments mid-video where mob count drops critically before recovering. This oscillating tension curve IS the emotional engine.
-- PROGRESSION = cannon tier evolution + cannon count growth (via +gates) + mob swarm density. All three must be visible and distinct across scenes.
+MOC MECHANICS — READ CAREFULLY, THESE ARE EXACT RULES:
+- CANNON EVOLUTION: Destroying a breakable obstacle on the road upgrades the cannon tier. Exact chain: Simple Cannon → Double Cannon → Triple Cannon → Tank. STOP AT TANK — Golden Jet is NOT used in ads as a cannon evolution step. Do NOT include Golden Jet in unit_evolution_chain.
+- +N GATES (Investment path): Multiply the NUMBER OF CANNONS firing. +3 means 3 more cannons added. This is the ONLY way cannon count grows. cannon_count_progression must only show +gate changes. Example: "1 → 3 (via +2 gate) → 8 (via +5 gate) → 14 (via +6 gate)"
+- xN GATES (Danger zone): Multiply the NUMBER OF MOBS already flowing in the lane. x3 triples the mobs currently passing through. Cannon count is UNAFFECTED by xN gates. NEVER write "cannons multiply via x gate". xN gates are dangerous because enemy mobs also surge in.
+- LANE ARCHITECTURE: Every MOC ad has 3 structural elements arranged spatially on the road so ALL are visible simultaneously from the top-down camera: (1) INVESTMENT PATH — +N gate panels that grow cannon count; (2) UPGRADE PATH — breakable obstacles (red block, barrel, crate, turret cluster) that trigger cannon tier upgrade when destroyed; (3) DANGER ZONE — xN gates + enemy mobs that multiply mob count with risk. DEFAULT spatial arrangement: +N gates on LEFT sub-lane, xN danger zone in CENTER main lane, upgrade obstacle on RIGHT. Lanes CAN swap — specify the exact arrangement in lane_design if different. The lane_design field must describe: (a) which element is on which side, (b) what obstacle or mechanic blocks access to each element, (c) what tension this creates for the player. This description will be used directly to generate scene renders.
+- PHYSICAL MOVEMENT: The cannon does move forward along the road in some ads, but the structural lane elements (investment/upgrade/danger) must ALWAYS be described and shown. Movement does not remove structure.
+- CHAMPIONS: Use ONLY these exact names (null if not present): Captain Kaboom, Gold Golem, Caveman, Mobzilla, Nexus, Red Hulk, Kraken, Femme Zombie. Set enemy_champion to "Enemy Tower" for the standard tower, or a named boss if specified by the user. NEVER invent a new champion name. NEVER use "Boss Golem", "Stone Guardian", "Iron Guardian", or any unlisted name.
 
 NETWORK RULES: AppLovin=custom side cam+skeleton/knight hook+blue+3+ evolution steps. Facebook=default cam+almost-win 1-5HP+colour/biome swap. Google=almost-win+foggy forest/water.
 HOOK CHARACTERS: The skeleton and knight are ENEMY boss hook characters that appear at 0s. The SKELETON is a large realistic human skeleton (bone-white, full ribcage, skull head) that physically blocks or kicks the cannon. The KNIGHT is a large armored enemy boss that challenges the cannon. They are NOT player avatars, NOT champions — they are the antagonist hook. Do not confuse them with player units.
-PLAYER UNIT: The cannon IS the player (Simple/Double/Triple/Tank/Golden Jet). No player avatar exists. The "player_champion" visual identity field should describe the cannon appearance only.
+PLAYER UNIT: The cannon IS the player (Simple Cannon/Double Cannon/Triple Cannon/Tank). Golden Jet is NOT a player unit in ads. No player avatar exists. The "player_champion" visual identity field should describe the cannon appearance only.
 BIOME SELECTION: If user specifies a biome in their prompt, use EXACTLY that biome for data-backed concepts. Do NOT substitute. Desert+Facebook = CZ65 ($7K/d top-1) + CT43 as primary DNA. Foggy Forest+Facebook = CB57+CR17. Water = CZ94+CV73. Biome directly determines network fit — match the user's stated target.
 9-STEP CURVE: Pressure→Investment→Validate→Investment2→Payoff→FalseSafety→Pressure++→AlmostWin→Fail
 BIOMES (concepts 1-2): Desert, Foggy Forest, Water, Bunker, Meadow ONLY. Concept 3: experimental biome (is_experimental:true).
@@ -452,7 +450,7 @@ const CANNON_VISUALS: Record<string, string> = {
   "Double Cannon": "Double Cannon: two blue barrels side-by-side, slightly wider body than Simple Cannon, same wheel style",
   "Triple Cannon": "Triple Cannon: THREE blue barrels side-by-side on a wider body, brown/orange roller wheels — see reference image for exact appearance",
   "Tank": "Tank: blue military tank body with rotating turret/radar dish on top, wide tracked treads, yellow-green accent ring — see reference image",
-  "Golden Jet": "Golden Jet: a golden yellow aircraft with wings, shown as aspirational upgrade — sits on platform as eye-catcher, NOT the main cannon",
+  "Golden Jet": "Golden Jet: a GROUND CANNON with gold plating and jet engine aesthetic — still on wheeled base on the road. NOT used as cannon evolution in ads. NOT an airplane. Only shown as aspirational eye-catcher on a platform.",
 };
 
 const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", continuityNote?: string) => {
@@ -488,30 +486,34 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
 - Cinematic, dramatic, thumb-stopping
 - STRICT RULE: ABSOLUTELY NO TEXT OVERLAYS OF ANY KIND — no "CAN YOU...", no speech bubbles, no UI text, no subtitles, no call-to-action text, no numbers floating in the scene. Pure visual only.`,
 
-    start: `OPENING SCENE — top-down view, game just started:
-- Single ${unitAtScene} cannon at bottom center, 12% from bottom
-- 6-10 ${vi.player_mob_color} blobs in bottom 25% of lane only — very few
-- LANE STRUCTURE (from brief): ${laneDesign ? laneDesign.split(".")[0] + "." : "investment gates (+N) visible ahead, breakable obstacle on road, enemy mobs forming a barrier"}
-- Investment gate clearly readable ahead in the lane
-- Enemy base at top: health bar 100% FULL
-- Mood: player faces real obstacles blocking what they need`,
+    start: `OPENING SCENE — 3/4 top-down view of entire lane from above:
+- Single ${unitAtScene} cannon at BOTTOM CENTER of lane, small, 12% from bottom edge
+- 6-10 ${vi.player_mob_color} blob mobs clustered directly behind/around the cannon — very sparse
+- LANE STRUCTURE (all 3 elements MUST be visible simultaneously — this is the defining visual of MOC ads):
+  * DEFAULT LAYOUT (unless lane_design specifies otherwise): LEFT sub-lane has bright BLUE +N gate panels (investment). CENTER main lane has purple/pink xN gate with red enemy mobs (danger zone). RIGHT side has a breakable upgrade obstacle on the road (barrel/crate/block).
+  * BRIEF LANE DESIGN: "${laneDesign ? laneDesign.split(".")[0] : "standard 3-lane layout"}" — if this specifies a different arrangement, use that instead of the default.
+  * All 3 elements are visible from this camera angle at the same time — player can see what they need and what threatens them simultaneously
+- Enemy tower at TOP of lane, health bar 100% full
+- No gates passed yet — all visible ahead`,
 
-    middle: `MID-BATTLE SCENE — top-down view, peak investment + tension:
-- ${unitAtScene} cannon at bottom (visually upgraded from start), ${cannonCountAtScene}
-- Large ${vi.player_mob_color} swarm fills 40-55% of lane — clearly more than start scene
-- UPGRADE JUST HAPPENED: ${upgradeTriggers[0] || "a breakable obstacle on the road was just destroyed — obstacle type matches the environment (wooden barrel in forest, sandstone in desert, blue crate in bunker) — debris visible, cannon visually transformed"}
-- ALMOST-FAIL: ${tensionMoments[0] || "mob count critically low near enemy — thin stream barely surviving enemy pressure"}
-- xN gate (${(vi.gate_values||["x3"]).find(g => g.startsWith("x")) || "x3"}) recently passed
+    middle: `MID-BATTLE SCENE — 3/4 top-down view, peak tension:
+- ${unitAtScene} cannon at bottom (visually upgraded — more barrels/bigger frame), ${cannonCountAtScene}
+- Large ${vi.player_mob_color} swarm fills 40-55% of lane
+- LANE STRUCTURE still visible:
+  * Investment path (+N BLUE gate): cannon count grew — ${cannonCountAtScene}
+  * Upgrade: ${upgradeTriggers[0] ? upgradeTriggers[0] : "breakable obstacle just destroyed — debris visible, cannon model changed"} 
+  * Danger zone: purple xN gate (${(vi.gate_values||["x3"]).find(g => g.startsWith("x")) || "x3"}) with enemy mob surge on road
+- ALMOST-FAIL: ${tensionMoments[0] || "mob stream critically thin near enemy — near wipeout"}
 - Enemy base: 50% health bar
-- NO TEXT OVERLAYS anywhere in image`,
+- NO TEXT OVERLAYS`,
 
-    end: `END SCENE — top-down view, final confrontation:
-- ${unitAtScene} cannon at bottom (final evolution), ${cannonCountAtScene}
-- TINY cluster: only 3-5 ${vi.player_mob_color} blobs near top of lane
-- No gates remaining — all passed
-- Enemy base: health bar CRITICAL — paper-thin sliver, almost gone
+    end: `END / ALMOST-WIN SCENE — 3/4 top-down view:
+- ${unitAtScene} cannon at bottom (final form), ${cannonCountAtScene}
+- CRITICAL TENSION: Only 3-5 ${vi.player_mob_color} blobs remain near enemy base
+- Gates all passed — road behind is clear
+- Enemy base: health bar CRITICAL — paper-thin 1-3HP sliver, cracks on structure
 - ${tensionMoments[tensionMoments.length-1] || "army nearly wiped, boss on last HP — maximum tension"}
-- NO TEXT OVERLAYS, NO speech bubbles, NO UI text anywhere in image`,
+- NO TEXT OVERLAYS, NO speech bubbles, NO UI text`,
   }[scene];
 
   const biomeRules: Record<string, string> = {
@@ -907,12 +909,13 @@ function SpendTagger({ entry, onSave, lib }: { entry: DNAEntry; onSave: (fields:
 }
 
 // ─── Library Card ─────────────────────────────────────────────────────────────
-function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanalyzingIds, handleReanalyzeSingle, onZoomFrame, isReanalyzing }: {
+function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanalyzingIds, handleReanalyzeSingle, onZoomFrame, isReanalyzing, onReupload }: {
   d: DNAEntry; di: number; expandedDNA: number|null; setExpandedDNA: (n: number|null) => void;
   lib: DNAEntry[]; saveLib: (l: DNAEntry[]) => void;
   reanalyzingIds: Set<number>; handleReanalyzeSingle: (e: DNAEntry) => void;
   onZoomFrame: (src: string) => void;
   isReanalyzing: boolean;
+  onReupload?: (entry: DNAEntry, file: File) => void;
 }) {
   // ✅ canTag fix: inspiration tier now shows metadata fields
   const canTag = d.ad_type === "moc";
@@ -1070,12 +1073,23 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
         >
           {isExpanded ? "▲ Collapse" : "▼ Expand details"}
         </button>
-        <button
-          style={btnDanger}
-          onClick={() => { if (confirm(`Remove "${displayId || d.title}" from library?`)) saveLib(lib.filter(x => x.id !== d.id)); }}
-        >
-          Remove from library
-        </button>
+        <div style={{ display:"flex",gap:6,alignItems:"center" }}>
+          {/* Re-upload button — keeps existing analysis, re-runs pipeline with new video */}
+          {onReupload && (
+            <label style={{ ...btnSec, fontSize:10, padding:"4px 9px", cursor:"pointer", userSelect:"none" as const }}
+              title="Keep existing analysis metadata, re-analyze with a new video upload">
+              ↑ Re-upload
+              <input type="file" accept="video/*" style={{ display:"none" }}
+                onChange={e => { const f = e.target.files?.[0]; if(f) onReupload(d, f); e.target.value=""; }} />
+            </label>
+          )}
+          <button
+            style={btnDanger}
+            onClick={() => { if (confirm(`Remove "${displayId || d.title}" from library?`)) saveLib(lib.filter(x => x.id !== d.id)); }}
+          >
+            Remove
+          </button>
+        </div>
       </div>
 
       {/* ── Expanded section ── */}
@@ -1318,6 +1332,62 @@ export default function App() {
     catch(err: any){ alert(`Re-analysis failed: ${err.message}`); }
     finally { setReanalyzingIds(p=>{ const s=new Set(p); s.delete(entry.id); return s; }); setReanalyzingEntry(null); }
   };
+
+  // Re-upload: keep existing metadata (tier/spend/creative_id/parent_id), re-run full analysis pipeline on new video
+  const handleReupload=useCallback(async(entry: DNAEntry, file: File)=>{
+    setReanalyzingIds(p=>new Set(p).add(entry.id));
+    setReanalyzingEntry(entry.id);
+    setAnalyzeStep("uploading"); setAnalyzeFileName(file.name);
+    setBriefPanelOpen(false); setAnalysePanelOpen(false);
+    try {
+      let videoPart: any;
+      if(file.size>4*1024*1024){ const {fileUri,mimeType}=await uploadToGeminiFileAPI(file,()=>{}); videoPart={fileData:{mimeType,fileUri}}; }
+      else { videoPart={inlineData:{mimeType:file.type,data:await fileToBase64(file)}}; }
+      setAnalyzeStep("frames");
+      let autoFrames: FrameExtraction[]=[],duration=30;
+      try { const fr=await callGeminiDirect(frameExtractionSystem(),[{text:"Extract 8 key frames:"},videoPart]); autoFrames=fr?.frames||[]; duration=fr?.duration_seconds||30; } catch {}
+      let extractedFrameParts: any[]=[];
+      try {
+        const timestamps=autoFrames.map(f=>f.timestamp_seconds).filter(t=>typeof t==="number");
+        if(timestamps.length>0){ setAnalyzeStep("extracting"); extractedFrameParts=await extractFramesFromVideo(file,timestamps,duration); }
+      } catch {}
+      setAnalyzeStep("hook");
+      let hookData: any={};
+      try { hookData=await callGeminiDirect(hookDetectionSystem(),[{text:`Frames:${JSON.stringify(autoFrames)}.Context:${entry.upload_context}.Find hook:`},videoPart]); } catch {}
+      setAnalyzeStep("analyzing");
+      const refParts=buildReferenceParts();
+      const frameParts=extractedFrameParts.length>0?[{text:"### EXTRACTED FRAMES:"},...extractedFrameParts]:[];
+      const cfg={tier:entry.tier,ad_type:entry.ad_type,context:entry.upload_context,manual_frames:[]};
+      const dna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
+      setAnalyzeStep("saving");
+      const frameImageMap: Record<number,string>={};
+      for(let pi=0;pi<extractedFrameParts.length-1;pi+=2){ const label=extractedFrameParts[pi]?.text??""; const match=label.match(/\[FRAME at ([\d.]+)s\]/); const imgData=extractedFrameParts[pi+1]?.inlineData?.data; if(match&&imgData) frameImageMap[parseFloat(match[1])]=imgData; }
+      const autoFramesWithImages: FrameExtraction[]=autoFrames.map(f=>frameImageMap[f.timestamp_seconds]?{...f,image_data:frameImageMap[f.timestamp_seconds]}:f);
+      // Preserve all existing metadata, merge new analysis on top
+      const updated: DNAEntry={
+        ...entry,      // keeps: id, tier, ad_type, upload_context, creative_id, parent_id, spend_tier, spend_networks, spend_notes, creative_status
+        ...dna,        // fresh: title, hook_type, biome, emotional_beats, etc.
+        id: entry.id,  // force-keep original id
+        tier: entry.tier,
+        ad_type: entry.ad_type,
+        upload_context: entry.upload_context,
+        creative_id: entry.creative_id,
+        parent_id: entry.parent_id,
+        spend_tier: entry.spend_tier,
+        spend_networks: entry.spend_networks,
+        spend_notes: entry.spend_notes,
+        creative_status: entry.creative_status,
+        file_name: file.name,
+        auto_frames: autoFramesWithImages,
+        reanalyzed: true,
+        added_at: entry.added_at, // keep original upload date
+      };
+      saveLib(lib.map(x=>x.id===entry.id?updated:x));
+      setLastAnalyzedId(entry.id);
+      setAnalyzeStep("");
+    } catch(err: any){ setAnalyzeErr((err as Error).message); }
+    finally { setReanalyzingIds(p=>{ const s=new Set(p); s.delete(entry.id); return s; }); setReanalyzingEntry(null); }
+  },[lib]);
   const handleReanalyzeAll=async()=>{ if(!confirm(`Re-analyze all ${lib.length} entries?`)) return; setReanalyzingAll(true); let updated=[...lib]; for(let i=0;i<lib.length;i++){ setReanalysisProgress(`Re-analyzing ${i+1}/${lib.length}: ${lib[i].title}…`); try { const c=await reanalyzeSingle(lib[i]); updated=updated.map(x=>x.id===lib[i].id?c:x); saveLib(updated); } catch(err){ console.warn(`Failed: ${lib[i].title}`,err); } await new Promise(r=>setTimeout(r,1000)); } setReanalyzingAll(false); setReanalysisProgress(""); };
 
   const handleModalConfirm=(cfg: UploadConfig)=>{ setUploadConfig(cfg); setShowModal(false); fileRef.current?.click(); };
@@ -1416,7 +1486,7 @@ export default function App() {
 
       // Poll every 2s for up to 5 minutes
       let lastConceptCount = 0;
-      for (let i = 0; i < 150; i++) {
+      for (let i = 0; i < 240; i++) {
         await new Promise(r => setTimeout(r, 2000));
         const pollRes = await fetch(`/api/brief-result?id=${jobId}`);
         if (!pollRes.ok) continue;
@@ -1551,7 +1621,7 @@ export default function App() {
         <div style={{ flex:1,overflowY:"auto" }}>
           {sortedLib.map((d) => {
             const di = lib.indexOf(d);
-            return <LibraryCard key={d.id} d={d} di={di} expandedDNA={expandedDNA} setExpandedDNA={setExpandedDNA} lib={lib} saveLib={saveLib} reanalyzingIds={reanalyzingIds} handleReanalyzeSingle={handleReanalyzeSingle} onZoomFrame={setZoomedFrame} isReanalyzing={reanalyzingEntry === d.id} />;
+            return <LibraryCard key={d.id} d={d} di={di} expandedDNA={expandedDNA} setExpandedDNA={setExpandedDNA} lib={lib} saveLib={saveLib} reanalyzingIds={reanalyzingIds} handleReanalyzeSingle={handleReanalyzeSingle} onZoomFrame={setZoomedFrame} isReanalyzing={reanalyzingEntry === d.id} onReupload={handleReupload} />;
           })}
         </div>
       </div>
@@ -1827,7 +1897,7 @@ export default function App() {
               {/* Library cards */}
               <div style={{ maxHeight:480,overflowY:"auto" as const,padding:"8px 0" }}>
                 {lib.length===0&&!analyzing&&libraryLoaded&&<div style={{ padding:"2rem 16px",textAlign:"center" as const }}><p style={{ margin:0,fontSize:12,color:D.textMuted }}>Upload MOC ads to build your Creative DNA library.</p></div>}
-                {sortedLib.map((d,di)=><LibraryCard key={d.id} d={d} di={di} expandedDNA={expandedDNA} setExpandedDNA={setExpandedDNA} lib={lib} saveLib={saveLib} reanalyzingIds={reanalyzingIds} handleReanalyzeSingle={handleReanalyzeSingle} onZoomFrame={setZoomedFrame} isReanalyzing={reanalyzingEntry === d.id} />)}
+                {sortedLib.map((d,di)=><LibraryCard key={d.id} d={d} di={di} expandedDNA={expandedDNA} setExpandedDNA={setExpandedDNA} lib={lib} saveLib={saveLib} reanalyzingIds={reanalyzingIds} handleReanalyzeSingle={handleReanalyzeSingle} onZoomFrame={setZoomedFrame} isReanalyzing={reanalyzingEntry === d.id} onReupload={handleReupload} />)}
               </div>
             </div>
           )}
@@ -1999,7 +2069,7 @@ export default function App() {
                             {isNext&&!imgUrl&&<div style={{ position:"absolute" as const,top:6,left:0,right:0,display:"flex",justifyContent:"center" }}>
                               <span style={{ fontSize:9,padding:"2px 7px",background:sceneColor,color:"#fff",borderRadius:20,fontWeight:600,letterSpacing:"0.05em" }}>{scene==="start"?"START HERE":"RENDER NEXT"}</span>
                             </div>}
-                            {imgUrl?<img src={imgUrl} alt={scene} onClick={e=>{e.stopPropagation();setZoomedFrame(imgUrl);}} style={{ width:"100%",height:"100%",objectFit:"cover",cursor:"zoom-in" }} />
+                            {imgUrl?<img src={imgUrl} alt={scene} onClick={e=>{e.stopPropagation();setZoomedFrame(imgUrl);}} style={{ width:"100%",height:"100%",objectFit:"contain",background:"#0a0c10",cursor:"zoom-in" }} />
                               :loading?<p style={{ margin:0,fontSize:11,fontWeight:500,color:D.textMuted }}>Rendering…</p>
                               :needsPrev?<div style={{ textAlign:"center" as const,padding:10 }}><p style={{ margin:0,fontSize:10,color:D.textDim,textTransform:"uppercase" as const }}>{sceneLabel}</p><p style={{ margin:"4px 0 0",fontSize:9,color:D.textDim }}>{lockedMsg}</p></div>
                               :<div style={{ textAlign:"center" as const,padding:10,marginTop:isNext?18:0 }}><p style={{ margin:0,fontSize:11,fontWeight:500,textTransform:"uppercase" as const,color:isNext?sceneColor:D.textDim }}>{sceneLabel}</p><p style={{ margin:"4px 0 0",fontSize:9,color:isNext?sceneColor:D.textDim }}>{isNext?"Render next":"Click to render"}</p></div>}
