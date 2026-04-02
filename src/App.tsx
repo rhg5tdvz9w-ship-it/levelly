@@ -106,7 +106,7 @@ const TIER_ACCENT: Record<string, string> = {
 
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 const GEMINI_TEXT_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
-const GEMINI_IMAGE_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${GEMINI_KEY}`;
+const GEMINI_IMAGE_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${GEMINI_KEY}`;
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const D = {
@@ -1409,7 +1409,7 @@ export default function App() {
   const reanalyzeSingle=async(entry: DNAEntry): Promise<DNAEntry>=>{
     // Strip image_data from auto_frames before sending — base64 images bloat the prompt and cause JSON parse errors
     const stripped = { ...entry, auto_frames: entry.auto_frames?.map(f => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance })) };
-    const corrected=await callGeminiDirect(reanalysisSystem(stripped),[{text:`Re-analyze: ${entry.title}`}]);
+    const corrected=sanitizeDNA(await callGeminiDirect(reanalysisSystem(stripped),[{text:`Re-analyze: ${entry.title}`}]));
     // Preserve image_data from original entry — re-analysis doesn't re-extract frames
     return {...entry,...corrected,id:entry.id,reanalyzed:true,added_at:entry.added_at,file_name:entry.file_name,tier:entry.tier,ad_type:entry.ad_type,auto_frames:entry.auto_frames};
   };
@@ -1497,7 +1497,7 @@ export default function App() {
         else { videoPart={inlineData:{mimeType:file.type,data:await fileToBase64(file)}}; }
         setAnalyzeStep("frames");
         let autoFrames: FrameExtraction[]=[],duration=30;
-        try { const fr=await callGeminiDirect(frameExtractionSystem(),[{text:"Extract 8 key frames:"},videoPart]); autoFrames=fr?.frames||[]; duration=fr?.duration_seconds||30; } catch {}
+        try { const fr=await callGeminiDirect(frameExtractionSystem(),[{text:"Extract 8 key frames:"},videoPart]); autoFrames=Array.isArray(fr?.frames)?fr.frames:[]; duration=fr?.duration_seconds||30; } catch {}
 
         // Extract actual frame images at Gemini's chosen timestamps (non-blocking fallback)
         let extractedFrameParts: any[] = [];
