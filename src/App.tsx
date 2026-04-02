@@ -178,13 +178,19 @@ function parseJSON(text: string): any {
 }
 
 async function callImageDirect(prompt: string, refParts: any[]): Promise<string> {
-  const r = await fetch(GEMINI_IMAGE_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [...refParts, { text: prompt }] }], generationConfig: { responseModalities: ["IMAGE", "TEXT"] } }) });
-  const text = await r.text();
-  if (!r.ok) throw new Error(`Image gen ${r.status}: ${text}`);
-  const data = JSON.parse(text);
-  const imgPart = data.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
-  if (!imgPart) throw new Error("No image returned");
-  return `data:image/png;base64,${imgPart.inlineData.data}`;
+  const body = JSON.stringify({ contents: [{ parts: [...refParts, { text: prompt }] }], generationConfig: { responseModalities: ["IMAGE", "TEXT"], imageGenerationConfig: { aspectRatio: "9:16" } } });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch(GEMINI_IMAGE_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body });
+      const text = await r.text();
+      if (!r.ok) { if (attempt === 0 && (r.status === 503 || r.status === 429)) { await new Promise(res => setTimeout(res, 3000)); continue; } throw new Error(`Image gen ${r.status}: ${text.slice(0, 200)}`); }
+      const data = JSON.parse(text);
+      const imgPart = data.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
+      if (!imgPart) { if (attempt === 0) { await new Promise(res => setTimeout(res, 2000)); continue; } throw new Error("No image returned — model did not generate an image"); }
+      return `data:image/png;base64,${imgPart.inlineData.data}`;
+    } catch (e: any) { if (attempt === 1) throw e; await new Promise(res => setTimeout(res, 2000)); }
+  }
+  throw new Error("Render failed after 2 attempts");
 }
 
 async function uploadToGeminiFileAPI(file: File, onStatus: (m: string) => void): Promise<{ fileUri: string; mimeType: string }> {
@@ -486,32 +492,34 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
 - Cinematic, dramatic, thumb-stopping
 - STRICT RULE: ABSOLUTELY NO TEXT OVERLAYS OF ANY KIND — no "CAN YOU...", no speech bubbles, no UI text, no subtitles, no call-to-action text, no numbers floating in the scene. Pure visual only.`,
 
-    start: `OPENING SCENE — 3/4 top-down view of entire lane from above:
-- Single ${unitAtScene} cannon at BOTTOM CENTER of lane, small, 12% from bottom edge
-- 6-10 ${vi.player_mob_color} blob mobs clustered directly behind/around the cannon — very sparse
-- LANE STRUCTURE (all 3 elements MUST be visible simultaneously — this is the defining visual of MOC ads):
-  * DEFAULT LAYOUT (unless lane_design specifies otherwise): LEFT sub-lane has bright BLUE +N gate panels (investment). CENTER main lane has purple/pink xN gate with red enemy mobs (danger zone). RIGHT side has a breakable upgrade obstacle on the road (barrel/crate/block).
-  * BRIEF LANE DESIGN: "${laneDesign ? laneDesign.split(".")[0] : "standard 3-lane layout"}" — if this specifies a different arrangement, use that instead of the default.
-  * All 3 elements are visible from this camera angle at the same time — player can see what they need and what threatens them simultaneously
-- Enemy tower at TOP of lane, health bar 100% full
-- No gates passed yet — all visible ahead`,
+    start: `OPENING SCENE — 3/4 top-down view of the full lane from above:
+- Single ${unitAtScene} cannon at BOTTOM CENTER. Cannon looks EXACTLY like the reference images: small rounded barrel body on 4 small black wheels. Cartoon 3D. Blue/grey color. NOT a military tank, NOT a truck, NOT a realistic vehicle.
+- 6-10 ${vi.player_mob_color} round blob mobs near the cannon — very sparse
+- CRITICAL — THE ROAD HAS 3 PARALLEL SUB-PATHS SIDE BY SIDE (same road width, divided into 3 lanes):
+  * LEFT LANE: Bright BLUE +N flat rectangular gate panels spanning left third of road width
+  * CENTER LANE: Main driving path — purple/pink xN gate panel + red enemy mob cluster ahead
+  * RIGHT LANE: A single breakable upgrade obstacle (barrel/crate/block) sitting on the right third
+  * [If lane_design specifies a different arrangement: "${laneDesign ? laneDesign.split(".")[0] : "use default described above"}"]
+  * ALL THREE sub-paths are visible simultaneously in this top-down view — player can see all options
+- Enemy tower at very TOP of lane: health bar 100% full
+- Biome environment fills both sides of the road`,
 
     middle: `MID-BATTLE SCENE — 3/4 top-down view, peak tension:
-- ${unitAtScene} cannon at bottom (visually upgraded — more barrels/bigger frame), ${cannonCountAtScene}
+- ${unitAtScene} cannon — SAME cartoon style as reference images. Small wheeled barrel. NOT a tank or vehicle. ${cannonCountAtScene}
 - Large ${vi.player_mob_color} swarm fills 40-55% of lane
-- LANE STRUCTURE still visible:
-  * Investment path (+N BLUE gate): cannon count grew — ${cannonCountAtScene}
-  * Upgrade: ${upgradeTriggers[0] ? upgradeTriggers[0] : "breakable obstacle just destroyed — debris visible, cannon model changed"} 
-  * Danger zone: purple xN gate (${(vi.gate_values||["x3"]).find(g => g.startsWith("x")) || "x3"}) with enemy mob surge on road
-- ALMOST-FAIL: ${tensionMoments[0] || "mob stream critically thin near enemy — near wipeout"}
+- LANE STRUCTURE still present on road:
+  * LEFT: +N blue gate (investment already partially used — cannon count grew)  
+  * CENTER: purple xN gate (${(vi.gate_values||["x3"]).find(g => g.startsWith("x")) || "x3"}) — danger zone active, red enemy mobs surging
+  * RIGHT: ${upgradeTriggers[0] ? `upgrade triggered — "${upgradeTriggers[0]}" — debris visible` : "upgrade obstacle just destroyed — rubble on road, cannon visually upgraded"}
+- ALMOST-FAIL: ${tensionMoments[0] || "mob stream thin and critical near enemy — near wipeout moment"}
 - Enemy base: 50% health bar
 - NO TEXT OVERLAYS`,
 
     end: `END / ALMOST-WIN SCENE — 3/4 top-down view:
-- ${unitAtScene} cannon at bottom (final form), ${cannonCountAtScene}
-- CRITICAL TENSION: Only 3-5 ${vi.player_mob_color} blobs remain near enemy base
-- Gates all passed — road behind is clear
-- Enemy base: health bar CRITICAL — paper-thin 1-3HP sliver, cracks on structure
+- ${unitAtScene} cannon at bottom — same cartoon style, small wheeled barrel body. ${cannonCountAtScene}
+- CRITICAL TENSION: Only 3-5 ${vi.player_mob_color} blobs remain near enemy base, tiny cluster
+- All gates passed, road structure behind cannon
+- Enemy base: health bar paper-thin sliver (1-3HP), cracks visible on structure
 - ${tensionMoments[tensionMoments.length-1] || "army nearly wiped, boss on last HP — maximum tension"}
 - NO TEXT OVERLAYS, NO speech bubbles, NO UI text`,
   }[scene];
@@ -915,7 +923,7 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
   reanalyzingIds: Set<number>; handleReanalyzeSingle: (e: DNAEntry) => void;
   onZoomFrame: (src: string) => void;
   isReanalyzing: boolean;
-  onReupload?: (entry: DNAEntry, file: File) => void;
+  onReupload?: (entry: DNAEntry, file: File, manualFrameFiles?: File[]) => void;
 }) {
   // ✅ canTag fix: inspiration tier now shows metadata fields
   const canTag = d.ad_type === "moc";
@@ -1025,19 +1033,12 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
           </div>
         )}
 
-        {/* Row 5: Footer — filename + date left, Re-analyze + dropdown right */}
+        {/* Row 5: Footer — filename + date left, tier dropdown right */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
           <span style={{ fontSize: 10, color: D.textDim }}>
             {d.file_name} · {new Date(d.added_at).toLocaleDateString()}
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-            <button
-              style={{ ...btnSec, fontSize: 10, padding: "4px 9px" }}
-              onClick={e => { e.stopPropagation(); handleReanalyzeSingle(d); }}
-              disabled={reanalyzingIds.has(d.id)}
-            >
-              {reanalyzingIds.has(d.id) ? "…" : "Re-analyze"}
-            </button>
             <select
               value={d.tier}
               onChange={e => { e.stopPropagation(); saveLib(lib.map(x => x.id === d.id ? { ...x, tier: e.target.value as DNAEntry["tier"] } : x)); }}
@@ -1074,15 +1075,29 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
           {isExpanded ? "▲ Collapse" : "▼ Expand details"}
         </button>
         <div style={{ display:"flex",gap:6,alignItems:"center" }}>
-          {/* Re-upload button — keeps existing analysis, re-runs pipeline with new video */}
-          {onReupload && (
-            <label style={{ ...btnSec, fontSize:10, padding:"4px 9px", cursor:"pointer", userSelect:"none" as const }}
-              title="Keep existing analysis metadata, re-analyze with a new video upload">
-              ↑ Re-upload
-              <input type="file" accept="video/*" style={{ display:"none" }}
-                onChange={e => { const f = e.target.files?.[0]; if(f) onReupload(d, f); e.target.value=""; }} />
-            </label>
-          )}
+          {onReupload && (() => {
+            const reuploading = reanalyzingIds.has(d.id);
+            return (
+              <label style={{ ...btnSec, fontSize:10, padding:"4px 9px", cursor:reuploading?"not-allowed":"pointer", userSelect:"none" as const, opacity:reuploading?0.5:1 }}
+                title="Keep metadata, re-analyze with new video. Optionally add manual frames.">
+                {reuploading ? "↑ Uploading…" : "↑ Re-upload"}
+                <input type="file" accept="video/*" style={{ display:"none" }} disabled={reuploading}
+                  onChange={async e => {
+                    const videoFile = e.target.files?.[0]; e.target.value = "";
+                    if (!videoFile) return;
+                    const wantManual = window.confirm("Add manual frame images? OK to pick images, Cancel to skip.");
+                    let manualFiles: File[] = [];
+                    if (wantManual) {
+                      manualFiles = await new Promise<File[]>(resolve => {
+                        const inp = document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.multiple=true;
+                        inp.onchange=()=>resolve(inp.files?Array.from(inp.files):[]); inp.oncancel=()=>resolve([]); inp.click();
+                      });
+                    }
+                    onReupload(d, videoFile, manualFiles.length>0?manualFiles:undefined);
+                  }} />
+              </label>
+            );
+          })()}
           <button
             style={btnDanger}
             onClick={() => { if (confirm(`Remove "${displayId || d.title}" from library?`)) saveLib(lib.filter(x => x.id !== d.id)); }}
@@ -1334,7 +1349,7 @@ export default function App() {
   };
 
   // Re-upload: keep existing metadata (tier/spend/creative_id/parent_id), re-run full analysis pipeline on new video
-  const handleReupload=useCallback(async(entry: DNAEntry, file: File)=>{
+  const handleReupload=useCallback(async(entry: DNAEntry, file: File, manualFrameFiles?: File[])=>{
     setReanalyzingIds(p=>new Set(p).add(entry.id));
     setReanalyzingEntry(entry.id);
     setAnalyzeStep("uploading"); setAnalyzeFileName(file.name);
@@ -1345,7 +1360,7 @@ export default function App() {
       else { videoPart={inlineData:{mimeType:file.type,data:await fileToBase64(file)}}; }
       setAnalyzeStep("frames");
       let autoFrames: FrameExtraction[]=[],duration=30;
-      try { const fr=await callGeminiDirect(frameExtractionSystem(),[{text:"Extract 8 key frames:"},videoPart]); autoFrames=fr?.frames||[]; duration=fr?.duration_seconds||30; } catch {}
+      try { const fr=await callGeminiDirect(frameExtractionSystem(),[{text:"Extract 8 key frames:"},videoPart]); autoFrames=Array.isArray(fr?.frames)?fr.frames:[]; duration=fr?.duration_seconds||30; } catch {}
       let extractedFrameParts: any[]=[];
       try {
         const timestamps=autoFrames.map(f=>f.timestamp_seconds).filter(t=>typeof t==="number");
@@ -1353,39 +1368,43 @@ export default function App() {
       } catch {}
       setAnalyzeStep("hook");
       let hookData: any={};
-      try { hookData=await callGeminiDirect(hookDetectionSystem(),[{text:`Frames:${JSON.stringify(autoFrames)}.Context:${entry.upload_context}.Find hook:`},videoPart]); } catch {}
+      try { hookData=await callGeminiDirect(hookDetectionSystem(),[{text:`Frames:${JSON.stringify(autoFrames)}.Context:${entry.upload_context||""}.Find hook:`},videoPart]); } catch {}
+      const manualParts: any[]=[];
+      if(manualFrameFiles&&manualFrameFiles.length>0){ for(const mf of manualFrameFiles){ manualParts.push({text:`Manual:${mf.name}`}); manualParts.push({inlineData:{mimeType:mf.type,data:await fileToBase64(mf)}}); } }
       setAnalyzeStep("analyzing");
       const refParts=buildReferenceParts();
       const frameParts=extractedFrameParts.length>0?[{text:"### EXTRACTED FRAMES:"},...extractedFrameParts]:[];
-      const cfg={tier:entry.tier,ad_type:entry.ad_type,context:entry.upload_context,manual_frames:[]};
-      const dna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
+      const hasManual=manualParts.length>0;
+      const cfg={tier:entry.tier,ad_type:entry.ad_type,context:entry.upload_context||"",manual_frames:[]};
+      const dna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(hasManual?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
       setAnalyzeStep("saving");
       const frameImageMap: Record<number,string>={};
       for(let pi=0;pi<extractedFrameParts.length-1;pi+=2){ const label=extractedFrameParts[pi]?.text??""; const match=label.match(/\[FRAME at ([\d.]+)s\]/); const imgData=extractedFrameParts[pi+1]?.inlineData?.data; if(match&&imgData) frameImageMap[parseFloat(match[1])]=imgData; }
-      const autoFramesWithImages: FrameExtraction[]=autoFrames.map(f=>frameImageMap[f.timestamp_seconds]?{...f,image_data:frameImageMap[f.timestamp_seconds]}:f);
-      // Preserve all existing metadata, merge new analysis on top
+      const autoFramesWithImages: FrameExtraction[]=Array.isArray(autoFrames)?autoFrames.map(f=>frameImageMap[f.timestamp_seconds]?{...f,image_data:frameImageMap[f.timestamp_seconds]}:f):[];
+      // Preserve ALL existing metadata — dna spread last so analysis fields update, then re-apply identity fields
       const updated: DNAEntry={
-        ...entry,      // keeps: id, tier, ad_type, upload_context, creative_id, parent_id, spend_tier, spend_networks, spend_notes, creative_status
-        ...dna,        // fresh: title, hook_type, biome, emotional_beats, etc.
-        id: entry.id,  // force-keep original id
+        ...entry,
+        ...dna,
+        id: entry.id,
         tier: entry.tier,
         ad_type: entry.ad_type,
         upload_context: entry.upload_context,
         creative_id: entry.creative_id,
         parent_id: entry.parent_id,
         spend_tier: entry.spend_tier,
-        spend_networks: entry.spend_networks,
+        spend_networks: entry.spend_networks||[],
         spend_notes: entry.spend_notes,
         creative_status: entry.creative_status,
         file_name: file.name,
         auto_frames: autoFramesWithImages,
+        manual_frames: manualFrameFiles&&manualFrameFiles.length>0?manualFrameFiles.map(f=>f.name):(entry.manual_frames||[]),
         reanalyzed: true,
-        added_at: entry.added_at, // keep original upload date
+        added_at: entry.added_at,
       };
       saveLib(lib.map(x=>x.id===entry.id?updated:x));
       setLastAnalyzedId(entry.id);
       setAnalyzeStep("");
-    } catch(err: any){ setAnalyzeErr((err as Error).message); }
+    } catch(err: any){ setAnalyzeErr((err as Error).message||String(err)); }
     finally { setReanalyzingIds(p=>{ const s=new Set(p); s.delete(entry.id); return s; }); setReanalyzingEntry(null); }
   },[lib]);
   const handleReanalyzeAll=async()=>{ if(!confirm(`Re-analyze all ${lib.length} entries?`)) return; setReanalyzingAll(true); let updated=[...lib]; for(let i=0;i<lib.length;i++){ setReanalysisProgress(`Re-analyzing ${i+1}/${lib.length}: ${lib[i].title}…`); try { const c=await reanalyzeSingle(lib[i]); updated=updated.map(x=>x.id===lib[i].id?c:x); saveLib(updated); } catch(err){ console.warn(`Failed: ${lib[i].title}`,err); } await new Promise(r=>setTimeout(r,1000)); } setReanalyzingAll(false); setReanalysisProgress(""); };
@@ -1514,6 +1533,8 @@ export default function App() {
 
   const handleRenderScene=async(ci: number,scene: "hook"|"start"|"middle"|"end")=>{
     const k=`${ci}-${scene}`; setRenderingScene(p=>({...p,[k]:true}));
+    // Clear any previous error for this slot
+    setConcepts(p=>p.map((c,i)=>i===ci?{...c,[`render_err_${scene}`]:undefined}:c));
     try {
       const concept=concepts[ci]; const vi=concept.visual_identity;
       const chain: string[] = concept.unit_evolution_chain || [];
@@ -1546,7 +1567,7 @@ export default function App() {
 
       const url=await callImageDirect(imagePromptFn(concept,scene,continuityNote),[...refParts,...prevParts]);
       setConcepts(p=>p.map((c,i)=>i===ci?{...c,[`visual_${scene}`]:url}:c));
-    } catch(err: any){ alert(`Render failed: ${err.message}`); }
+    } catch(err: any){ setConcepts(p=>p.map((c,i)=>i===ci?{...c,[`render_err_${scene}`]:(err as Error).message}:c)); }
     finally { setRenderingScene(p=>({...p,[k]:false})); }
   };
 
@@ -1578,52 +1599,6 @@ export default function App() {
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 6.5L8 1l7 5.5V15H1V6.5zm1 .9V14h4v-3h4v3h4V7.4L8 2.5 2 7.4z"/></svg>
         </div>
         <div style={{ marginTop:"auto",marginBottom:12,width:28,height:28,borderRadius:7,background:"rgba(210,153,34,0.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,color:D.gold,cursor:"default",letterSpacing:"0.02em" }}>L</div>
-      </div>
-
-      {/* Library side panel */}
-      <div style={{ position:"fixed",top:0,left:SB,width:560,height:"100vh",background:D.surface,borderRight:`0.5px solid ${D.border2}`,display:"flex",flexDirection:"column",zIndex:150,transform:libPanelOpen?"translateX(0)":"translateX(-100%)",transition:"transform .22s ease-out" }}>
-        <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 16px",borderBottom:`0.5px solid ${D.border}`,flexShrink:0 }}>
-          <div>
-            <div style={{ fontSize:14,fontWeight:500 }}>Creative library</div>
-            <div style={{ fontSize:10,color:D.textMuted,marginTop:2 }}>{lib.length} entries · {activeWinners} active winners · {lib.filter(d=>d.creative_status==="fatigued").length} fatigued</div>
-          </div>
-          <button onClick={()=>setLibPanelOpen(false)} style={{ background:"none",border:"none",color:D.textMuted,fontSize:11,cursor:"pointer",padding:"3px 6px",borderRadius:4,fontFamily:"inherit" }}>✕</button>
-        </div>
-
-        {/* Stats strip */}
-        <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",borderBottom:`0.5px solid ${D.border}`,flexShrink:0 }}>
-          {[{n:lib.length,label:"CREATIVES",color:D.text},{n:winners,label:"WINNERS",color:D.blue},{n:topVel>0?`$${topVel>=1000?Math.round(topVel/1000)+"K":topVel}`:"—",label:"TOP VELOCITY",color:D.gold},{n:networkSet.size||"—",label:"NETWORKS",color:D.green}].map(({n,label,color},i)=>(
-            <div key={label} style={{ padding:"12px 16px",borderRight:i<3?`0.5px solid ${D.border}`:"none" }}>
-              <div style={{ fontSize:20,fontWeight:500,color,lineHeight:1 }}>{n}</div>
-              <div style={{ fontSize:9,letterSpacing:"0.1em",color:D.textMuted,marginTop:3 }}>{label}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Sort filter */}
-        <div style={{ display:"flex",gap:5,padding:"8px 16px",borderBottom:`0.5px solid ${D.border}`,flexShrink:0,flexWrap:"wrap" as const,alignItems:"center" }}>
-          {(["all","winner","scalable","inspiration","failed"] as SortMode[]).map(s=>(
-            <button key={s} onClick={()=>setLibSort(s)} style={{ padding:"3px 10px",fontSize:10,borderRadius:20,cursor:"pointer",fontFamily:"inherit",border:`0.5px solid ${libSort===s?(s==="all"?D.border2:TIER_STYLE[s]?.border??D.border2):D.border2}`,background:libSort===s?(s==="all"?D.surface2:TIER_STYLE[s]?.bg??"transparent"):"transparent",color:libSort===s?(s==="all"?D.text:TIER_STYLE[s]?.text??D.text):D.textMuted }}>
-              {s==="all"?"All":s.charAt(0).toUpperCase()+s.slice(1)}
-            </button>
-          ))}
-          <span style={{ fontSize:10,color:D.textDim,marginLeft:"auto" }}>by spend · fatigued last</span>
-        </div>
-
-        <div style={{ display:"flex",gap:6,padding:"10px 16px",borderBottom:`0.5px solid ${D.border}`,flexWrap:"wrap" as const,flexShrink:0 }}>
-          {lib.length>0&&(<><button style={btnSec} onClick={handleReanalyzeAll} disabled={reanalyzingAll||analyzing}>{reanalyzingAll?"Re-analyzing…":"Re-analyze all"}</button><button style={btnSec} onClick={exportLibrary}>Export</button><button style={btnSec} onClick={()=>{ if(confirm("Clear library?")) saveLib([]); }}>Clear</button></>)}
-          <button style={btnSec} onClick={()=>importRef.current?.click()}>Import</button>
-          <button style={btnPri} onClick={()=>{ setLibPanelOpen(false); setShowModal(true); }} disabled={analyzing||reanalyzingAll}>{analyzing?"Analyzing…":"+ Upload"}</button>
-        </div>
-        {reanalysisProgress&&<div style={{ fontSize:11,color:D.blue,background:D.blueBg,border:`0.5px solid ${D.blueDark}`,borderRadius:7,padding:"7px 12px",margin:"8px 16px" }}>{reanalysisProgress}</div>}
-        {!libraryLoaded&&<div style={{ fontSize:11,color:D.blue,padding:"12px 16px" }}>Loading library…</div>}
-        {lib.length===0&&!analyzing&&libraryLoaded&&<div style={{ padding:"2rem 16px",textAlign:"center" as const }}><p style={{ margin:0,fontSize:12,color:D.textMuted }}>Upload MOC ads to build your Creative DNA library.</p></div>}
-        <div style={{ flex:1,overflowY:"auto" }}>
-          {sortedLib.map((d) => {
-            const di = lib.indexOf(d);
-            return <LibraryCard key={d.id} d={d} di={di} expandedDNA={expandedDNA} setExpandedDNA={setExpandedDNA} lib={lib} saveLib={saveLib} reanalyzingIds={reanalyzingIds} handleReanalyzeSingle={handleReanalyzeSingle} onZoomFrame={setZoomedFrame} isReanalyzing={reanalyzingEntry === d.id} onReupload={handleReupload} />;
-          })}
-        </div>
       </div>
 
       {/* Main */}
@@ -2065,12 +2040,13 @@ export default function App() {
                         const lockedMsg=isHook?"Render Start, Middle, End first":scene==="middle"?"Render Start first":"Render Middle first";
                         return (
                           <div key={scene} style={{ aspectRatio:"9/16",background:D.surface2,borderRadius:10,border:`${borderWidth} solid ${borderColor}`,overflow:"hidden",display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"center",cursor:needsPrev?"not-allowed":"pointer",position:"relative" as const,transition:"border-color .2s" }}
-                            onClick={()=>!imgUrl&&!loading&&!needsPrev&&handleRenderScene(ci,scene)}>
+                            onClick={()=>(!imgUrl||(c as any)[`render_err_${scene}`])&&!loading&&!needsPrev&&handleRenderScene(ci,scene)}>
                             {isNext&&!imgUrl&&<div style={{ position:"absolute" as const,top:6,left:0,right:0,display:"flex",justifyContent:"center" }}>
                               <span style={{ fontSize:9,padding:"2px 7px",background:sceneColor,color:"#fff",borderRadius:20,fontWeight:600,letterSpacing:"0.05em" }}>{scene==="start"?"START HERE":"RENDER NEXT"}</span>
                             </div>}
                             {imgUrl?<img src={imgUrl} alt={scene} onClick={e=>{e.stopPropagation();setZoomedFrame(imgUrl);}} style={{ width:"100%",height:"100%",objectFit:"contain",background:"#0a0c10",cursor:"zoom-in" }} />
                               :loading?<p style={{ margin:0,fontSize:11,fontWeight:500,color:D.textMuted }}>Rendering…</p>
+                              :(c as any)[`render_err_${scene}`]?<div style={{ textAlign:"center" as const,padding:10 }}><p style={{ margin:0,fontSize:9,color:D.red }}>Failed</p><p style={{ margin:"4px 0 0",fontSize:8,color:D.textDim }}>Click to retry</p></div>
                               :needsPrev?<div style={{ textAlign:"center" as const,padding:10 }}><p style={{ margin:0,fontSize:10,color:D.textDim,textTransform:"uppercase" as const }}>{sceneLabel}</p><p style={{ margin:"4px 0 0",fontSize:9,color:D.textDim }}>{lockedMsg}</p></div>
                               :<div style={{ textAlign:"center" as const,padding:10,marginTop:isNext?18:0 }}><p style={{ margin:0,fontSize:11,fontWeight:500,textTransform:"uppercase" as const,color:isNext?sceneColor:D.textDim }}>{sceneLabel}</p><p style={{ margin:"4px 0 0",fontSize:9,color:isNext?sceneColor:D.textDim }}>{isNext?"Render next":"Click to render"}</p></div>}
                           </div>
