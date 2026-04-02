@@ -106,7 +106,7 @@ const TIER_ACCENT: Record<string, string> = {
 
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 const GEMINI_TEXT_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
-const GEMINI_IMAGE_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${GEMINI_KEY}`;
+const GEMINI_IMAGE_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${GEMINI_KEY}`;
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const D = {
@@ -177,17 +177,28 @@ function parseJSON(text: string): any {
   }
 }
 
+// Ensure all array fields on a raw DNA response are actually arrays — prevents "e is not iterable"
+function sanitizeDNA(raw: any): any {
+  if (!raw || typeof raw !== "object") return {};
+  const ARRAY_FIELDS = ["emotional_beats","gate_sequence","unit_evolution_chain","champions_visible","auto_frames","manual_frames","spend_networks","segments"];
+  const out = { ...raw };
+  for (const field of ARRAY_FIELDS) {
+    if (!Array.isArray(out[field])) out[field] = out[field] ? [out[field]] : [];
+  }
+  return out;
+}
+
 async function callImageDirect(prompt: string, refParts: any[]): Promise<string> {
-  const body = JSON.stringify({ contents: [{ parts: [...refParts, { text: prompt }] }], generationConfig: { responseModalities: ["IMAGE", "TEXT"], imageGenerationConfig: { aspectRatio: "9:16" } } });
+  const body = JSON.stringify({ contents: [{ parts: [...refParts, { text: prompt }] }], generationConfig: { responseModalities: ["IMAGE", "TEXT"] } });
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const r = await fetch(GEMINI_IMAGE_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body });
       const text = await r.text();
-      if (!r.ok) { if (attempt === 0 && (r.status === 503 || r.status === 429)) { await new Promise(res => setTimeout(res, 3000)); continue; } throw new Error(`Image gen ${r.status}: ${text.slice(0, 200)}`); }
+      if (!r.ok) { if (attempt === 0 && (r.status === 503 || r.status === 429)) { await new Promise(res => setTimeout(res, 3000)); continue; } throw new Error(`Image gen ${r.status}: ${text.slice(0, 300)}`); }
       const data = JSON.parse(text);
       const imgPart = data.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
       if (!imgPart) { if (attempt === 0) { await new Promise(res => setTimeout(res, 2000)); continue; } throw new Error("No image returned — model did not generate an image"); }
-      return `data:image/png;base64,${imgPart.inlineData.data}`;
+      return `data:${imgPart.inlineData.mimeType || "image/png"};base64,${imgPart.inlineData.data}`;
     } catch (e: any) { if (attempt === 1) throw e; await new Promise(res => setTimeout(res, 2000)); }
   }
   throw new Error("Render failed after 2 attempts");
@@ -916,6 +927,60 @@ function SpendTagger({ entry, onSave, lib }: { entry: DNAEntry; onSave: (fields:
   );
 }
 
+// ─── Re-upload Modal ──────────────────────────────────────────────────────────
+function ReuploadModal({ entry, onConfirm, onCancel }: {
+  entry: DNAEntry;
+  onConfirm: (videoFile: File, manualFrames: File[]) => void;
+  onCancel: () => void;
+}) {
+  const videoRef = React.useRef<HTMLInputElement>(null);
+  const framesRef = React.useRef<HTMLInputElement>(null);
+  const [videoFile, setVideoFile] = React.useState<File|null>(null);
+  const [frameFiles, setFrameFiles] = React.useState<File[]>([]);
+  const displayId = entry.creative_id || `#${entry.id}`;
+
+  return (
+    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000 }}
+      onClick={onCancel}>
+      <div style={{ background:"#161b22",borderRadius:14,padding:"1.5rem",width:"90%",maxWidth:440,border:`0.5px solid ${D.border2}` }}
+        onClick={e=>e.stopPropagation()}>
+        <h2 style={{ margin:"0 0 4px",fontSize:15,fontWeight:500,color:D.text }}>Re-upload {displayId}</h2>
+        <p style={{ margin:"0 0 20px",fontSize:11,color:D.textMuted }}>Keeps existing metadata (tier, spend, IDs). Re-runs full analysis on the new video.</p>
+
+        {/* Video file */}
+        <div style={{ marginBottom:12 }}>
+          <span style={{ fontSize:10,fontWeight:600,color:D.textDim,letterSpacing:"0.08em",textTransform:"uppercase" as const,display:"block",marginBottom:6 }}>Video *</span>
+          <input ref={videoRef} type="file" accept="video/*" style={{ display:"none" }}
+            onChange={e=>{ const f=e.target.files?.[0]; if(f) setVideoFile(f); e.target.value=""; }} />
+          <button style={{ ...D as any, padding:"8px 16px",fontSize:12,background:videoFile?D.greenBg:D.surface2,border:`0.5px solid ${videoFile?D.greenBdr:D.border2}`,borderRadius:8,color:videoFile?D.green:D.text,cursor:"pointer",width:"100%",textAlign:"left" as const,fontFamily:"inherit" }}
+            onClick={()=>videoRef.current?.click()}>
+            {videoFile ? `✓ ${videoFile.name}` : "Choose video file…"}
+          </button>
+        </div>
+
+        {/* Manual frames (optional) */}
+        <div style={{ marginBottom:20 }}>
+          <span style={{ fontSize:10,fontWeight:600,color:D.textDim,letterSpacing:"0.08em",textTransform:"uppercase" as const,display:"block",marginBottom:6 }}>Manual storyboard frames (optional)</span>
+          <input ref={framesRef} type="file" accept="image/*" multiple style={{ display:"none" }}
+            onChange={e=>{ const files=e.target.files?Array.from(e.target.files):[]; setFrameFiles(files); e.target.value=""; }} />
+          <button style={{ padding:"8px 16px",fontSize:12,background:frameFiles.length>0?D.blueBg:D.surface2,border:`0.5px solid ${frameFiles.length>0?D.blueDark:D.border2}`,borderRadius:8,color:frameFiles.length>0?D.blue:D.textMuted,cursor:"pointer",width:"100%",textAlign:"left" as const,fontFamily:"inherit" }}
+            onClick={()=>framesRef.current?.click()}>
+            {frameFiles.length>0 ? `✓ ${frameFiles.length} frame${frameFiles.length>1?"s":""} selected` : "+ Add frames"}
+          </button>
+        </div>
+
+        <div style={{ display:"flex",gap:8,justifyContent:"flex-end" }}>
+          <button onClick={onCancel} style={{ padding:"8px 18px",fontSize:13,background:"none",border:`0.5px solid ${D.border2}`,borderRadius:8,color:D.textMuted,cursor:"pointer",fontFamily:"inherit" }}>Cancel</button>
+          <button onClick={()=>{ if(videoFile) onConfirm(videoFile,frameFiles); }} disabled={!videoFile}
+            style={{ padding:"8px 18px",fontSize:13,background:videoFile?D.blue:"#333",border:"none",borderRadius:8,color:"#fff",cursor:videoFile?"pointer":"not-allowed",fontFamily:"inherit",opacity:videoFile?1:0.5 }}>
+            Analyze →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Library Card ─────────────────────────────────────────────────────────────
 function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanalyzingIds, handleReanalyzeSingle, onZoomFrame, isReanalyzing, onReupload }: {
   d: DNAEntry; di: number; expandedDNA: number|null; setExpandedDNA: (n: number|null) => void;
@@ -925,6 +990,7 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
   isReanalyzing: boolean;
   onReupload?: (entry: DNAEntry, file: File, manualFrameFiles?: File[]) => void;
 }) {
+  const [showReuploadModal, setShowReuploadModal] = React.useState(false);
   // ✅ canTag fix: inspiration tier now shows metadata fields
   const canTag = d.ad_type === "moc";
   const spendSt = SPEND_TIERS.find(t => t.value === d.spend_tier);
@@ -1078,24 +1144,19 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
           {onReupload && (() => {
             const reuploading = reanalyzingIds.has(d.id);
             return (
-              <label style={{ ...btnSec, fontSize:10, padding:"4px 9px", cursor:reuploading?"not-allowed":"pointer", userSelect:"none" as const, opacity:reuploading?0.5:1 }}
-                title="Keep metadata, re-analyze with new video. Optionally add manual frames.">
-                {reuploading ? "↑ Uploading…" : "↑ Re-upload"}
-                <input type="file" accept="video/*" style={{ display:"none" }} disabled={reuploading}
-                  onChange={async e => {
-                    const videoFile = e.target.files?.[0]; e.target.value = "";
-                    if (!videoFile) return;
-                    const wantManual = window.confirm("Add manual frame images? OK to pick images, Cancel to skip.");
-                    let manualFiles: File[] = [];
-                    if (wantManual) {
-                      manualFiles = await new Promise<File[]>(resolve => {
-                        const inp = document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.multiple=true;
-                        inp.onchange=()=>resolve(inp.files?Array.from(inp.files):[]); inp.oncancel=()=>resolve([]); inp.click();
-                      });
-                    }
-                    onReupload(d, videoFile, manualFiles.length>0?manualFiles:undefined);
-                  }} />
-              </label>
+              <>
+                {showReuploadModal && (
+                  <ReuploadModal entry={d}
+                    onCancel={()=>setShowReuploadModal(false)}
+                    onConfirm={(videoFile, manualFrames)=>{ setShowReuploadModal(false); onReupload(d, videoFile, manualFrames.length>0?manualFrames:undefined); }} />
+                )}
+                <button style={{ ...btnSec, fontSize:10, padding:"4px 9px", cursor:reuploading?"not-allowed":"pointer", opacity:reuploading?0.5:1 }}
+                  disabled={reuploading}
+                  onClick={e=>{ e.stopPropagation(); setShowReuploadModal(true); }}
+                  title="Keep metadata, re-analyze with new video">
+                  {reuploading ? "↑ Uploading…" : "↑ Re-upload"}
+                </button>
+              </>
             );
           })()}
           <button
@@ -1376,7 +1437,8 @@ export default function App() {
       const frameParts=extractedFrameParts.length>0?[{text:"### EXTRACTED FRAMES:"},...extractedFrameParts]:[];
       const hasManual=manualParts.length>0;
       const cfg={tier:entry.tier,ad_type:entry.ad_type,context:entry.upload_context||"",manual_frames:[]};
-      const dna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(hasManual?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
+      const rawDna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(hasManual?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
+      const dna=sanitizeDNA(rawDna);
       setAnalyzeStep("saving");
       const frameImageMap: Record<number,string>={};
       for(let pi=0;pi<extractedFrameParts.length-1;pi+=2){ const label=extractedFrameParts[pi]?.text??""; const match=label.match(/\[FRAME at ([\d.]+)s\]/); const imgData=extractedFrameParts[pi+1]?.inlineData?.data; if(match&&imgData) frameImageMap[parseFloat(match[1])]=imgData; }
@@ -1445,7 +1507,8 @@ export default function App() {
         const frameParts = extractedFrameParts.length > 0
           ? [{text:"### EXTRACTED FRAMES — key moments at exact timestamps:"},...extractedFrameParts]
           : [];
-        const dna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
+        const rawDna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
+        const dna=sanitizeDNA(rawDna);
         setAnalyzeStep("saving");
         // Build a lookup: timestamp → base64 image from extractedFrameParts
         // extractedFrameParts alternates: [{text:"[FRAME at Xs]"}, {inlineData:{...}}, ...]
