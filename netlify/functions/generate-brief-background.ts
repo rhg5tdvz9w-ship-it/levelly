@@ -21,6 +21,50 @@ async function callClaude(system: string, prompt: string, apiKey: string, maxTok
   return data.content?.find((b: any) => b.type === "text")?.text ?? "";
 }
 
+function repairJSON(raw: string): any {
+  // First try direct parse
+  try { return JSON.parse(raw); } catch {}
+
+  // Find the outermost JSON object
+  const match = raw.match(/\{[\s\S]*/);
+  if (!match) throw new Error("No JSON object found in response");
+  let str = match[0];
+
+  // Try parsing as-is
+  try { return JSON.parse(str); } catch {}
+
+  // Multi-pass repair for truncated JSON
+  // 1. Remove trailing incomplete tokens
+  str = str
+    .replace(/,\s*$/, "")                         // trailing comma
+    .replace(/:\s*"[^"]*$/, ': ""')               // incomplete string value after key
+    .replace(/"[^"]*$/, '"')                       // incomplete string anywhere (close it)
+    .replace(/,\s*"[^"]*"\s*:\s*$/, "")           // incomplete key with no value
+    .replace(/:\s*\[[^\]]*$/, ': []')             // incomplete array after key
+    .replace(/:\s*\{[^}]*$/, ': {}');             // incomplete object after key
+
+  // 2. Try after string repairs
+  try { return JSON.parse(str + '}'); } catch {}
+  try { return JSON.parse(str + '"}'); } catch {}
+
+  // 3. Count and close all unclosed brackets using a stack
+  const stack: string[] = [];
+  let inString = false;
+  let escape = false;
+  for (const ch of str) {
+    if (escape) { escape = false; continue; }
+    if (ch === '\\' && inString) { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '{') stack.push('}');
+    else if (ch === '[') stack.push(']');
+    else if (ch === '}' || ch === ']') stack.pop();
+  }
+  str += stack.reverse().join("");
+
+  return JSON.parse(str);
+}
+
 export const handler: Handler = async (event) => {
   const headers = {
     "Access-Control-Allow-Origin": "*",
@@ -55,31 +99,31 @@ export const handler: Handler = async (event) => {
     const conceptDefs = [
       {
         num: 1,
-        maxTokens: 3000,
+        maxTokens: 6000,
         prompt: `Generate concept 1: proven biome (Desert/Foggy Forest/Water/Bunker/Meadow), data-backed, is_experimental:false.
-Return ONLY this JSON structure (nothing before or after):
-{"analysis":{"patterns_used":string,"dna_sources":[string],"strategy":string},"concepts":[{ONE concept object}]}`
+Return ONLY valid JSON (nothing before or after):
+{"analysis":{"patterns_used":string,"dna_sources":[string],"strategy":string},"concepts":[{ONE complete concept object including production_script}]}`
       },
       {
         num: 2,
-        maxTokens: 3000,
+        maxTokens: 6000,
         prompt: `Generate concept 2: proven biome different from concept 1, data-backed, is_experimental:false.
-Return ONLY this JSON structure (nothing before or after, NO analysis block):
-{"concepts":[{ONE concept object}]}`
+Return ONLY valid JSON (nothing before or after, NO analysis block):
+{"concepts":[{ONE complete concept object including production_script}]}`
       },
       {
         num: 3,
-        maxTokens: 3000,
+        maxTokens: 6000,
         prompt: `Generate concept 3: experimental biome (Cyber-City/Volcanic/Snow/Toxic), is_experimental:true.
-Return ONLY this JSON structure (nothing before or after, NO analysis block):
-{"concepts":[{ONE concept object}]}`
+Return ONLY valid JSON (nothing before or after, NO analysis block):
+{"concepts":[{ONE complete concept object including production_script}]}`
       },
       {
         num: 4,
-        maxTokens: 3000,
+        maxTokens: 6000,
         prompt: `Generate concept 4: wildcard bold creative departure, is_experimental:true.
-Return ONLY this JSON structure (nothing before or after, NO analysis block):
-{"concepts":[{ONE concept object}]}`
+Return ONLY valid JSON (nothing before or after, NO analysis block):
+{"concepts":[{ONE complete concept object including production_script}]}`
       },
     ];
 
@@ -89,13 +133,9 @@ Return ONLY this JSON structure (nothing before or after, NO analysis block):
         const text = await callClaude(system, def.prompt, apiKey, def.maxTokens);
         console.log(`brief-background: concept ${def.num} raw length=${text.length}`);
 
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) {
-          console.error(`concept ${def.num}: no JSON found in response`);
-          continue;
-        }
+        const result = repairJSON(text);
+        console.log(`brief-background: concept ${def.num} parsed OK`);
 
-        const result = JSON.parse(jsonMatch[0]);
         if (result.analysis && !analysis) analysis = result.analysis;
         if (Array.isArray(result.concepts) && result.concepts.length > 0) {
           concepts.push(result.concepts[0]);
@@ -108,7 +148,7 @@ Return ONLY this JSON structure (nothing before or after, NO analysis block):
         }));
         console.log(`brief-background: concept ${def.num} done, total=${concepts.length}`);
       } catch (err: any) {
-        console.error(`concept ${def.num} error: ${err.message}`);
+        console.error(`concept ${def.num} FAILED: ${err.message}`);
       }
     }
 

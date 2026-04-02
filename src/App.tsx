@@ -1407,7 +1407,7 @@ export default function App() {
       const startRes = await fetch("/api/generate-brief-background", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ system: systemPrompt, jobId, max_tokens: 4000 }),
+        body: JSON.stringify({ system: systemPrompt, jobId, max_tokens: 6000 }),
       });
       if (!startRes.ok) {
         const err = await startRes.json().catch(() => ({}));
@@ -1753,37 +1753,84 @@ export default function App() {
             );
           })()}
 
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12 }}>
-            {[
-              { key:"analyse",icon:<svg width="22" height="22" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="#3fb950" strokeWidth="1.5"/><line x1="9.5" y1="9.5" x2="14" y2="14" stroke="#3fb950" strokeWidth="1.5"/></svg>,iconBg:D.greenBg,badgeText:"Most used",badgeColor:D.green,badgeBorder:D.greenBdr,title:"Analyse creative",desc:"Drop any video — MOC ad, competitor, or market reference. Levelly extracts DNA: hook timing, gate patterns, emotional beats, cannon evolution chain.",active:analysePanelOpen,onClick:()=>{ setAnalysePanelOpen(p=>!p); setBriefPanelOpen(false); } },
-              { key:"brief",icon:<svg width="22" height="22" viewBox="0 0 16 16" fill="#58a6ff"><path d="M2 2h9l3 3v9H2V2zm1 1v10h10V6.5L9.5 3H3z"/></svg>,iconBg:D.blueBg,badgeText:"Primary output",badgeColor:D.blue,badgeBorder:D.blueDark,title:"Generate brief",desc:"Describe your idea — biome, network, hook. Levelly maps it to winning DNA and generates a master brief with lane design, tension moments, and scene renders.",active:briefPanelOpen,onClick:()=>{ setBriefPanelOpen(p=>!p); setAnalysePanelOpen(false); } },
-            ].map(card=>(
-              <div key={card.key} onClick={card.onClick}
-                style={{ background:card.active?"#1a2130":D.surface,border:`0.5px solid ${card.active?card.badgeBorder:D.border2}`,borderRadius:12,padding:20,cursor:"pointer",transition:"border-color .18s,background .18s,transform .12s" }}
-                onMouseEnter={e=>{ (e.currentTarget as HTMLDivElement).style.transform="translateY(-1px)"; (e.currentTarget as HTMLDivElement).style.borderColor=card.badgeBorder; }}
-                onMouseLeave={e=>{ (e.currentTarget as HTMLDivElement).style.transform=""; (e.currentTarget as HTMLDivElement).style.borderColor=card.active?card.badgeBorder:D.border2; }}>
-                <div style={{ width:38,height:38,borderRadius:10,background:card.iconBg,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:14 }}>{card.icon}</div>
-                <div style={{ marginBottom:10 }}><span style={{ fontSize:10,padding:"3px 10px",borderRadius:20,border:`1px solid ${card.badgeBorder}`,color:card.badgeColor }}>{card.badgeText}</span></div>
-                <div style={{ fontSize:16,fontWeight:500,marginBottom:6 }}>{card.title}</div>
-                <div style={{ fontSize:12,color:D.textMuted,lineHeight:1.6 }}>{card.desc}</div>
+          {/* 3-column layout: Analyse + Brief (equal) + Library (narrow) */}
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 0.55fr",gap:12,marginBottom:12,alignItems:"stretch" }}>
+            {/* Analyse card */}
+            <div onClick={()=>{ setAnalysePanelOpen(p=>!p); setBriefPanelOpen(false); }}
+              style={{ background:analysePanelOpen?"#1a2130":D.surface,border:`0.5px solid ${analysePanelOpen?D.greenBdr:D.border2}`,borderRadius:12,padding:20,cursor:"pointer",transition:"border-color .18s,background .18s,transform .12s" }}
+              onMouseEnter={e=>{ (e.currentTarget as HTMLDivElement).style.transform="translateY(-1px)"; (e.currentTarget as HTMLDivElement).style.borderColor=D.greenBdr; }}
+              onMouseLeave={e=>{ (e.currentTarget as HTMLDivElement).style.transform=""; (e.currentTarget as HTMLDivElement).style.borderColor=analysePanelOpen?D.greenBdr:D.border2; }}>
+              <div style={{ width:38,height:38,borderRadius:10,background:D.greenBg,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:14 }}>
+                <svg width="22" height="22" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="#3fb950" strokeWidth="1.5"/><line x1="9.5" y1="9.5" x2="14" y2="14" stroke="#3fb950" strokeWidth="1.5"/></svg>
               </div>
-            ))}
+              <div style={{ marginBottom:10 }}><span style={{ fontSize:10,padding:"3px 10px",borderRadius:20,border:`1px solid ${D.greenBdr}`,color:D.green }}>Most used</span></div>
+              <div style={{ fontSize:15,fontWeight:500,marginBottom:6 }}>Analyse creative</div>
+              <div style={{ fontSize:12,color:D.textMuted,lineHeight:1.6 }}>Drop any video — MOC ad, competitor, or market reference. Extracts DNA: hook timing, gate patterns, emotional beats, cannon chain.</div>
+            </div>
+
+            {/* Generate brief card */}
+            <div onClick={()=>{ setBriefPanelOpen(p=>!p); setAnalysePanelOpen(false); }}
+              style={{ background:briefPanelOpen?"#1a2130":D.surface,border:`0.5px solid ${briefPanelOpen?D.blueDark:D.border2}`,borderRadius:12,padding:20,cursor:"pointer",transition:"border-color .18s,background .18s,transform .12s" }}
+              onMouseEnter={e=>{ (e.currentTarget as HTMLDivElement).style.transform="translateY(-1px)"; (e.currentTarget as HTMLDivElement).style.borderColor=D.blueDark; }}
+              onMouseLeave={e=>{ (e.currentTarget as HTMLDivElement).style.transform=""; (e.currentTarget as HTMLDivElement).style.borderColor=briefPanelOpen?D.blueDark:D.border2; }}>
+              <div style={{ width:38,height:38,borderRadius:10,background:D.blueBg,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:14 }}>
+                <svg width="22" height="22" viewBox="0 0 16 16" fill="#58a6ff"><path d="M2 2h9l3 3v9H2V2zm1 1v10h10V6.5L9.5 3H3z"/></svg>
+              </div>
+              <div style={{ marginBottom:10 }}><span style={{ fontSize:10,padding:"3px 10px",borderRadius:20,border:`1px solid ${D.blueDark}`,color:D.blue }}>Primary output</span></div>
+              <div style={{ fontSize:15,fontWeight:500,marginBottom:6 }}>Generate brief</div>
+              <div style={{ fontSize:12,color:D.textMuted,lineHeight:1.6 }}>Describe your idea — biome, network, hook. Generates a master brief with lane design, tension moments, and scene renders.</div>
+            </div>
+
+            {/* Library card — narrow */}
+            <div onClick={()=>setLibPanelOpen(p=>!p)}
+              style={{ background:libPanelOpen?"#1a2130":D.surface,border:`0.5px solid ${libPanelOpen?D.gold:D.border2}`,borderRadius:12,padding:16,cursor:"pointer",transition:"border-color .18s,background .18s,transform .12s",display:"flex",flexDirection:"column" as const }}>
+              <div onMouseEnter={e=>{ (e.currentTarget.parentElement as HTMLDivElement).style.transform="translateY(-1px)"; (e.currentTarget.parentElement as HTMLDivElement).style.borderColor=D.gold; }}
+                onMouseLeave={e=>{ (e.currentTarget.parentElement as HTMLDivElement).style.transform=""; (e.currentTarget.parentElement as HTMLDivElement).style.borderColor=libPanelOpen?D.gold:D.border2; }}
+                style={{ flex:1 }}>
+                <div style={{ width:32,height:32,borderRadius:8,background:"rgba(210,153,34,0.12)",display:"flex",alignItems:"center",justifyContent:"center",marginBottom:12 }}>
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill={D.gold}><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+                </div>
+                <div style={{ fontSize:13,fontWeight:500,marginBottom:8 }}>Library</div>
+                <div style={{ fontSize:11,color:D.textMuted,lineHeight:1.8 }}>{lib.length} entries<br/>{activeWinners} active<br/>{topVel>0?`$${topVel>=1000?Math.round(topVel/1000)+"K":topVel}/d top vel`:""}</div>
+              </div>
+              <div style={{ fontSize:10,color:libPanelOpen?D.gold:D.textDim,marginTop:10 }}>{libPanelOpen?"▲ collapse":"▼ expand"}</div>
+            </div>
           </div>
 
-          {/* Library card — third, smaller */}
-          <div onClick={()=>setLibPanelOpen(p=>!p)}
-            style={{ background:libPanelOpen?"#1a2130":D.surface,border:`0.5px solid ${libPanelOpen?D.gold:D.border2}`,borderRadius:12,padding:"14px 20px",cursor:"pointer",transition:"border-color .18s,background .18s,transform .12s",marginBottom:20,display:"flex",alignItems:"center",gap:14 }}
-            onMouseEnter={e=>{ (e.currentTarget as HTMLDivElement).style.transform="translateY(-1px)"; (e.currentTarget as HTMLDivElement).style.borderColor=D.gold; }}
-            onMouseLeave={e=>{ (e.currentTarget as HTMLDivElement).style.transform=""; (e.currentTarget as HTMLDivElement).style.borderColor=libPanelOpen?D.gold:D.border2; }}>
-            <div style={{ width:36,height:36,borderRadius:9,background:"rgba(210,153,34,0.12)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
-              <svg width="18" height="18" viewBox="0 0 16 16" fill={D.gold}><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+          {/* Library expanded inline — shows directly below cards */}
+          {libPanelOpen&&(
+            <div style={{ background:D.surface,border:`0.5px solid ${D.gold}`,borderRadius:10,marginBottom:14,animation:"slideIn .2s ease-out",overflow:"hidden" }}>
+              {/* Stats row */}
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",borderBottom:`0.5px solid ${D.border}` }}>
+                {[{n:lib.length,label:"CREATIVES",color:D.text},{n:winners,label:"WINNERS",color:D.blue},{n:topVel>0?`$${topVel>=1000?Math.round(topVel/1000)+"K":topVel}`:"—",label:"TOP VELOCITY",color:D.gold},{n:networkSet.size||"—",label:"NETWORKS",color:D.green}].map(({n,label,color},i)=>(
+                  <div key={label} style={{ padding:"10px 16px",borderRight:i<3?`0.5px solid ${D.border}`:"none" }}>
+                    <div style={{ fontSize:18,fontWeight:500,color,lineHeight:1 }}>{n}</div>
+                    <div style={{ fontSize:9,letterSpacing:"0.1em",color:D.textMuted,marginTop:3 }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+              {/* Filter + actions */}
+              <div style={{ display:"flex",gap:5,padding:"8px 16px",borderBottom:`0.5px solid ${D.border}`,flexWrap:"wrap" as const,alignItems:"center" }}>
+                {(["all","winner","scalable","inspiration","failed"] as SortMode[]).map(s=>(
+                  <button key={s} onClick={e=>{ e.stopPropagation(); setLibSort(s); }} style={{ padding:"3px 10px",fontSize:10,borderRadius:20,cursor:"pointer",fontFamily:"inherit",border:`0.5px solid ${libSort===s?(s==="all"?D.border2:TIER_STYLE[s]?.border??D.border2):D.border2}`,background:libSort===s?(s==="all"?D.surface2:TIER_STYLE[s]?.bg??"transparent"):"transparent",color:libSort===s?(s==="all"?D.text:TIER_STYLE[s]?.text??D.text):D.textMuted }}>
+                    {s==="all"?"All":s.charAt(0).toUpperCase()+s.slice(1)}
+                  </button>
+                ))}
+                <span style={{ fontSize:10,color:D.textDim,marginLeft:"auto" }}>by spend · fatigued last</span>
+              </div>
+              <div style={{ display:"flex",gap:6,padding:"8px 16px",borderBottom:`0.5px solid ${D.border}`,flexWrap:"wrap" as const }}>
+                {lib.length>0&&(<><button style={btnSec} onClick={e=>{ e.stopPropagation(); handleReanalyzeAll(); }} disabled={reanalyzingAll||analyzing}>{reanalyzingAll?"Re-analyzing…":"Re-analyze all"}</button><button style={btnSec} onClick={e=>{ e.stopPropagation(); exportLibrary(); }}>Export</button><button style={btnSec} onClick={e=>{ e.stopPropagation(); if(confirm("Clear library?")) saveLib([]); }}>Clear</button></>)}
+                <button style={btnSec} onClick={e=>{ e.stopPropagation(); importRef.current?.click(); }}>Import</button>
+                <button style={btnPri} onClick={e=>{ e.stopPropagation(); setLibPanelOpen(false); setShowModal(true); }} disabled={analyzing||reanalyzingAll}>{analyzing?"Analyzing…":"+ Upload"}</button>
+              </div>
+              {reanalysisProgress&&<div style={{ fontSize:11,color:D.blue,background:D.blueBg,border:`0.5px solid ${D.blueDark}`,borderRadius:7,padding:"7px 12px",margin:"8px 16px" }}>{reanalysisProgress}</div>}
+              {/* Library cards */}
+              <div style={{ maxHeight:480,overflowY:"auto" as const,padding:"8px 0" }}>
+                {lib.length===0&&!analyzing&&libraryLoaded&&<div style={{ padding:"2rem 16px",textAlign:"center" as const }}><p style={{ margin:0,fontSize:12,color:D.textMuted }}>Upload MOC ads to build your Creative DNA library.</p></div>}
+                {sortedLib.map((d,di)=><LibraryCard key={d.id} d={d} di={di} expandedDNA={expandedDNA} setExpandedDNA={setExpandedDNA} lib={lib} saveLib={saveLib} reanalyzingIds={reanalyzingIds} handleReanalyzeSingle={handleReanalyzeSingle} onZoomFrame={setZoomedFrame} isReanalyzing={reanalyzingEntry === d.id} />)}
+              </div>
             </div>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:14,fontWeight:500,marginBottom:2 }}>Creative library</div>
-              <div style={{ fontSize:11,color:D.textMuted }}>{lib.length} entries · {activeWinners} active winners · click to browse DNA, spend data, and iterations</div>
-            </div>
-            <div style={{ fontSize:11,color:D.textDim }}>{libPanelOpen?"▲":"▼"}</div>
-          </div>
+          )}
 
           {briefPanelOpen&&(
             <div style={{ background:D.surface,border:`1.5px solid ${D.blueDark}`,borderRadius:10,overflow:"hidden",marginBottom:14,animation:"slideIn .2s ease-out" }}>
