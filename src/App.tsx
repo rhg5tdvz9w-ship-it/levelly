@@ -291,58 +291,85 @@ async function extractFramesFromVideo(
 }
 
 // ─── Ref image helpers ────────────────────────────────────────────────────────
-function pickRelevantRefs(vi: VisualIdentity): any[] {
+function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string): any[] {
   const biome = vi.environment?.toLowerCase() || "";
-  const player = vi.player_champion?.toLowerCase() || "";
-  const enemy = vi.enemy_champion?.toLowerCase() || "";
   const populated = MOC_REFERENCES.filter(r => !r.base64.startsWith("REPLACE_"));
   if (populated.length === 0) return [];
-  const scored = populated.map(ref => {
-    const lbl = ref.label.toLowerCase(); let score = 0;
-    if (lbl.includes(biome)) score += 3;
-    if (player && lbl.includes(player)) score += 2;
-    if (enemy && lbl.includes(enemy)) score += 2;
-    if (ref.category === "gate") score += 1;
-    return { ref, score };
-  });
-  scored.sort((a, b) => b.score - a.score);
+
   const selected: typeof populated = [];
-  const biomeRef = scored.find(s => s.ref.category === "biome" && s.score > 0)?.ref;
-  const champRef = scored.find(s => s.ref.category === "champion" && s.score > 0)?.ref;
-  const gateRef = scored.find(s => s.ref.category === "gate")?.ref;
+
+  // 1. Biome ref — match environment
+  const biomeRef = populated.find(r => r.category === "biome" && r.label.toLowerCase().includes(biome));
   if (biomeRef) selected.push(biomeRef);
-  if (champRef && champRef !== biomeRef) selected.push(champRef);
+
+  // 2. Cannon ref — match the specific tier being rendered
+  if (unitAtScene) {
+    const unitKey = unitAtScene.toLowerCase().replace(/\s+/g, "_");
+    const cannonRef = populated.find(r => r.category === "cannon" && r.key.includes(unitKey.split("_")[0]));
+    if (cannonRef && !selected.includes(cannonRef)) selected.push(cannonRef);
+  }
+  // Always include simple cannon as baseline style reference if no specific match
+  if (!selected.some(r => r.category === "cannon")) {
+    const simpleRef = populated.find(r => r.key === "simple_cannon");
+    if (simpleRef) selected.push(simpleRef);
+  }
+
+  // 3. Gate refs — always include to show correct colours and style
+  const gateRef = populated.find(r => r.key === "x_gates_purple");
+  const plusGateRef = populated.find(r => r.key === "plus_gates_blue");
   if (gateRef && !selected.includes(gateRef)) selected.push(gateRef);
-  for (const { ref } of scored) { if (selected.length >= 3) break; if (!selected.includes(ref)) selected.push(ref); }
-  const parts: any[] = [{ text: "### MOC VISUAL REFERENCES — match this exact art style and game aesthetic:" }];
+  if (plusGateRef && !selected.includes(plusGateRef) && selected.length < 4) selected.push(plusGateRef);
+
+  // 4. Enemy tower ref — always useful for boss/end composition
+  const towerRef = populated.find(r => r.key === "enemy_tower");
+  if (towerRef && !selected.includes(towerRef) && selected.length < 4) selected.push(towerRef);
+
+  // 4. Fill to max 4 refs with scored matches
+  const scored = populated
+    .filter(r => !selected.includes(r))
+    .map(ref => {
+      const lbl = ref.label.toLowerCase(); let score = 0;
+      if (lbl.includes(biome)) score += 3;
+      return { ref, score };
+    })
+    .sort((a, b) => b.score - a.score);
+  for (const { ref } of scored) {
+    if (selected.length >= 4) break;
+    selected.push(ref);
+  }
+
+  const parts: any[] = [{ text: "### MOC VISUAL REFERENCES — match this exact art style precisely:" }];
   selected.forEach(ref => {
-    parts.push({ text: `[${ref.category.toUpperCase()}]: ${ref.label.split(".")[0]}` });
-    parts.push({ inlineData: { mimeType: "image/jpeg", data: ref.base64 } });
+    parts.push({ text: `[${ref.category.toUpperCase()}]: ${ref.label}` });
+    parts.push({ inlineData: { mimeType: (ref as any).mimeType || "image/png", data: ref.base64 } });
   });
   return parts;
 }
 
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 const BIOME_GUIDE = `BIOMES: Foggy Forest(grey/white atmospheric fog,dark pines,grey road—NOT snow), Desert(tan sand,blue sky), Water(grey bridge over blue water), Bunker(grey concrete tunnel,pipes,industrial), Cyber-City(grey metal,orange/blue neon), Volcanic(red/orange lava,black rocks), Snow(white snow ground), Toxic(purple paths,green slime), Meadow(green hills,grey brick bridge)`;
-const CHAMPION_GUIDE = `CHAMPIONS (ONLY these exist in Mob Control — NEVER invent new ones): Captain Kaboom(SMALL skeleton pirate,mushroom hat,dual pistols), Gold Golem(LARGE golden muscular humanoid), Caveman(blue-skin,blonde,club), Mobzilla(purple/yellow robotic T-Rex), Nexus(blue/white/orange mech,orange sword), Red Hulk(large red humanoid), Kraken(red octopus), Femme Zombie(crawling female zombie boss), Yellow Normie(small yellow round—BOSS ENEMY), Unknown(generic enemy tower). If a champion name is not on this list, use Unknown and draw a generic enemy tower/boss. NEVER invent champion appearances or names.`;
+const CHAMPION_GUIDE = `CHAMPIONS (ONLY these exist in Mob Control): Captain Kaboom(blue round mob, green hat with yellow brim, fires 3 golden streams), Gold Golem(LARGE golden muscular humanoid), Caveman(blue-skin muscular humanoid, blonde hair, club), Mobzilla(green dinosaur/T-Rex, pink spines, red mouth, cartoonish), Nexus(blue/white/orange mech, orange sword), Red Hulk(large red humanoid), Kraken(red octopus), Femme Zombie(crawling female zombie boss), Yellow Normie(large yellow/red round creature — BOSS ENEMY with HP bar), Unknown(generic enemy tower). Enemy tower = red/grey fortified block structure with HP number. NEVER invent champion appearances. If a champion name is not on this list, draw Unknown/generic tower.`;
 const MOC_EVENTS_GUIDE = `MOC-SPECIFIC EVENTS TO HUNT FOR (timestamp ALL of these if present):
-- CANNON UPGRADE (unit evolution): Player mobs destroy a breakable obstacle on the road (box, barrel, crate, stone, or any destructible object) — this triggers the cannon to visually transform into the next upgrade tier. ALWAYS name the upgrade using the exact tier names below. This is the most important mechanic to identify correctly.
-- GIANT/BOSS DEATH: A large enemy giant or boss character is defeated and disappears/explodes. ALWAYS timestamp this — it's a key emotional payoff moment.
-- X GATE PASS: Player mobs pass through a multiplication gate (xN). Report the gate value and timestamp for EACH gate pass separately.
+- CANNON UPGRADE (unit evolution): Player mobs destroy a breakable obstacle on the road — the obstacle type matches the environment (wooden barrel in forest, stone block in desert, blue crate in bunker, sandstone in volcanic, etc.). Destroying it triggers the cannon to transform into the next tier. ALWAYS name using exact tier names below.
+- GIANT/BOSS DEATH: Large enemy giant or boss character defeated. ALWAYS timestamp — key emotional payoff.
+- X GATE PASS: Player mobs pass through a multiplication gate (xN). Report gate value and timestamp for EACH pass.
 - + GATE PASS: Player mobs pass through an addition gate (+N). Report gate value and timestamp.
-- ALMOST-FAIL MOMENT: Player's mob count drops to a dangerously low level (near wipeout) but survives.
+- ALMOST-FAIL MOMENT: Player mob count drops to dangerously low level (near wipeout) but survives.
 - SWARM PEAK: Maximum mob count on screen.
-- FINAL FAIL/DEFEAT: Last mob destroyed, 'FAILED' screen appears.
+- FINAL FAIL/DEFEAT: Last mob destroyed, FAILED screen appears.
+- GREEN PIPE: Shortcut tunnel that sends mobs directly to the enemy tower or boss area — skipping part of the level.
+- RED BLOCK: Red pushable/breakable obstacle that physically blocks access to valuable elements (gates, upgrades). Player must smash through it.
+- CHAMPION RELEASE: Sniper cannon charging bar fills up and releases a champion unit onto the field.
 
-CANNON UPGRADE TIERS (use these exact names when identifying unit evolutions):
-1. Simple Cannon — single barrel cannon, fires one stream of blobs
-2. Double Cannon — two barrels side by side, fires two streams
-3. Triple Cannon — three barrels, fires three streams simultaneously
-4. Tank — tracked vehicle with a turret, visually very distinct from cannon
-5. Golden Jet / Jet — aircraft unit, gold-coloured, flies above the lane
-6. (Other evolutions may exist — describe what you see if it doesn't match the above)
+CANNON UPGRADE TIERS (exact names):
+1. Simple Cannon — single blue barrel, 4 black wheels, compact round body
+2. Double Cannon — two blue barrels side-by-side, slightly wider
+3. Triple Cannon — three blue barrels, wider body, brown/orange roller wheels
+4. Tank — blue military tank, rotating turret/radar dish, tracked treads, yellow-green accent
+5. Golden Jet — gold aircraft (airplane), used as aspirational eye-catcher only, shown on platform
+6. (Other evolutions may exist — describe what you see)
 
-When you see an upgrade event, output it as: "Cannon upgrades from [previous tier] to [new tier]" using the exact names above.`;
+When you see an upgrade: "Cannon upgrades from [previous tier] to [new tier]" using exact names above.`;
 
 const GATE_GUIDE = `GATES — understand the mechanical difference:
 - Multiplication gate (X value, e.g. x3): multiplies the NUMBER OF MOBS currently moving through the lane. x3 means triple the mob count. Report the EXACT value shown (x2, x3, x4, x10 etc.)
@@ -405,6 +432,9 @@ MOC MECHANICS TO UNDERSTAND BEFORE GENERATING:
 - INVESTMENT ELEMENTS (+N gates): Multiply the NUMBER OF CANNONS firing. +1 adds 1 cannon. Multiple +N gates in sequence rapidly scale firepower. Can appear anywhere on the path.
 - DANGER ELEMENTS (xN gates + enemy mobs): xN gates multiply the mob count already in the lane. Often adjacent to or guarded by enemy mobs. Can appear anywhere — sometimes on the same path as investment elements.
 - LANE ARCHITECTURE: MOC ads contain three structural elements regardless of environment — investment path (+gates), upgrade path (breakable obstacles), danger zone (xN gates/enemies). The lane_design field should describe HOW these elements are arranged relative to each other (e.g. "upgrade obstacle blocks the investment gate path forcing player to fight through enemy zone first") — not fixed left/right positions.
+- RED BLOCK: A red pushable/breakable obstacle blocking access to valuable gates or upgrades. Creates frustration — player must push through it. Strong creative tension element.
+- GREEN PIPE: Shortcut tunnel sending mobs directly to boss/tower, bypassing part of the level. Surprise mechanic.
+- SNIPER CANNON + CHAMPION RELEASE: Special cannon with a charging bar — releases a champion unit when full. Champions are powerful allies shown as large character units.
 - ALMOST-FAIL TENSION: Top performers have 2-3 near-defeat moments mid-video where mob count drops critically before recovering. This oscillating tension curve IS the emotional engine.
 - PROGRESSION = cannon tier evolution + cannon count growth (via +gates) + mob swarm density. All three must be visible and distinct across scenes.
 
@@ -413,7 +443,15 @@ NETWORK RULES: AppLovin=custom side cam+skeleton/knight hook+blue+3+ evolution s
 BIOMES (concepts 1-2): Desert, Foggy Forest, Water, Bunker, Meadow ONLY. Concept 3: experimental biome (is_experimental:true).
 
 Return ONLY valid JSON — be concise, no padding or elaboration:
-{"analysis":{"patterns_used":string,"dna_sources":[string],"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"is_experimental":boolean,"experimental_note":string|null,"objective":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"hook_timing_seconds":number,"hook_description":string,"unit_evolution_chain":[string],"cannon_count_progression":string,"lane_design":string,"upgrade_triggers":[string],"tension_moments":[string],"network_adaptations":{"AppLovin":string,"Facebook":string,"Google":string},"engagement_hooks":string,"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}]}`;
+{"analysis":{"patterns_used":string,"dna_sources":[string],"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"is_experimental":boolean,"experimental_note":string|null,"objective":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"hook_timing_seconds":number,"hook_description":string,"unit_evolution_chain":[string],"cannon_count_progression":string,"lane_design":string,"upgrade_triggers":[string],"tension_moments":[string],"network_adaptations":{"AppLovin":string,"Facebook":string,"Google":string},"engagement_hooks":string,"production_script":[{"time":string,"action":string,"visual_cue":string,"audio_cue":string}],"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}]}`;
+};
+
+const CANNON_VISUALS: Record<string, string> = {
+  "Simple Cannon": "Simple Cannon: single blue barrel, round blue body, 4 black wheels — compact, small",
+  "Double Cannon": "Double Cannon: two blue barrels side-by-side, slightly wider body than Simple Cannon, same wheel style",
+  "Triple Cannon": "Triple Cannon: THREE blue barrels side-by-side on a wider body, brown/orange roller wheels — see reference image for exact appearance",
+  "Tank": "Tank: blue military tank body with rotating turret/radar dish on top, wide tracked treads, yellow-green accent ring — see reference image",
+  "Golden Jet": "Golden Jet: a golden yellow aircraft with wings, shown as aspirational upgrade — sits on platform as eye-catcher, NOT the main cannon",
 };
 
 const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", continuityNote?: string) => {
@@ -432,6 +470,8 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
     end:    chain[chain.length - 1] || chain[0] || "Tank",
   }[scene];
 
+  const cannonVisual = CANNON_VISUALS[unitAtScene] || `${unitAtScene}: a ground-mounted cannon on a wheeled base, NOT a vehicle`;
+
   const cannonCountAtScene = {
     hook: "1 cannon",
     start: "1 cannon",
@@ -441,72 +481,77 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
 
   const sceneDesc = {
     hook: `HOOK SCENE — cinematic close-up, NOT top-down:
-- Hook: ${hookDesc || "enemy boss dominates screen, player cannon tiny and threatened"}
-- Enemy boss fills 60-70% of frame
-- Player cannon at bottom, dwarfed
-- Cinematic, thumb-stopping. Match art style from scene references.`,
+- Hook event: ${hookDesc || "enemy boss dominates screen, player cannon tiny and threatened"}
+- Enemy boss fills 60-70% of frame, menacing
+- Player cannon at bottom, dwarfed and threatened
+- Cinematic, dramatic, thumb-stopping
+- NO TEXT OVERLAYS, NO speech bubbles, NO UI text, NO call-to-action text anywhere in the image`,
 
-    start: `OPENING SCENE — top-down, game start:
-- Cannon: ${unitAtScene}, single, bottom 12% center
-- 6-10 ${vi.player_mob_color} blobs, bottom 25% of lane only
-- STRUCTURAL ELEMENTS VISIBLE: ${laneDesign || "investment gates (+N) visible ahead on the path, enemy mobs forming a barrier, breakable obstacle on the road blocking progress"}
-- Investment gate (+N) clearly visible and readable ahead
-- Enemy mobs: ${vi.enemy_mob_color} blobs visible as a threat barrier
-- Enemy base: top, health bar 100% full
-- Key visual: the player faces real obstacles between them and what they need — frustration before payoff`,
+    start: `OPENING SCENE — top-down view, game just started:
+- Single ${unitAtScene} cannon at bottom center, 12% from bottom
+- 6-10 ${vi.player_mob_color} blobs in bottom 25% of lane only — very few
+- LANE STRUCTURE (from brief): ${laneDesign ? laneDesign.split(".")[0] + "." : "investment gates (+N) visible ahead, breakable obstacle on road, enemy mobs forming a barrier"}
+- Investment gate clearly readable ahead in the lane
+- Enemy base at top: health bar 100% FULL
+- Mood: player faces real obstacles blocking what they need`,
 
-    middle: `MID-BATTLE SCENE — top-down, investment + tension:
-- Cannon: ${unitAtScene} (visually upgraded from start), ${cannonCountAtScene}
-- Player mobs: large ${vi.player_mob_color} swarm, 40-55% of lane — MORE than start scene
-- CANNON UPGRADE VISIBLE: ${upgradeTriggers[0] || "container recently broken, cannon transformed"} — show the evolution happened
-- ALMOST-FAIL TENSION: ${tensionMoments[0] || "mob count critically low near top — barely surviving enemy pressure"} — thin stream of mobs at the front line being depleted
-- xN gate at 35% height (${(vi.gate_values||["x3"]).find(g => g.startsWith("x")) || "x3"}): recently passed, mobs multiplied
+    middle: `MID-BATTLE SCENE — top-down view, peak investment + tension:
+- ${unitAtScene} cannon at bottom (visually upgraded from start), ${cannonCountAtScene}
+- Large ${vi.player_mob_color} swarm fills 40-55% of lane — clearly more than start scene
+- UPGRADE JUST HAPPENED: ${upgradeTriggers[0] || "a breakable obstacle on the road was just destroyed — obstacle type matches the environment (wooden barrel in forest, sandstone in desert, blue crate in bunker) — debris visible, cannon visually transformed"}
+- ALMOST-FAIL: ${tensionMoments[0] || "mob count critically low near enemy — thin stream barely surviving enemy pressure"}
+- xN gate (${(vi.gate_values||["x3"]).find(g => g.startsWith("x")) || "x3"}) recently passed
 - Enemy base: 50% health bar
-- This shows: investment paid off AND new danger. Not just "more mobs."`,
+- NO TEXT OVERLAYS anywhere in image`,
 
-    end: `END SCENE — top-down, final confrontation:
-- Cannon: ${unitAtScene} (final evolution), ${cannonCountAtScene}
+    end: `END SCENE — top-down view, final confrontation:
+- ${unitAtScene} cannon at bottom (final evolution), ${cannonCountAtScene}
 - TINY cluster: only 3-5 ${vi.player_mob_color} blobs near top of lane
-- No gates — all passed
-- Enemy base: health bar CRITICAL — paper-thin sliver, nearly invisible
-- ${tensionMoments[tensionMoments.length-1] || "army nearly wiped, boss on last HP — maximum tension"}`,
+- No gates remaining — all passed
+- Enemy base: health bar CRITICAL — paper-thin sliver, almost gone
+- ${tensionMoments[tensionMoments.length-1] || "army nearly wiped, boss on last HP — maximum tension"}
+- NO TEXT OVERLAYS, NO speech bubbles, NO UI text anywhere in image`,
   }[scene];
 
   const biomeRules: Record<string, string> = {
     "Bunker": "ENVIRONMENT: Grey concrete walls both sides, industrial pipes ceiling, fluorescent strips, dark tunnel. NO lava, NO neon, NO sky, NO trees, NO sand.",
-    "Desert": "ENVIRONMENT: Tan/beige sand dunes both sides, bright sunlight, blue sky. NO concrete, NO neon, NO fog, NO lava, NO snow.",
-    "Foggy Forest": "ENVIRONMENT: Dense grey/white fog, dark pines barely visible, grey asphalt road. NOT snow. NO lava, NO neon, NO desert sand.",
-    "Volcanic": "ENVIRONMENT: Red/orange lava flows both sides, black cracked rocks, orange glow. NO concrete, NO neon, NO trees, NO sand.",
-    "Water": "ENVIRONMENT: Grey elevated bridge over clear blue water both sides. NO lava, NO neon, NO concrete, NO sand.",
-    "Cyber-City": "ENVIRONMENT: Grey metal path, orange/blue neon structures both sides. NO lava, NO sand, NO trees, NO desert.",
-    "Meadow": "ENVIRONMENT: Green hills both sides, scattered trees, grey brick path, blue sky. NO lava, NO neon, NO concrete, NO desert.",
-    "Snow": "ENVIRONMENT: White snow ground, icy structures, blue-white lighting. NO lava, NO neon, NO sand, NO desert.",
-    "Toxic": "ENVIRONMENT: Purple crystal paths, green slime pools, toxic crystals. NO lava, NO concrete, NO sand, NO desert.",
+    "Desert": "ENVIRONMENT: Tan/beige sand dunes both sides, bright sunlight, blue sky, sparse brush. NO concrete, NO neon, NO fog, NO lava, NO snow.",
+    "Foggy Forest": "ENVIRONMENT: Dense grey/white atmospheric fog, dark pine trees barely visible, grey asphalt road. This is FOG not snow. NO lava, NO neon, NO desert.",
+    "Volcanic": "ENVIRONMENT: Red/orange lava rivers both sides, black cracked basalt rocks, strong orange glow from below. NO concrete, NO neon, NO trees, NO desert sand.",
+    "Water": "ENVIRONMENT: Grey elevated bridge/path over clear blue water both sides. NO lava, NO neon, NO concrete walls, NO sand.",
+    "Cyber-City": "ENVIRONMENT: Grey metal industrial path, orange and blue neon tech structures both sides. NO lava, NO sand, NO trees, NO desert.",
+    "Meadow": "ENVIRONMENT: Rolling green hills both sides, scattered leafy trees, grey brick path, bright blue sky. NO lava, NO neon, NO concrete, NO desert.",
+    "Snow": "ENVIRONMENT: White snow-covered ground, icy frozen structures, blue-white cold lighting. NO lava, NO neon, NO sand, NO desert.",
+    "Toxic": "ENVIRONMENT: Purple crystalline ground paths, green glowing slime pools, luminescent toxic crystals. NO lava, NO concrete, NO desert.",
   };
   const biomeRule = scene === "hook"
-    ? `ENVIRONMENT: Match ${vi.environment} from scene references.`
-    : (biomeRules[vi.environment] || `ENVIRONMENT: ${vi.environment}. NOT a desert.`);
+    ? `ENVIRONMENT: Match ${vi.environment} biome from the scene reference images.`
+    : (biomeRules[vi.environment] || `ENVIRONMENT: ${vi.environment} setting.`);
 
   const cannonNote = scene === "hook"
-    ? `PLAYER UNIT: ${unitAtScene} — match from scene references.`
-    : `PLAYER CANNON: "${vi.cannon_type}" is the upgrade tier name. Always a STATIONARY GROUND CANNON — NEVER a vehicle, NEVER a tank. Fires mobs upward. Bottom center.`;
+    ? `PLAYER CANNON: ${cannonVisual} — match appearance from scene references.`
+    : `PLAYER CANNON: ${cannonVisual}. Positioned at bottom center of frame. This is the player's weapon — a GROUND CANNON on the road.`;
+
+  const gateNote = scene !== "hook"
+    ? `GATES: ${(vi.gate_values||[]).join(", ")} — FLAT rectangular panels spanning the full road width. +N gates are BRIGHT BLUE with bold white text. xN gates are PURPLE/PINK with bold white text. Large multipliers (x100+) are YELLOW/GOLD. They have a frame border and slight 3D panel depth but are essentially flat signs. See gate reference images for exact appearance.`
+    : "";
 
   const compositionRule = scene === "hook"
-    ? "COMPOSITION: Cinematic close-up, NOT top-down. Boss dominates frame. NO HUD."
-    : "COMPOSITION: 3/4 top-down angle. Lane center. Cannon bottom center. Follow composition above. NO HUD, NO score, NO watermarks.";
+    ? "COMPOSITION: Cinematic close-up or medium shot — dramatic framing, NOT the standard top-down lane view. NO HUD, NO score UI, NO text overlays of any kind."
+    : "COMPOSITION: 3/4 cinematic top-down angle. Cannon at bottom center. Lane runs up center. NO HUD, NO score counter, NO hearts, NO text overlays, NO watermarks, NO speech bubbles.";
 
   return [
-    "Mob Control mobile game screenshot. MATCH MOC reference images above EXACTLY in art style, 3D quality, colour palette.",
+    "Mob Control mobile game screenshot. MATCH the MOC reference images above EXACTLY in art style, 3D render quality, colour palette, and cartoon aesthetic.",
     "", sceneDesc, "", biomeRule, "",
     cannonNote,
-    scene !== "hook" ? `ENEMY BOSS: ${vi.enemy_champion||"generic boss tower"} at top. Only real MOC champions — unknown names = generic tower.` : "",
-    scene !== "hook" ? `PLAYER MOBS: ${vi.player_mob_color} round blobs, cartoonish 3D. Stage: ${unitAtScene}.` : "",
-    scene !== "hook" ? `ENEMY MOBS: ${vi.enemy_mob_color} blobs near top.` : "",
-    scene !== "hook" ? `GATES: ${(vi.gate_values||[]).join(", ")} — flat rectangular signs, full lane width, bold white text. FLAT SIGNS, not 3D.` : "",
+    scene !== "hook" ? `ENEMY BOSS: ${vi.enemy_champion||"generic boss tower"} at top of lane.` : "",
+    scene !== "hook" ? `PLAYER MOBS: ${vi.player_mob_color} small round blob creatures, cartoonish 3D style.` : "",
+    scene !== "hook" ? `ENEMY MOBS: ${vi.enemy_mob_color} round blob creatures near the top of the lane.` : "",
+    gateNote,
     `LIGHTING: ${vi.lighting} | MOOD: ${vi.mood_notes}`,
     continuityNote ? `CONTINUITY: ${continuityNote}` : "",
     "", compositionRule,
-    "ART STYLE: Exact 3D cartoon from references. Same colour saturation, blob shape, gate rectangle style.",
+    "ART STYLE: Exact 3D cartoon render matching the reference images — same colour saturation, same mob blob shape, same flat gate rectangle style. Match references precisely.",
   ].filter(Boolean).join("\n");
 };
 
@@ -1361,7 +1406,7 @@ export default function App() {
       const startRes = await fetch("/api/generate-brief-background", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ system: systemPrompt, jobId, max_tokens: 3000 }),
+        body: JSON.stringify({ system: systemPrompt, jobId, max_tokens: 4000 }),
       });
       if (!startRes.ok) {
         const err = await startRes.json().catch(() => ({}));
@@ -1400,7 +1445,14 @@ export default function App() {
     const k=`${ci}-${scene}`; setRenderingScene(p=>({...p,[k]:true}));
     try {
       const concept=concepts[ci]; const vi=concept.visual_identity;
-      const refParts=pickRelevantRefs(vi);
+      const chain: string[] = concept.unit_evolution_chain || [];
+      const unitAtScene = {
+        hook: chain[0] || "Simple Cannon",
+        start: chain[0] || "Simple Cannon",
+        middle: chain[Math.floor(chain.length / 2)] || chain[0] || "Triple Cannon",
+        end: chain[chain.length - 1] || chain[0] || "Tank",
+      }[scene];
+      const refParts=pickRelevantRefs(vi, unitAtScene);
       const prevParts: any[]=[];
 
       if(scene==="hook"){
