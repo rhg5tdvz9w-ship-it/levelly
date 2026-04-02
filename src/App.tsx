@@ -185,6 +185,17 @@ function sanitizeDNA(raw: any): any {
   for (const field of ARRAY_FIELDS) {
     if (!Array.isArray(out[field])) out[field] = out[field] ? [out[field]] : [];
   }
+  // Also sanitize array fields inside each segment
+  if (Array.isArray(out.segments)) {
+    out.segments = out.segments.map((seg: any) => {
+      if (!seg || typeof seg !== "object") return seg;
+      const s = { ...seg };
+      for (const f of ["gate_sequence","unit_evolution_chain","champions_visible","emotional_beats"]) {
+        if (!Array.isArray(s[f])) s[f] = s[f] ? [s[f]] : [];
+      }
+      return s;
+    });
+  }
   return out;
 }
 
@@ -194,7 +205,7 @@ async function callImageDirect(prompt: string, refParts: any[]): Promise<string>
     try {
       const r = await fetch(GEMINI_IMAGE_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body });
       const text = await r.text();
-      if (!r.ok) { if (attempt === 0 && (r.status === 503 || r.status === 429)) { await new Promise(res => setTimeout(res, 3000)); continue; } throw new Error(`Image gen ${r.status}: ${text.slice(0, 300)}`); }
+      if (!r.ok) { if (attempt === 0 && (r.status === 503 || r.status === 429)) { await new Promise(res => setTimeout(res, 3000)); continue; } throw new Error(`Image gen ${r.status}: ${text.slice(0, 500)}`); }
       const data = JSON.parse(text);
       const imgPart = data.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
       if (!imgPart) { if (attempt === 0) { await new Promise(res => setTimeout(res, 2000)); continue; } throw new Error("No image returned — model did not generate an image"); }
@@ -1368,10 +1379,11 @@ export default function App() {
   const importRef = useRef<HTMLInputElement>(null);
 
   useEffect(()=>{
+    const sanitizeLib = (entries: any[]): DNAEntry[] => entries.map(e => sanitizeDNA(e) as DNAEntry);
     fetch("/api/load-library")
       .then(r=>{ if(!r.ok) throw new Error(); return r.json(); })
-      .then((data: DNAEntry[])=>{ if(Array.isArray(data)&&data.length>0) setLib(data); else { try { const l=localStorage.getItem("levelly_dna_library"); if(l) setLib(JSON.parse(l)); } catch {} } setLibraryLoaded(true); })
-      .catch(()=>{ try { const l=localStorage.getItem("levelly_dna_library"); if(l) setLib(JSON.parse(l)); } catch {} setLibraryLoaded(true); });
+      .then((data: DNAEntry[])=>{ if(Array.isArray(data)&&data.length>0) setLib(sanitizeLib(data)); else { try { const l=localStorage.getItem("levelly_dna_library"); if(l) setLib(sanitizeLib(JSON.parse(l))); } catch {} } setLibraryLoaded(true); })
+      .catch(()=>{ try { const l=localStorage.getItem("levelly_dna_library"); if(l) setLib(sanitizeLib(JSON.parse(l))); } catch {} setLibraryLoaded(true); });
   },[]);
 
   const saveLib = useCallback((updated: DNAEntry[])=>{
@@ -1392,7 +1404,7 @@ export default function App() {
   },[libraryLoaded]);
 
   const exportLibrary=()=>{ const blob=new Blob([JSON.stringify(lib,null,2)],{type:"application/json"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`levelly-dna-${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url); };
-  const importLibrary=(e: React.ChangeEvent<HTMLInputElement>)=>{ const file=e.target.files?.[0]; if(!file) return; const reader=new FileReader(); reader.onload=()=>{ try { const p=JSON.parse(reader.result as string); if(!Array.isArray(p)) throw new Error(); const m=[...lib]; p.forEach((entry: DNAEntry)=>{ if(!m.find(x=>x.id===entry.id)) m.push(entry); }); saveLib(m); } catch { alert("Import failed."); } }; reader.readAsText(file); e.target.value=""; };
+  const importLibrary=(e: React.ChangeEvent<HTMLInputElement>)=>{ const file=e.target.files?.[0]; if(!file) return; const reader=new FileReader(); reader.onload=()=>{ try { const p=JSON.parse(reader.result as string); if(!Array.isArray(p)) throw new Error(); const m=[...lib]; p.forEach((entry: DNAEntry)=>{ if(!m.find(x=>x.id===entry.id)) m.push(sanitizeDNA(entry) as DNAEntry); }); saveLib(m); } catch { alert("Import failed."); } }; reader.readAsText(file); e.target.value=""; };
 
   const reanalyzeSingle=async(entry: DNAEntry): Promise<DNAEntry>=>{
     // Strip image_data from auto_frames before sending — base64 images bloat the prompt and cause JSON parse errors
@@ -2109,7 +2121,7 @@ export default function App() {
                             </div>}
                             {imgUrl?<img src={imgUrl} alt={scene} onClick={e=>{e.stopPropagation();setZoomedFrame(imgUrl);}} style={{ width:"100%",height:"100%",objectFit:"contain",background:"#0a0c10",cursor:"zoom-in" }} />
                               :loading?<p style={{ margin:0,fontSize:11,fontWeight:500,color:D.textMuted }}>Rendering…</p>
-                              :(c as any)[`render_err_${scene}`]?<div style={{ textAlign:"center" as const,padding:10 }}><p style={{ margin:0,fontSize:9,color:D.red }}>Failed</p><p style={{ margin:"4px 0 0",fontSize:8,color:D.textDim }}>Click to retry</p></div>
+                              :(c as any)[`render_err_${scene}`]?<div style={{ textAlign:"center" as const,padding:"8px 6px" }}><p style={{ margin:0,fontSize:9,color:D.red,fontWeight:600 }}>Failed — click to retry</p><p style={{ margin:"5px 0 0",fontSize:8,color:D.textDim,wordBreak:"break-word" as const,lineHeight:1.4 }}>{((c as any)[`render_err_${scene}`] as string).slice(0,180)}</p></div>
                               :needsPrev?<div style={{ textAlign:"center" as const,padding:10 }}><p style={{ margin:0,fontSize:10,color:D.textDim,textTransform:"uppercase" as const }}>{sceneLabel}</p><p style={{ margin:"4px 0 0",fontSize:9,color:D.textDim }}>{lockedMsg}</p></div>
                               :<div style={{ textAlign:"center" as const,padding:10,marginTop:isNext?18:0 }}><p style={{ margin:0,fontSize:11,fontWeight:500,textTransform:"uppercase" as const,color:isNext?sceneColor:D.textDim }}>{sceneLabel}</p><p style={{ margin:"4px 0 0",fontSize:9,color:isNext?sceneColor:D.textDim }}>{isNext?"Render next":"Click to render"}</p></div>}
                           </div>
