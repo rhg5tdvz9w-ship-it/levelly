@@ -106,7 +106,7 @@ const TIER_ACCENT: Record<string, string> = {
 
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 const GEMINI_TEXT_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
-const GEMINI_IMAGE_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${GEMINI_KEY}`;
+const GEMINI_IMAGE_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=${GEMINI_KEY}`;
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const D = {
@@ -180,7 +180,7 @@ function parseJSON(text: string): any {
 // Ensure all array fields on a raw DNA response are actually arrays — prevents "e is not iterable"
 function sanitizeDNA(raw: any): any {
   if (!raw || typeof raw !== "object") return {};
-  const ARRAY_FIELDS = ["emotional_beats","gate_sequence","unit_evolution_chain","champions_visible","auto_frames","manual_frames","spend_networks","segments"];
+  const ARRAY_FIELDS = ["emotional_beats","gate_sequence","unit_evolution_chain","champions_visible","auto_frames","manual_frames","spend_networks","segments","production_script","performance_hooks","upgrade_triggers","tension_moments","engagement_hooks"];
   const out = { ...raw };
   for (const field of ARRAY_FIELDS) {
     if (!Array.isArray(out[field])) out[field] = out[field] ? [out[field]] : [];
@@ -2129,7 +2129,7 @@ export default function App() {
                       })}
                     </div>
                   </div>
-                  {c.production_script?.length>0&&(
+                  {Array.isArray(c.production_script)&&c.production_script.length>0&&(
                     <div style={{ marginBottom:14 }}>
                       <span style={labelStyle}>Production script</span>
                       <div style={{ border:`0.5px solid ${D.border}`,borderRadius:8,overflow:"hidden" }}>
@@ -2147,7 +2147,7 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  {c.performance_hooks?.length>0&&(
+                  {Array.isArray(c.performance_hooks)&&c.performance_hooks.length>0&&(
                     <div style={{ marginBottom:14 }}>
                       <span style={labelStyle}>Performance hooks</span>
                       <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10 }}>
