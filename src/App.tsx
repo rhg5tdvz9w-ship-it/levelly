@@ -298,17 +298,33 @@ function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string): any[] {
 
   const selected: typeof populated = [];
 
-  // 1. Biome ref — match environment
-  const biomeRef = populated.find(r => r.category === "biome" && r.label.toLowerCase().includes(biome));
+  // 1. Biome ref — match full-scene biome screenshot to environment
+  const biomeKeyword =
+    biome.includes("foggy") ? "foggy forest" :
+    biome.includes("desert") ? "desert" :
+    biome.includes("water") ? "water" :
+    biome.includes("bunker") ? "bunker" :
+    biome.includes("meadow") ? "meadow" :
+    biome.includes("volcanic") ? "volcanic" :
+    biome.includes("snow") ? "snow" : biome;
+
+  const biomeRef = populated.find(r => r.category === "biome" && r.label.toLowerCase().includes(biomeKeyword));
   if (biomeRef) selected.push(biomeRef);
 
-  // 2. Cannon ref — match the specific tier being rendered
+  // 2. Cannon tier ref — match the specific tier being rendered
   if (unitAtScene) {
-    const unitKey = unitAtScene.toLowerCase().replace(/\s+/g, "_");
-    const cannonRef = populated.find(r => r.category === "cannon" && r.key.includes(unitKey.split("_")[0]));
+    const unitLower = unitAtScene.toLowerCase();
+    const cannonRef = populated.find(r =>
+      r.category === "cannon" && (
+        (unitLower.includes("triple") && r.key.includes("triple")) ||
+        (unitLower.includes("double") && r.key.includes("double")) ||
+        (unitLower.includes("tank") && r.key.includes("tank")) ||
+        (unitLower.includes("golden") && r.key.includes("golden")) ||
+        (unitLower.includes("simple") && r.key === "simple_cannon")
+      )
+    );
     if (cannonRef && !selected.includes(cannonRef)) selected.push(cannonRef);
   }
-  // Always include simple cannon as baseline style reference if no specific match
   if (!selected.some(r => r.category === "cannon")) {
     const simpleRef = populated.find(r => r.key === "simple_cannon");
     if (simpleRef) selected.push(simpleRef);
@@ -318,27 +334,9 @@ function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string): any[] {
   const gateRef = populated.find(r => r.key === "x_gates_purple");
   const plusGateRef = populated.find(r => r.key === "plus_gates_blue");
   if (gateRef && !selected.includes(gateRef)) selected.push(gateRef);
-  if (plusGateRef && !selected.includes(plusGateRef) && selected.length < 4) selected.push(plusGateRef);
+  if (plusGateRef && !selected.includes(plusGateRef) && selected.length < 5) selected.push(plusGateRef);
 
-  // 4. Enemy tower ref — always useful for boss/end composition
-  const towerRef = populated.find(r => r.key === "enemy_tower");
-  if (towerRef && !selected.includes(towerRef) && selected.length < 4) selected.push(towerRef);
-
-  // 4. Fill to max 4 refs with scored matches
-  const scored = populated
-    .filter(r => !selected.includes(r))
-    .map(ref => {
-      const lbl = ref.label.toLowerCase(); let score = 0;
-      if (lbl.includes(biome)) score += 3;
-      return { ref, score };
-    })
-    .sort((a, b) => b.score - a.score);
-  for (const { ref } of scored) {
-    if (selected.length >= 4) break;
-    selected.push(ref);
-  }
-
-  const parts: any[] = [{ text: "### MOC VISUAL REFERENCES — match this exact art style precisely:" }];
+  const parts: any[] = [{ text: "### MOC VISUAL REFERENCES — match this exact art style, road layout, gate style, and game aesthetic:" }];
   selected.forEach(ref => {
     parts.push({ text: `[${ref.category.toUpperCase()}]: ${ref.label}` });
     parts.push({ inlineData: { mimeType: (ref as any).mimeType || "image/png", data: ref.base64 } });
@@ -439,6 +437,9 @@ MOC MECHANICS TO UNDERSTAND BEFORE GENERATING:
 - PROGRESSION = cannon tier evolution + cannon count growth (via +gates) + mob swarm density. All three must be visible and distinct across scenes.
 
 NETWORK RULES: AppLovin=custom side cam+skeleton/knight hook+blue+3+ evolution steps. Facebook=default cam+almost-win 1-5HP+colour/biome swap. Google=almost-win+foggy forest/water.
+HOOK CHARACTERS: The skeleton and knight are ENEMY boss hook characters that appear at 0s. The SKELETON is a large realistic human skeleton (bone-white, full ribcage, skull head) that physically blocks or kicks the cannon. The KNIGHT is a large armored enemy boss that challenges the cannon. They are NOT player avatars, NOT champions — they are the antagonist hook. Do not confuse them with player units.
+PLAYER UNIT: The cannon IS the player (Simple/Double/Triple/Tank/Golden Jet). No player avatar exists. The "player_champion" visual identity field should describe the cannon appearance only.
+BIOME SELECTION: If user specifies a biome in their prompt, use EXACTLY that biome for data-backed concepts. Do NOT substitute. Desert+Facebook = CZ65 ($7K/d top-1) + CT43 as primary DNA. Foggy Forest+Facebook = CB57+CR17. Water = CZ94+CV73. Biome directly determines network fit — match the user's stated target.
 9-STEP CURVE: Pressure→Investment→Validate→Investment2→Payoff→FalseSafety→Pressure++→AlmostWin→Fail
 BIOMES (concepts 1-2): Desert, Foggy Forest, Water, Bunker, Meadow ONLY. Concept 3: experimental biome (is_experimental:true).
 
@@ -485,7 +486,7 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
 - Enemy boss fills 60-70% of frame, menacing
 - Player cannon at bottom, dwarfed and threatened
 - Cinematic, dramatic, thumb-stopping
-- NO TEXT OVERLAYS, NO speech bubbles, NO UI text, NO call-to-action text anywhere in the image`,
+- STRICT RULE: ABSOLUTELY NO TEXT OVERLAYS OF ANY KIND — no "CAN YOU...", no speech bubbles, no UI text, no subtitles, no call-to-action text, no numbers floating in the scene. Pure visual only.`,
 
     start: `OPENING SCENE — top-down view, game just started:
 - Single ${unitAtScene} cannon at bottom center, 12% from bottom
@@ -529,8 +530,8 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
     : (biomeRules[vi.environment] || `ENVIRONMENT: ${vi.environment} setting.`);
 
   const cannonNote = scene === "hook"
-    ? `PLAYER CANNON: ${cannonVisual} — match appearance from scene references.`
-    : `PLAYER CANNON: ${cannonVisual}. Positioned at bottom center of frame. This is the player's weapon — a GROUND CANNON on the road.`;
+    ? `PLAYER CANNON: Match the cannon appearance from the reference images above — small wheeled cannon, cartoonish 3D style. NOT a car, NOT a military vehicle.`
+    : `PLAYER CANNON: The cannon MUST look like the reference images above — a small wheeled cannon on the road, cartoonish 3D. ${cannonVisual}. Positioned at bottom center. NOT a car, NOT a military vehicle, NOT a truck.`;
 
   const gateNote = scene !== "hook"
     ? `GATES: ${(vi.gate_values||[]).join(", ")} — FLAT rectangular panels spanning the full road width. +N gates are BRIGHT BLUE with bold white text. xN gates are PURPLE/PINK with bold white text. Large multipliers (x100+) are YELLOW/GOLD. They have a frame border and slight 3D panel depth but are essentially flat signs. See gate reference images for exact appearance.`
@@ -1503,13 +1504,10 @@ export default function App() {
 
       {/* Sidebar */}
       <div style={{ position:"fixed",top:0,left:0,width:SB,height:"100vh",background:D.surface,borderRight:`0.5px solid ${D.border}`,display:"flex",flexDirection:"column",alignItems:"center",paddingTop:12,gap:6,zIndex:200 }}>
-        {[
-          { icon:<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 6.5L8 1l7 5.5V15H1V6.5zm1 .9V14h4v-3h4v3h4V7.4L8 2.5 2 7.4z"/></svg>,key:"home",active:!libPanelOpen },
-          { icon:<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>,key:"library",active:libPanelOpen },
-          { icon:<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 1.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11zM7.5 4v4.25l3 1.75-.75 1.3L6.5 9V4h1z"/></svg>,key:"history",active:false },
-        ].map(({icon,key,active})=>(
-          <button key={key} onClick={()=>key==="library"&&setLibPanelOpen(p=>!p)} style={{ width:32,height:32,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",background:active?D.surface2:"transparent",border:"none",color:active?D.text:D.textMuted,cursor:"pointer" }}>{icon}</button>
-        ))}
+        <div style={{ width:32,height:32,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",background:D.surface2,border:"none",color:D.text,cursor:"default" }}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1 6.5L8 1l7 5.5V15H1V6.5zm1 .9V14h4v-3h4v3h4V7.4L8 2.5 2 7.4z"/></svg>
+        </div>
+        <div style={{ marginTop:"auto",marginBottom:12,width:28,height:28,borderRadius:7,background:"rgba(210,153,34,0.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,color:D.gold,cursor:"default",letterSpacing:"0.02em" }}>L</div>
       </div>
 
       {/* Library side panel */}
@@ -1755,21 +1753,36 @@ export default function App() {
             );
           })()}
 
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20 }}>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12 }}>
             {[
-              { key:"brief",icon:<svg width="20" height="20" viewBox="0 0 16 16" fill="#58a6ff"><path d="M2 2h9l3 3v9H2V2zm1 1v10h10V6.5L9.5 3H3z"/></svg>,iconBg:D.blueBg,badgeText:"Primary",badgeColor:D.blue,badgeBorder:D.blueDark,title:"Generate brief",desc:"Describe your idea. Levelly matches it to winning DNA patterns and generates a master brief with network adaptations.",active:briefPanelOpen,onClick:()=>{ setBriefPanelOpen(p=>!p); setAnalysePanelOpen(false); } },
-              { key:"analyse",icon:<svg width="20" height="20" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="#3fb950" strokeWidth="1.5"/><line x1="9.5" y1="9.5" x2="14" y2="14" stroke="#3fb950" strokeWidth="1.5"/></svg>,iconBg:D.greenBg,badgeText:"Analysis",badgeColor:D.green,badgeBorder:D.greenBdr,title:"Analyse creative",desc:"Drop a video or paste a URL. Levelly extracts emotional beats, hook timing, gate patterns, and adds it to the DNA library.",active:analysePanelOpen,onClick:()=>{ setAnalysePanelOpen(p=>!p); setBriefPanelOpen(false); } },
+              { key:"analyse",icon:<svg width="22" height="22" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="#3fb950" strokeWidth="1.5"/><line x1="9.5" y1="9.5" x2="14" y2="14" stroke="#3fb950" strokeWidth="1.5"/></svg>,iconBg:D.greenBg,badgeText:"Most used",badgeColor:D.green,badgeBorder:D.greenBdr,title:"Analyse creative",desc:"Drop any video — MOC ad, competitor, or market reference. Levelly extracts DNA: hook timing, gate patterns, emotional beats, cannon evolution chain.",active:analysePanelOpen,onClick:()=>{ setAnalysePanelOpen(p=>!p); setBriefPanelOpen(false); } },
+              { key:"brief",icon:<svg width="22" height="22" viewBox="0 0 16 16" fill="#58a6ff"><path d="M2 2h9l3 3v9H2V2zm1 1v10h10V6.5L9.5 3H3z"/></svg>,iconBg:D.blueBg,badgeText:"Primary output",badgeColor:D.blue,badgeBorder:D.blueDark,title:"Generate brief",desc:"Describe your idea — biome, network, hook. Levelly maps it to winning DNA and generates a master brief with lane design, tension moments, and scene renders.",active:briefPanelOpen,onClick:()=>{ setBriefPanelOpen(p=>!p); setAnalysePanelOpen(false); } },
             ].map(card=>(
               <div key={card.key} onClick={card.onClick}
                 style={{ background:card.active?"#1a2130":D.surface,border:`0.5px solid ${card.active?card.badgeBorder:D.border2}`,borderRadius:12,padding:20,cursor:"pointer",transition:"border-color .18s,background .18s,transform .12s" }}
                 onMouseEnter={e=>{ (e.currentTarget as HTMLDivElement).style.transform="translateY(-1px)"; (e.currentTarget as HTMLDivElement).style.borderColor=card.badgeBorder; }}
                 onMouseLeave={e=>{ (e.currentTarget as HTMLDivElement).style.transform=""; (e.currentTarget as HTMLDivElement).style.borderColor=card.active?card.badgeBorder:D.border2; }}>
-                <div style={{ width:36,height:36,borderRadius:9,background:card.iconBg,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:14 }}>{card.icon}</div>
+                <div style={{ width:38,height:38,borderRadius:10,background:card.iconBg,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:14 }}>{card.icon}</div>
                 <div style={{ marginBottom:10 }}><span style={{ fontSize:10,padding:"3px 10px",borderRadius:20,border:`1px solid ${card.badgeBorder}`,color:card.badgeColor }}>{card.badgeText}</span></div>
                 <div style={{ fontSize:16,fontWeight:500,marginBottom:6 }}>{card.title}</div>
                 <div style={{ fontSize:12,color:D.textMuted,lineHeight:1.6 }}>{card.desc}</div>
               </div>
             ))}
+          </div>
+
+          {/* Library card — third, smaller */}
+          <div onClick={()=>setLibPanelOpen(p=>!p)}
+            style={{ background:libPanelOpen?"#1a2130":D.surface,border:`0.5px solid ${libPanelOpen?D.gold:D.border2}`,borderRadius:12,padding:"14px 20px",cursor:"pointer",transition:"border-color .18s,background .18s,transform .12s",marginBottom:20,display:"flex",alignItems:"center",gap:14 }}
+            onMouseEnter={e=>{ (e.currentTarget as HTMLDivElement).style.transform="translateY(-1px)"; (e.currentTarget as HTMLDivElement).style.borderColor=D.gold; }}
+            onMouseLeave={e=>{ (e.currentTarget as HTMLDivElement).style.transform=""; (e.currentTarget as HTMLDivElement).style.borderColor=libPanelOpen?D.gold:D.border2; }}>
+            <div style={{ width:36,height:36,borderRadius:9,background:"rgba(210,153,34,0.12)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+              <svg width="18" height="18" viewBox="0 0 16 16" fill={D.gold}><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+            </div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:14,fontWeight:500,marginBottom:2 }}>Creative library</div>
+              <div style={{ fontSize:11,color:D.textMuted }}>{lib.length} entries · {activeWinners} active winners · click to browse DNA, spend data, and iterations</div>
+            </div>
+            <div style={{ fontSize:11,color:D.textDim }}>{libPanelOpen?"▲":"▼"}</div>
           </div>
 
           {briefPanelOpen&&(
