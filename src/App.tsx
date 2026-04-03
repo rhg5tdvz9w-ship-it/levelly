@@ -197,7 +197,7 @@ function parseJSON(text: string): any {
 // Ensure all array fields on a raw DNA response are actually arrays — prevents "e is not iterable"
 function sanitizeDNA(raw: any): any {
   if (!raw || typeof raw !== "object") return {};
-  const ARRAY_FIELDS = ["emotional_beats","gate_sequence","unit_evolution_chain","champions_visible","auto_frames","manual_frames","spend_networks","segments","production_script","performance_hooks","upgrade_triggers","tension_moments"];
+  const ARRAY_FIELDS = ["emotional_beats","gate_sequence","unit_evolution_chain","champions_visible","auto_frames","manual_frames","spend_networks","segments","production_script","performance_hooks","upgrade_triggers","tension_moments","frame_emotions"];
   const out = { ...raw };
   for (const field of ARRAY_FIELDS) {
     if (!Array.isArray(out[field])) out[field] = out[field] ? [out[field]] : [];
@@ -459,11 +459,11 @@ ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}
 CRITICAL: If the CONTEXT mentions a specific number of upgrades or unit evolutions, trust that count and find the correct timestamps for each. Do not under-count.
 UNIT EVOLUTION CHAIN: Only physical cannon upgrades from container/obstacle destruction. Never include gate values or boss names. Exact names only: Simple Cannon, Double Cannon, Triple Cannon, Tank, Golden Jet.
-EMOTIONAL BEATS: Watch the full video and describe what the PLAYER FEELS at each moment. Do NOT use the frame timestamps as a template. Emotional beats must reflect the NARRATIVE ARC — anticipation, power growth, tension, near-failure, defeat — not just list what happens at each frame. Each beat: timestamp, what just happened in 1 sentence, the player's emotional state in 1 word. Cover every 5-8 seconds. Minimum 10 beats for a 60s video, 8 for 30s.
+FRAME EMOTIONS: For each timestamp in the TIMESTAMP MAP, assign a single emotion word capturing the player's feeling (Anticipation, Excitement, Satisfaction, Empowerment, Tension, Almost Fail, Dread, Defeat, Triumph). Return as frame_emotions array with matching timestamps.
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
-Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"emotional_arc":string,"emotional_beats":[{"timestamp_seconds":number,"event":string,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
+Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"emotional_arc":string,"frame_emotions":[{"timestamp_seconds":number,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
 const reanalysisSystem = (entry: DNAEntry) =>
-  `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate type confusion (+ gates = cannon firing count, x gates = mob multiplier) 4.unit_evolution_chain — use exact tier names: Simple Cannon, Double Cannon, Triple Cannon, Tank, Golden Jet. Fix any generic names like "Level 1 Tank" to proper tier names. 5.emotional_beats minimum 8 beats with no gaps >7s 6.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${MOC_EVENTS_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
+  `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate type confusion (+ gates = cannon firing count, x gates = mob multiplier) 4.unit_evolution_chain — use exact tier names: Simple Cannon, Double Cannon, Triple Cannon, Tank, Golden Jet. Fix any generic names like "Level 1 Tank" to proper tier names. 5.frame_emotions — one emotion per timestamp 6.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${MOC_EVENTS_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
 
 const briefSystem = (lib: any[], ctx: string, seg: string, iterateFrom?: string, refNote?: string) => {
   const refBlock = iterateFrom ? `\nITERATE FROM: "${iterateFrom}" — creative starting point.\n` : "";
@@ -1070,6 +1070,22 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
           </div>
         )}
 
+        {/* Filmstrip — shown when frames are available, even when collapsed */}
+        {d.auto_frames && d.auto_frames.some(f => f.image_data) && (
+          <div style={{ display: "flex", gap: 4, overflowX: "auto", marginBottom: 8, paddingBottom: 2 }}>
+            {d.auto_frames.filter(f => f.image_data).map((f, fi) => (
+              <div key={fi} style={{ flexShrink: 0, position: "relative" as const, cursor: "zoom-in" }}
+                onClick={e => { e.stopPropagation(); onZoomFrame(`data:image/jpeg;base64,${f.image_data}`); }}>
+                <img src={`data:image/jpeg;base64,${f.image_data}`} alt={`${f.timestamp_seconds}s`}
+                  style={{ width: 48, height: 86, objectFit: "cover", borderRadius: 5, border: `0.5px solid ${D.border2}`, display: "block" }} />
+                <div style={{ position: "absolute" as const, bottom: 2, left: 0, right: 0, textAlign: "center" as const }}>
+                  <span style={{ fontSize: 7, background: "rgba(0,0,0,0.8)", color: "#fff", padding: "1px 3px", borderRadius: 2 }}>{f.timestamp_seconds}s</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Row 3: Spend block — 3-column layout */}
         {(spendSt || vel || d.spend_networks?.length) ? (
           <div style={{
@@ -1241,17 +1257,25 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
             </div>
           )}
 
-          {d.emotional_beats?.length > 0 && (
+          {d.auto_frames && d.auto_frames.length > 0 && (
             <div style={{ marginBottom: 10 }}>
-              <span style={labelStyle}>Emotional beats</span>
-              <div style={{ display: "flex", flexDirection: "column" as const, gap: 3 }}>
-                {d.emotional_beats.map((b, i) => (
-                  <div key={i} style={{ fontSize: 11, padding: "5px 8px", background: D.surface, borderRadius: 6, display: "flex", gap: 8 }}>
-                    <span style={{ fontWeight: 500, color: D.blue, minWidth: 28 }}>{b.timestamp_seconds}s</span>
-                    <span style={{ color: D.text }}>{b.event}</span>
-                    <span style={{ color: D.textDim, fontStyle: "italic", marginLeft: "auto" }}>{b.emotion}</span>
-                  </div>
-                ))}
+              <span style={labelStyle}>Timeline</span>
+              <div style={{ display: "flex", flexDirection: "column" as const, gap: 2 }}>
+                {d.auto_frames.map((f, i) => {
+                  const emotionMap: Record<number,string> = {};
+                  (d as any).frame_emotions?.forEach((e: any) => { if (typeof e?.timestamp_seconds === "number") emotionMap[e.timestamp_seconds] = e.emotion; });
+                  const emotion = emotionMap[f.timestamp_seconds];
+                  const sigColor: Record<string,string> = { hook: D.red, upgrade: D.green, container: D.green, gate: D.blue, swarm: D.gold, almost_fail: "#f472b6", fail: D.red, boss_death: D.gold, battle: "#f472b6" };
+                  const color = sigColor[f.significance] || D.textDim;
+                  return (
+                    <div key={i} style={{ fontSize: 11, padding: "4px 8px", background: D.surface, borderRadius: 5, display: "flex", gap: 8, alignItems: "flex-start" }}>
+                      <span style={{ fontWeight: 600, color: D.blue, minWidth: 28, flexShrink: 0 }}>{f.timestamp_seconds}s</span>
+                      <span style={{ color: D.text, flex: 1, lineHeight: 1.4 }}>{f.description}</span>
+                      {f.significance && f.significance !== "filler" && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 10, background: `${color}22`, color, border: `0.5px solid ${color}44`, flexShrink: 0, alignSelf: "center" }}>{f.significance.replace("_"," ")}</span>}
+                      {emotion && <span style={{ fontSize: 9, color: D.textDim, fontStyle: "italic", flexShrink: 0, alignSelf: "center" }}>{emotion}</span>}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1329,28 +1353,7 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
             </div>
           )}
 
-          {d.auto_frames && d.auto_frames.length > 0 && (
-            <div style={{ marginBottom: 10 }}>
-              <span style={labelStyle}>Extracted frames</span>
-              {/* Filmstrip — only shown if images were saved */}
-              {d.auto_frames.some(f => f.image_data) && (
-                <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 6, marginBottom: 8 }}>
-                  {d.auto_frames.filter(f => f.image_data).map((f, fi) => (
-                    <div key={fi} style={{ flexShrink: 0, position: "relative" as const, cursor: "zoom-in" }} onClick={() => onZoomFrame(`data:image/jpeg;base64,${f.image_data}`)}>
-                      <img src={`data:image/jpeg;base64,${f.image_data}`} alt={`${f.timestamp_seconds}s`}
-                        style={{ width: 72, height: 128, objectFit: "cover", borderRadius: 6, border: `0.5px solid ${D.border2}`, display: "block", transition: "transform .1s" }}
-                        onMouseEnter={e => (e.currentTarget as HTMLImageElement).style.transform = "scale(1.05)"}
-                        onMouseLeave={e => (e.currentTarget as HTMLImageElement).style.transform = ""} />
-                      <div style={{ position: "absolute" as const, bottom: 3, left: 0, right: 0, textAlign: "center" as const }}>
-                        <span style={{ fontSize: 8, background: "rgba(0,0,0,0.75)", color: "#fff", padding: "1px 4px", borderRadius: 3 }}>{f.timestamp_seconds}s</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
 
-            </div>
-          )}
         </div>
       )}
     </div>
