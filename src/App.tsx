@@ -1447,12 +1447,12 @@ export default function App() {
       else { videoPart={inlineData:{mimeType:file.type,data:await fileToBase64(file)}}; }
       setAnalyzeStep("frames");
       let autoFrames: FrameExtraction[]=[],duration=30;
-      try { const fr=await callGeminiDirect(frameExtractionSystem(),[{text:"Extract 8 key frames:"},videoPart]); autoFrames=Array.isArray(fr?.frames)?fr.frames:[]; duration=fr?.duration_seconds||30; } catch {}
+      try { const fr=await callGeminiDirect(frameExtractionSystem(),[{text:"Extract 8 key frames:"},videoPart]); autoFrames=Array.isArray(fr?.frames)?fr.frames:[]; duration=typeof fr?.duration_seconds==="number"?fr.duration_seconds:30; } catch(frameErr: any){ console.warn("Frame extraction failed:",frameErr?.message); }
       let extractedFrameParts: any[]=[];
       try {
         const timestamps=autoFrames.map(f=>f.timestamp_seconds).filter(t=>typeof t==="number");
         if(timestamps.length>0){ setAnalyzeStep("extracting"); extractedFrameParts=await extractFramesFromVideo(file,timestamps,duration); }
-      } catch {}
+      } catch(canvasErr: any){ console.warn("Canvas extraction failed:",canvasErr?.message); }
       setAnalyzeStep("hook");
       let hookData: any={};
       try { hookData=await callGeminiDirect(hookDetectionSystem(),[{text:`Frames:${JSON.stringify(autoFrames)}.Context:${entry.upload_context||""}.Find hook:`},videoPart]); } catch {}
@@ -1511,7 +1511,7 @@ export default function App() {
         else { videoPart={inlineData:{mimeType:file.type,data:await fileToBase64(file)}}; }
         setAnalyzeStep("frames");
         let autoFrames: FrameExtraction[]=[],duration=30;
-        try { const fr=await callGeminiDirect(frameExtractionSystem(),[{text:"Extract 8 key frames:"},videoPart]); autoFrames=Array.isArray(fr?.frames)?fr.frames:[]; duration=fr?.duration_seconds||30; } catch {}
+        try { const fr=await callGeminiDirect(frameExtractionSystem(),[{text:"Extract 8 key frames:"},videoPart]); autoFrames=Array.isArray(fr?.frames)?fr.frames:[]; duration=typeof fr?.duration_seconds==="number"?fr.duration_seconds:30; } catch(frameErr: any){ console.warn("Frame extraction failed:",frameErr?.message); }
 
         // Extract actual frame images at Gemini's chosen timestamps (non-blocking fallback)
         let extractedFrameParts: any[] = [];
@@ -1521,7 +1521,7 @@ export default function App() {
             setAnalyzeStep("extracting");
             extractedFrameParts = await extractFramesFromVideo(file, timestamps, duration);
           }
-        } catch { /* silent fallback — analysis continues without frames */ }
+        } catch(canvasErr: any) { console.warn("Canvas extraction failed:",canvasErr?.message); }
 
         setAnalyzeStep("hook");
         let hookData: any={};
