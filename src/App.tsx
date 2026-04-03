@@ -106,7 +106,7 @@ const TIER_ACCENT: Record<string, string> = {
 
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 const GEMINI_TEXT_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
-const GEMINI_IMAGE_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${GEMINI_KEY}`;
+const GEMINI_IMAGE_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=${GEMINI_KEY}`;
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const D = {
@@ -157,22 +157,24 @@ function velocityPerDay(tier: string, days: number | null | undefined): string |
 async function callGeminiDirect(systemPrompt: string, contentParts: any[]): Promise<any> {
   const body = JSON.stringify({ system_instruction: { parts: [{ text: systemPrompt }] }, contents: [{ role: "user", parts: contentParts }], generationConfig: { response_mime_type: "application/json" } });
   for (let attempt = 0; attempt < 3; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 90000);
     try {
-      const r = await fetch(GEMINI_TEXT_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body });
+      const r = await fetch(GEMINI_TEXT_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: ctrl.signal });
+      clearTimeout(timer);
       const text = await r.text();
       if (!r.ok) {
-        if (attempt < 2 && (r.status === 503 || r.status === 429 || r.status === 500)) {
-          await new Promise(res => setTimeout(res, 2000 * (attempt + 1)));
-          continue;
-        }
+        if (attempt < 2 && (r.status === 503 || r.status === 429 || r.status === 500)) { await new Promise(res => setTimeout(res, 3000 * (attempt + 1))); continue; }
         throw new Error(`Gemini ${r.status}: ${text.slice(0, 300)}`);
       }
       const data = JSON.parse(text);
       const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
       return parseJSON(raw);
     } catch (e: any) {
+      clearTimeout(timer);
+      if (e.name === "AbortError") throw new Error("Analysis timed out — video may be too large. Try a shorter clip.");
       if (attempt === 2) throw e;
-      await new Promise(res => setTimeout(res, 2000));
+      await new Promise(res => setTimeout(res, 3000));
     }
   }
   throw new Error("Gemini call failed after 3 attempts");
@@ -195,7 +197,7 @@ function parseJSON(text: string): any {
 // Ensure all array fields on a raw DNA response are actually arrays — prevents "e is not iterable"
 function sanitizeDNA(raw: any): any {
   if (!raw || typeof raw !== "object") return {};
-  const ARRAY_FIELDS = ["emotional_beats","gate_sequence","unit_evolution_chain","champions_visible","auto_frames","manual_frames","spend_networks","segments"];
+  const ARRAY_FIELDS = ["emotional_beats","gate_sequence","unit_evolution_chain","champions_visible","auto_frames","manual_frames","spend_networks","segments","production_script","performance_hooks","upgrade_triggers","tension_moments"];
   const out = { ...raw };
   for (const field of ARRAY_FIELDS) {
     if (!Array.isArray(out[field])) out[field] = out[field] ? [out[field]] : [];
@@ -214,8 +216,13 @@ function sanitizeDNA(raw: any): any {
   return out;
 }
 
+function parseDataURI(uri: string): { mimeType: string; data: string } {
+  const m = uri.match(/^data:([^;]+);base64,(.+)$/s);
+  return m ? { mimeType: m[1], data: m[2] } : { mimeType: "image/png", data: uri };
+}
+
 async function callImageDirect(prompt: string, refParts: any[]): Promise<string> {
-  const body = JSON.stringify({ contents: [{ parts: [...refParts, { text: prompt }] }], generationConfig: { responseModalities: ["IMAGE", "TEXT"] } });
+  const body = JSON.stringify({ contents: [{ parts: [...refParts, { text: prompt }] }], generationConfig: { responseModalities: ["IMAGE", "TEXT"], imageConfig: { aspectRatio: "9:16" } } });
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const r = await fetch(GEMINI_IMAGE_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body });
@@ -452,8 +459,8 @@ ${MOC_EVENTS_GUIDE}
 ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}
 CRITICAL: If the CONTEXT mentions a specific number of upgrades or unit evolutions, trust that count and find the correct timestamps for each. Do not under-count.
-UNIT EVOLUTION CHAIN: Only include cannons that are VISUALLY PRESENT as the player's cannon — Simple Cannon → Double Cannon → Triple Cannon → Tank → Golden Jet. Each step requires a physical container/obstacle destruction on the road. Do NOT include gate values or boss names in the evolution chain.
-EMOTIONAL BEATS: Derive beats independently from the VIDEO — do NOT copy descriptions from the TIMESTAMP MAP above. Each beat must capture the player's emotional state: what just happened and how it feels. Cover every significant MOC event (container destruction, cannon upgrade, boss hit, gate pass, almost-fail, loss) AND every 7-8 seconds of filler. Minimum 10 beats for a 60s video, 8 for 30s.
+UNIT EVOLUTION CHAIN: Only physical cannon upgrades from container/obstacle destruction. Never include gate values or boss names. Exact names only: Simple Cannon, Double Cannon, Triple Cannon, Tank, Golden Jet.
+EMOTIONAL BEATS: Derive beats independently from the VIDEO — do NOT copy from the TIMESTAMP MAP. Each beat must capture the player's emotional state. Cover every significant MOC event (container destruction, cannon upgrade, boss hit, gate pass, almost-fail, loss) AND every 7-8 seconds of filler. Minimum 10 beats for a 60s video, 8 for 30s.
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
 Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"emotional_arc":string,"emotional_beats":[{"timestamp_seconds":number,"event":string,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
 const reanalysisSystem = (entry: DNAEntry) =>
@@ -534,9 +541,9 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
 - Single ${unitAtScene} cannon at BOTTOM CENTER. Cannon looks EXACTLY like the reference images: small rounded barrel body on 4 small black wheels. Cartoon 3D. Blue/grey color. NOT a military tank, NOT a truck, NOT a realistic vehicle.
 - 6-10 ${vi.player_mob_color} round blob mobs near the cannon — very sparse
 - CRITICAL — THE ROAD HAS 3 PARALLEL SUB-PATHS SIDE BY SIDE (same road width, divided into 3 lanes):
-  * LEFT LANE: Bright BLUE +N flat rectangular gate panels spanning left third of road width
+  * LEFT LANE: 4-6 identical Bright BLUE "+N" flat rectangular gate panels ALL showing the SAME value — they fill the ENTIRE left third of the road
   * CENTER LANE: Main driving path — purple/pink xN gate panel + red enemy mob cluster ahead
-  * RIGHT LANE: A single breakable upgrade obstacle (barrel/crate/block) sitting on the right third
+  * RIGHT LANE: 3-4 breakable upgrade obstacles in FIXED order weakest→strongest: Simple Cannon icon, then Double Cannon, then Triple Cannon — player sees the full upgrade path
   * [If lane_design specifies a different arrangement: "${laneDesign ? laneDesign.split(".")[0] : "use default described above"}"]
   * ALL THREE sub-paths are visible simultaneously in this top-down view — player can see all options
 - Enemy tower at very TOP of lane: health bar 100% full
@@ -1452,8 +1459,8 @@ export default function App() {
       const manualParts: any[]=[];
       if(manualFrameFiles&&manualFrameFiles.length>0){ for(const mf of manualFrameFiles){ manualParts.push({text:`Manual:${mf.name}`}); manualParts.push({inlineData:{mimeType:mf.type,data:await fileToBase64(mf)}}); } }
       setAnalyzeStep("analyzing");
-      const refParts=buildReferenceParts();
-      const frameParts=extractedFrameParts.length>0?[{text:"### EXTRACTED FRAMES:"},...extractedFrameParts]:[];
+      const refParts=(()=>{try{const r=buildReferenceParts();return Array.isArray(r)?r:[];}catch{return[];}})();
+      const frameParts=Array.isArray(extractedFrameParts)&&extractedFrameParts.length>0?[{text:"### EXTRACTED FRAMES:"},...extractedFrameParts]:[];
       const hasManual=manualParts.length>0;
       const cfg={tier:entry.tier,ad_type:entry.ad_type,context:entry.upload_context||"",manual_frames:[]};
       const rawDna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(hasManual?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
@@ -1522,8 +1529,8 @@ export default function App() {
         const manualParts: any[]=[];
         if(cfg.manual_frames.length>0){ for(const mf of cfg.manual_frames){ manualParts.push({text:`Manual:${mf.name}`}); manualParts.push({inlineData:{mimeType:mf.type,data:await fileToBase64(mf)}}); } }
         setAnalyzeStep("analyzing");
-        const refParts=buildReferenceParts();
-        const frameParts = extractedFrameParts.length > 0
+        const refParts=(()=>{try{const r=buildReferenceParts();return Array.isArray(r)?r:[];}catch{return[];}})();
+        const frameParts = Array.isArray(extractedFrameParts)&&extractedFrameParts.length > 0
           ? [{text:"### EXTRACTED FRAMES — key moments at exact timestamps:"},...extractedFrameParts]
           : [];
         const rawDna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
@@ -1631,14 +1638,14 @@ export default function App() {
 
       if(scene==="hook"){
         // Hook rendered LAST — uses Start/Middle/End as style anchors
-        if(concept.visual_start){ prevParts.push({text:"### START SCENE — match art style, cannon, mobs, environment exactly:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_start.replace("data:image/png;base64,","")}}); }
-        if(concept.visual_middle){ prevParts.push({text:"### MIDDLE SCENE — also match:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_middle.replace("data:image/png;base64,","")}}); }
-        if(concept.visual_end){ prevParts.push({text:"### END SCENE — also match:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_end.replace("data:image/png;base64,","")}}); }
+        if(concept.visual_start){ prevParts.push({text:"### START SCENE — match art style, cannon, mobs, environment exactly:"}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_start).mimeType,data:parseDataURI(concept.visual_start).data}}); }
+        if(concept.visual_middle){ prevParts.push({text:"### MIDDLE SCENE — also match:"}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_middle).mimeType,data:parseDataURI(concept.visual_middle).data}}); }
+        if(concept.visual_end){ prevParts.push({text:"### END SCENE — also match:"}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_end).mimeType,data:parseDataURI(concept.visual_end).data}}); }
       } else {
         // Start→Middle→End chain: each scene references the previous
-        if(scene==="middle"&&concept.visual_start){ prevParts.push({text:"### START SCENE — match ALL assets exactly. Only change: mob count and HP bar:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_start.replace("data:image/png;base64,","")}}); }
-        if(scene==="end"&&concept.visual_start){ prevParts.push({text:"### START SCENE — match environment and art style:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_start.replace("data:image/png;base64,","")}}); }
-        if(scene==="end"&&concept.visual_middle){ prevParts.push({text:"### MIDDLE SCENE — match ALL assets. Only change: mob count reduced to 3-6, HP bar near empty:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_middle.replace("data:image/png;base64,","")}}); }
+        if(scene==="middle"&&concept.visual_start){ prevParts.push({text:"### START SCENE — match ALL assets exactly. Only change: mob count and HP bar:"}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_start).mimeType,data:parseDataURI(concept.visual_start).data}}); }
+        if(scene==="end"&&concept.visual_start){ prevParts.push({text:"### START SCENE — match environment and art style:"}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_start).mimeType,data:parseDataURI(concept.visual_start).data}}); }
+        if(scene==="end"&&concept.visual_middle){ prevParts.push({text:"### MIDDLE SCENE — match ALL assets. Only change: mob count reduced to 3-6, HP bar near empty:"}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_middle).mimeType,data:parseDataURI(concept.visual_middle).data}}); }
       }
 
       const continuityNote = scene === "hook"
@@ -2001,12 +2008,22 @@ export default function App() {
           )}
 
           {briefAnalysis&&(
-            <div style={{ background:D.surface2,border:`0.5px solid ${D.border2}`,borderRadius:10,padding:"14px 16px",marginBottom:14 }}>
-              <span style={labelStyle}>Creative strategy</span>
-              <p style={{ margin:"0 0 12px",fontSize:12,lineHeight:1.7,color:D.text }}>{briefAnalysis.strategy}</p>
-              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
-                <div><span style={labelStyle}>DNA sources used</span><p style={{ margin:0,fontSize:11,color:D.textMuted }}>{briefAnalysis.dna_sources?.join(", ")||briefAnalysis.patterns_used}</p></div>
-                <div><span style={labelStyle}>Segment insight</span><p style={{ margin:0,fontSize:11,color:D.textMuted }}>{briefAnalysis.segment_insight}</p></div>
+            <div style={{ background:D.surface,border:`0.5px solid ${D.border}`,borderRadius:10,padding:"14px 16px",marginBottom:16 }}>
+              <div style={{ fontSize:9,fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase" as const,color:D.textDim,marginBottom:8 }}>Creative strategy</div>
+              <p style={{ margin:"0 0 12px",fontSize:12,lineHeight:1.75,color:D.text }}>{briefAnalysis.strategy}</p>
+              <div style={{ display:"flex",gap:16,flexWrap:"wrap" as const,paddingTop:10,borderTop:`0.5px solid ${D.border}` }}>
+                <div style={{ display:"flex",flexDirection:"column" as const,gap:4 }}>
+                  <span style={{ fontSize:9,fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase" as const,color:D.textDim }}>DNA sources</span>
+                  <div style={{ display:"flex",gap:4,flexWrap:"wrap" as const }}>
+                    {(briefAnalysis.dna_sources||briefAnalysis.patterns_used?.split(",")).map((s:string,i:number)=>(
+                      <span key={i} style={{ fontSize:10,padding:"2px 7px",borderRadius:4,background:D.blueBg,color:D.blue,border:`0.5px solid ${D.blueDark}`,fontWeight:500 }}>{s.trim()}</span>
+                    ))}
+                  </div>
+                </div>
+                {briefAnalysis.segment_insight&&<div style={{ display:"flex",flexDirection:"column" as const,gap:4,flex:1,minWidth:160 }}>
+                  <span style={{ fontSize:9,fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase" as const,color:D.textDim }}>Segment insight</span>
+                  <span style={{ fontSize:11,color:D.textMuted,lineHeight:1.5 }}>{briefAnalysis.segment_insight}</span>
+                </div>}
               </div>
             </div>
           )}
@@ -2023,9 +2040,15 @@ export default function App() {
                     {iterateFrom.trim()&&<span style={pill(D.purpleBg,D.purple,D.purpleBdr)}>iterates {iterateFrom.trim()}</span>}
                     <span style={pill(TIER_STYLE["scalable"].bg,TIER_STYLE["scalable"].text,TIER_STYLE["scalable"].border)}>{c.target_segment}</span>
                   </div>
-                  <div style={{ fontSize:15,fontWeight:600,color:expandedConcept===ci?D.text:D.textMuted,marginBottom:4,transition:"color .15s" }}>{c.title}</div>
-                  {c.is_experimental&&c.experimental_note&&<p style={{ margin:"0 0 4px",fontSize:11,color:"#f472b6",fontStyle:"italic" }}>{c.experimental_note}</p>}
-                  <p style={{ margin:0,fontSize:12,color:D.textMuted,lineHeight:1.5 }}>{c.objective}</p>
+                  <div style={{ fontSize:15,fontWeight:600,color:expandedConcept===ci?D.text:D.textMuted,marginBottom:6,transition:"color .15s" }}>{c.title}</div>
+                  {c.is_experimental&&c.experimental_note&&<p style={{ margin:"0 0 6px",fontSize:11,color:"#f472b6",fontStyle:"italic" }}>{c.experimental_note}</p>}
+                  <p style={{ margin:"0 0 10px",fontSize:12,color:D.textMuted,lineHeight:1.5 }}>{c.objective}</p>
+                  <div style={{ display:"flex",gap:6,flexWrap:"wrap" as const }}>
+                    {(c as any).hook_timing_seconds!=null&&<span style={{ fontSize:10,padding:"2px 8px",borderRadius:4,background:D.blueBg,color:D.blue,border:`0.5px solid ${D.blueDark}` }}>Hook {(c as any).hook_timing_seconds}s</span>}
+                    {Array.isArray((c as any).unit_evolution_chain)&&(c as any).unit_evolution_chain.length>0&&<span style={{ fontSize:10,padding:"2px 8px",borderRadius:4,background:D.surface2,color:D.textMuted,border:`0.5px solid ${D.border}` }}>{(c as any).unit_evolution_chain.join(" → ")}</span>}
+                    {c.visual_identity?.environment&&<span style={{ fontSize:10,padding:"2px 8px",borderRadius:4,background:D.surface2,color:D.textMuted,border:`0.5px solid ${D.border}` }}>{c.visual_identity.environment}</span>}
+                    {c.quality_score&&<span style={{ fontSize:10,padding:"2px 8px",borderRadius:4,background:c.quality_score.overall>=85?D.greenBg:c.quality_score.overall>=75?D.blueBg:D.surface2,color:c.quality_score.overall>=85?D.green:c.quality_score.overall>=75?D.blue:D.textMuted,border:`0.5px solid ${c.quality_score.overall>=85?D.greenBdr:c.quality_score.overall>=75?D.blueDark:D.border}`,fontWeight:600 }}>Score {c.quality_score.overall}</span>}
+                  </div>
                 </div>
                 <div style={{ display:"flex",flexDirection:"column" as const,alignItems:"flex-end",gap:4,marginLeft:16,flexShrink:0 }}>
                   {c.quality_score&&<><div style={{ fontSize:24,fontWeight:600,color:scoreColor(c.quality_score.overall),lineHeight:1 }}>{c.quality_score.overall}</div><div style={{ fontSize:9,color:D.textDim }}>quality</div></>}
@@ -2136,7 +2159,7 @@ export default function App() {
                       })}
                     </div>
                   </div>
-                  {c.production_script?.length>0&&(
+                  {Array.isArray(c.production_script)&&c.production_script.length>0&&(
                     <div style={{ marginBottom:14 }}>
                       <span style={labelStyle}>Production script</span>
                       <div style={{ border:`0.5px solid ${D.border}`,borderRadius:8,overflow:"hidden" }}>
@@ -2154,7 +2177,7 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  {c.performance_hooks?.length>0&&(
+                  {Array.isArray(c.performance_hooks)&&c.performance_hooks.length>0&&(
                     <div style={{ marginBottom:14 }}>
                       <span style={labelStyle}>Performance hooks</span>
                       <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10 }}>
@@ -2168,14 +2191,20 @@ export default function App() {
                     </div>
                   )}
                   {c.quality_score&&(
-                    <div>
-                      <span style={labelStyle}>Quality score</span>
-                      <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:8,marginBottom:8 }}>
+                    <div style={{ marginTop:4 }}>
+                      <span style={labelStyle}>Quality breakdown</span>
+                      <div style={{ display:"flex",flexDirection:"column" as const,gap:6,marginBottom:8 }}>
                         {[{l:"Pattern fidelity",v:c.quality_score.pattern_fidelity},{l:"MOC DNA",v:c.quality_score.moc_dna},{l:"Emotional arc",v:c.quality_score.emotional_arc},{l:"Visual clarity",v:c.quality_score.visual_clarity},{l:"Segment fit",v:c.quality_score.segment_fit}].map(({l,v})=>(
-                          <div key={l} style={metricStyle}><div style={metricLabel}>{l}</div><div style={{ fontSize:18,fontWeight:500,color:scoreColor(v) }}>{v}</div></div>
+                          <div key={l} style={{ display:"flex",alignItems:"center",gap:10 }}>
+                            <span style={{ fontSize:11,color:D.textDim,width:110,flexShrink:0 }}>{l}</span>
+                            <div style={{ flex:1,height:5,background:D.surface2,borderRadius:3,overflow:"hidden" }}>
+                              <div style={{ width:`${v}%`,height:"100%",borderRadius:3,background:v>=85?D.green:v>=75?D.blue:D.gold }} />
+                            </div>
+                            <span style={{ fontSize:11,fontWeight:600,color:scoreColor(v),width:24,textAlign:"right" as const }}>{v}</span>
+                          </div>
                         ))}
                       </div>
-                      {c.quality_score.notes&&<p style={{ margin:0,fontSize:11,color:D.textMuted,fontStyle:"italic" }}>{c.quality_score.notes}</p>}
+                      {c.quality_score.notes&&<p style={{ margin:0,fontSize:11,color:D.textMuted,fontStyle:"italic",lineHeight:1.5 }}>{c.quality_score.notes}</p>}
                     </div>
                   )}
                 </div>
