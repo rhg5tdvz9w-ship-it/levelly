@@ -1,12 +1,12 @@
-import type { Handler } from "@netlify/functions";
-import { getDeployStore } from "@netlify/blobs";
+import type { Handler, HandlerContext } from "@netlify/functions";
+import { getStore } from "@netlify/blobs";
 
-export const handler: Handler = async (event) => {
+export const handler: Handler = async (event, context: HandlerContext) => {
   if (event.httpMethod !== "GET") {
     return { statusCode: 405, body: "Method not allowed" };
   }
   try {
-    const store = getDeployStore("levelly");
+    const store = getStore({ name: "levelly", context });
     const data = await store.get("library");
     if (!data) {
       return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: "[]" };

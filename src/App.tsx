@@ -316,7 +316,7 @@ async function extractFramesFromVideo(
         ctx!.drawImage(video, 0, 0, canvas.width, canvas.height);
         const jpeg = canvas.toDataURL("image/jpeg", 0.80).split(",")[1];
         if (jpeg) {
-          parts.push({ text: `[FRAME at ${safeTimestamps[idx]}s]` });
+          parts.push({ text: `[FRAME ${idx + 1}]` });
           parts.push({ inlineData: { mimeType: "image/jpeg", data: jpeg } });
         }
       } catch {
@@ -449,9 +449,8 @@ CONTEXT (trust this — user-provided facts about the video):${config.context||"
 DURATION:${duration}s
 LIBRARY:${lib.length>0?JSON.stringify(lib.map(d=>({title:d.title,tier:d.tier,hook_type:d.hook_type,hook_timing_seconds:d.hook_timing_seconds}))):"empty"}
 ${hasRefs?buildReferenceContext():""}
-TIMESTAMP MAP (Gemini's frame-by-frame observations):
-${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] ${f.description} (${f.significance})`).join("\n"):"none"}
-${hasFrameImages?"EXTRACTED FRAME IMAGES provided above — use them to verify exact gate values, unit appearances, container destructions, and boss death moments at each timestamp.":""}
+${!hasFrameImages?`TIMESTAMP MAP (Gemini frame observations — use only if no frame images above):
+${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] ${f.description} (${f.significance})`).join("\n"):"none"}`:"EXTRACTED FRAME IMAGES provided above — use these as your primary visual evidence. Do NOT copy their sequence as emotional beats."}
 ${TIMESTAMP_RULES}
 ${HOOK_GUIDE}
 ${GATE_GUIDE}
@@ -460,7 +459,7 @@ ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}
 CRITICAL: If the CONTEXT mentions a specific number of upgrades or unit evolutions, trust that count and find the correct timestamps for each. Do not under-count.
 UNIT EVOLUTION CHAIN: Only physical cannon upgrades from container/obstacle destruction. Never include gate values or boss names. Exact names only: Simple Cannon, Double Cannon, Triple Cannon, Tank, Golden Jet.
-EMOTIONAL BEATS: Derive beats independently from the VIDEO — do NOT copy from the TIMESTAMP MAP. Each beat must capture the player's emotional state. Cover every significant MOC event (container destruction, cannon upgrade, boss hit, gate pass, almost-fail, loss) AND every 7-8 seconds of filler. Minimum 10 beats for a 60s video, 8 for 30s.
+EMOTIONAL BEATS: Watch the full video and describe what the PLAYER FEELS at each moment. Do NOT use the frame timestamps as a template. Emotional beats must reflect the NARRATIVE ARC — anticipation, power growth, tension, near-failure, defeat — not just list what happens at each frame. Each beat: timestamp, what just happened in 1 sentence, the player's emotional state in 1 word. Cover every 5-8 seconds. Minimum 10 beats for a 60s video, 8 for 30s.
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
 Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"emotional_arc":string,"emotional_beats":[{"timestamp_seconds":number,"event":string,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
 const reanalysisSystem = (entry: DNAEntry) =>
