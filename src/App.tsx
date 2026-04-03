@@ -523,9 +523,9 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
 - Single ${unitAtScene} cannon at BOTTOM CENTER. Cannon looks EXACTLY like the reference images: small rounded barrel body on 4 small black wheels. Cartoon 3D. Blue/grey color. NOT a military tank, NOT a truck, NOT a realistic vehicle.
 - 6-10 ${vi.player_mob_color} round blob mobs near the cannon — very sparse
 - CRITICAL — THE ROAD HAS 3 PARALLEL SUB-PATHS SIDE BY SIDE (same road width, divided into 3 lanes):
-  * LEFT LANE: 4-6 identical Bright BLUE "+N" flat rectangular gate panels packed tightly, ALL showing the SAME value (e.g. all "+2" or all "+3") — they fill the ENTIRE left third of the road
+  * LEFT LANE: 4-6 identical Bright BLUE "+N" flat rectangular gate panels ALL showing the SAME value — they fill the ENTIRE left third of the road
   * CENTER LANE: Main driving path — purple/pink xN gate panel + red enemy mob cluster ahead
-  * RIGHT LANE: 3-4 breakable upgrade obstacles (barrels/crates in FIXED sequence left-to-right), ALWAYS ordered weakest-to-strongest: Simple Cannon icon, then Double Cannon icon, then Triple Cannon icon — player clearly sees the upgrade progression
+  * RIGHT LANE: 3-4 breakable upgrade obstacles in FIXED order weakest-to-strongest: Simple Cannon icon first, then Double Cannon, then Triple Cannon — player sees the full upgrade path
   * [If lane_design specifies a different arrangement: "${laneDesign ? laneDesign.split(".")[0] : "use default described above"}"]
   * ALL THREE sub-paths are visible simultaneously in this top-down view — player can see all options
 - Enemy tower at very TOP of lane: health bar 100% full
@@ -1450,12 +1450,11 @@ export default function App() {
       const manualParts: any[]=[];
       if(manualFrameFiles&&manualFrameFiles.length>0){ for(const mf of manualFrameFiles){ manualParts.push({text:`Manual:${mf.name}`}); manualParts.push({inlineData:{mimeType:mf.type,data:await fileToBase64(mf)}}); } }
       setAnalyzeStep("analyzing");
-      const refParts=Array.isArray(buildReferenceParts())?buildReferenceParts() as any[]:[];
-      const safeExtracted=Array.isArray(extractedFrameParts)?extractedFrameParts:[];
-      const frameParts=safeExtracted.length>0?[{text:"### EXTRACTED FRAMES:"},...safeExtracted]:[];
-      const hasManual=Array.isArray(manualParts)&&manualParts.length>0;
+      const refParts=(()=>{ try { const r=buildReferenceParts(); return Array.isArray(r)?r:[]; } catch { return []; } })();
+      const frameParts=Array.isArray(extractedFrameParts)&&extractedFrameParts.length>0?[{text:"### EXTRACTED FRAMES:"},...extractedFrameParts]:[];
+      const hasManual=manualParts.length>0;
       const cfg={tier:entry.tier,ad_type:entry.ad_type,context:entry.upload_context||"",manual_frames:[]};
-      const rawDna=await callGeminiDirect(analyzeSystem(lib,cfg,Array.isArray(autoFrames)?autoFrames:[],duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(hasManual?[{text:"### MANUAL FRAMES:"},...(Array.isArray(manualParts)?manualParts:[])]:[]),(hookData&&typeof hookData==="object"?{text:`HOOK DATA:${JSON.stringify(hookData)}`}:{text:"HOOK DATA:{}"}),{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
+      const rawDna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(hasManual?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
       const dna=sanitizeDNA(rawDna);
       setAnalyzeStep("saving");
       const frameImageMap: Record<number,string>={};
@@ -1521,12 +1520,11 @@ export default function App() {
         const manualParts: any[]=[];
         if(cfg.manual_frames.length>0){ for(const mf of cfg.manual_frames){ manualParts.push({text:`Manual:${mf.name}`}); manualParts.push({inlineData:{mimeType:mf.type,data:await fileToBase64(mf)}}); } }
         setAnalyzeStep("analyzing");
-        const refParts=Array.isArray(buildReferenceParts())?buildReferenceParts() as any[]:[];
-        const safeExtracted2=Array.isArray(extractedFrameParts)?extractedFrameParts:[];
-        const frameParts = safeExtracted2.length > 0
-          ? [{text:"### EXTRACTED FRAMES — key moments at exact timestamps:"},...safeExtracted2]
+        const refParts=(()=>{ try { const r=buildReferenceParts(); return Array.isArray(r)?r:[]; } catch { return []; } })();
+        const frameParts = Array.isArray(extractedFrameParts)&&extractedFrameParts.length > 0
+          ? [{text:"### EXTRACTED FRAMES — key moments at exact timestamps:"},...extractedFrameParts]
           : [];
-        const rawDna=await callGeminiDirect(analyzeSystem(lib,cfg,Array.isArray(autoFrames)?autoFrames:[],duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(Array.isArray(manualParts)&&manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
+        const rawDna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
         const dna=sanitizeDNA(rawDna);
         setAnalyzeStep("saving");
         // Build a lookup: timestamp → base64 image from extractedFrameParts
@@ -2038,7 +2036,7 @@ export default function App() {
                   <p style={{ margin:"0 0 10px",fontSize:12,color:D.textMuted,lineHeight:1.5 }}>{c.objective}</p>
                   <div style={{ display:"flex",gap:6,flexWrap:"wrap" as const }}>
                     {(c as any).hook_timing_seconds!=null&&<span style={{ fontSize:10,padding:"2px 8px",borderRadius:4,background:D.blueBg,color:D.blue,border:`0.5px solid ${D.blueDark}` }}>Hook {(c as any).hook_timing_seconds}s</span>}
-                    {(c as any).unit_evolution_chain?.length>0&&<span style={{ fontSize:10,padding:"2px 8px",borderRadius:4,background:D.surface2,color:D.textMuted,border:`0.5px solid ${D.border}` }}>{(c as any).unit_evolution_chain.join(" → ")}</span>}
+                    {Array.isArray((c as any).unit_evolution_chain)&&(c as any).unit_evolution_chain.length>0&&<span style={{ fontSize:10,padding:"2px 8px",borderRadius:4,background:D.surface2,color:D.textMuted,border:`0.5px solid ${D.border}` }}>{(c as any).unit_evolution_chain.join(" → ")}</span>}
                     {c.visual_identity?.environment&&<span style={{ fontSize:10,padding:"2px 8px",borderRadius:4,background:D.surface2,color:D.textMuted,border:`0.5px solid ${D.border}` }}>{c.visual_identity.environment}</span>}
                     {c.quality_score&&<span style={{ fontSize:10,padding:"2px 8px",borderRadius:4,background:c.quality_score.overall>=85?D.greenBg:c.quality_score.overall>=75?D.blueBg:D.surface2,color:c.quality_score.overall>=85?D.green:c.quality_score.overall>=75?D.blue:D.textMuted,border:`0.5px solid ${c.quality_score.overall>=85?D.greenBdr:c.quality_score.overall>=75?D.blueDark:D.border}`,fontWeight:600 }}>Score {c.quality_score.overall}</span>}
                   </div>
@@ -2191,7 +2189,7 @@ export default function App() {
                           <div key={l} style={{ display:"flex",alignItems:"center",gap:10 }}>
                             <span style={{ fontSize:11,color:D.textDim,width:110,flexShrink:0 }}>{l}</span>
                             <div style={{ flex:1,height:5,background:D.surface2,borderRadius:3,overflow:"hidden" }}>
-                              <div style={{ width:`${v}%`,height:"100%",borderRadius:3,background:v>=85?D.green:v>=75?D.blue:D.gold,transition:"width .4s" }} />
+                              <div style={{ width:`${v}%`,height:"100%",borderRadius:3,background:v>=85?D.green:v>=75?D.blue:D.gold }} />
                             </div>
                             <span style={{ fontSize:11,fontWeight:600,color:scoreColor(v),width:24,textAlign:"right" as const }}>{v}</span>
                           </div>
