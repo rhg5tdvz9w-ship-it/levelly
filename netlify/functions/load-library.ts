@@ -8,22 +8,11 @@ export const handler: Handler = async (event) => {
   connectLambda(event);
   try {
     const store = getStore("levelly");
-    // Load index first
-    const indexRaw = await store.get("index");
-    if (indexRaw) {
-      const ids: string[] = JSON.parse(indexRaw);
-      const entries = await Promise.all(
-        ids.map(async (id: string) => {
-          try { const raw = await store.get(`entry:${id}`); return raw ? JSON.parse(raw) : null; }
-          catch { return null; }
-        })
-      );
-      const data = entries.filter(Boolean);
-      return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) };
+    const data = await store.get("library");
+    if (!data) {
+      return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: "[]" };
     }
-    // Fallback: old single-blob format
-    const legacy = await store.get("library");
-    return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: legacy ?? "[]" };
+    return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: data };
   } catch (err: any) {
     console.error("load-library error:", err);
     return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: "[]" };
