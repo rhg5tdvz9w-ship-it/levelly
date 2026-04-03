@@ -417,14 +417,18 @@ CANNON UPGRADE TIERS (exact names):
 5. Golden Jet — gold aircraft (airplane), used as aspirational eye-catcher only, shown on platform
 6. (Other evolutions may exist — describe what you see)
 
-When you see an upgrade: "Cannon upgrades from [previous tier] to [new tier]" using exact names above.`;
+When you see an upgrade: "Cannon upgrades from [previous tier] to [new tier]" using exact names above.
+CRITICAL: A cannon upgrade ALWAYS requires a visible container/obstacle destruction on screen. If you cannot see a container being destroyed, do NOT report a cannon upgrade — report it as a gate pass only.
+CANNON MULTIPLICATION IS NOT AN UPGRADE: When +N gates increase the number of cannons firing, this is "cannon count increases via +N gate" — the cannon MODEL stays the same. Only container destruction changes Simple→Double→Triple→Tank.`;
 
-const GATE_GUIDE = `GATES — understand the mechanical difference:
-- Multiplication gate (X value, e.g. x3): multiplies the NUMBER OF MOBS currently moving through the lane. x3 means triple the mob count. Report the EXACT value shown (x2, x3, x4, x10 etc.)
-- Addition gate (+ value, e.g. +10): adds to the CANNON's firing count — how many mobs are shot per cannon fire. Does NOT multiply existing mobs.
-- Death gate (RED rect + SKULL): instantly kills ALL player mobs. Game over mechanic.
+const GATE_GUIDE = `GATES — CRITICAL: passing through ANY gate NEVER upgrades the cannon model. Gates only affect mob COUNT.
+- Multiplication gate (x value, e.g. x3): multiplies the NUMBER OF MOBS in the lane. x3 = triple the mobs. ONLY this changes mob count.
+- Addition gate (+ value, e.g. +3): adds more mobs to the lane. Does NOT change the cannon model in any way.
+- Death gate (RED rect + SKULL): instantly kills ALL player mobs.
 - Dynamic gate: activates when nearby structures are broken.
-Report EVERY gate you see with its exact value. NEVER confuse + gates (cannon upgrade) with x gates (mob multiplier). If you see a gate but can't read the value clearly, report it as "x?" or "+?".`;
+
+CANNON UPGRADE RULE — ABSOLUTE: The cannon model (Simple/Double/Triple/Tank) ONLY changes when player mobs physically DESTROY a breakable obstacle/container on the road. This is a separate event from any gate pass. NEVER write "cannon upgrades after passing a gate". If you see a cannon change and a gate in the same second, the upgrade came from a container that was also destroyed at that moment, NOT from the gate.
+Report EVERY gate with its exact value. If unclear: "x?" or "+?".`;
 const HOOK_GUIDE = `HOOK: EXACT SECOND thumb stops scrolling. NEVER 0 unless frame-0 drama. hook_timing_seconds=REAL SECOND (2,4,8) NEVER fraction.`;
 const TIMESTAMP_RULES = `TIMESTAMPS: Real seconds only (0,2,5,8,14,22). NEVER fractions (0.03,0.28). 30s video midpoint=15.`;
 
@@ -458,12 +462,12 @@ ${MOC_EVENTS_GUIDE}
 ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}
 CRITICAL: If the CONTEXT mentions a specific number of upgrades or unit evolutions, trust that count and find the correct timestamps for each. Do not under-count.
-UNIT EVOLUTION CHAIN: Only physical cannon upgrades from container/obstacle destruction. Never include gate values or boss names. Exact names only: Simple Cannon, Double Cannon, Triple Cannon, Tank, Golden Jet.
+UNIT EVOLUTION CHAIN: ONLY physical cannon upgrades triggered by container/obstacle DESTRUCTION. NEVER add a tier because a gate was passed — gates change mob count, never cannon model. Never skip tiers (Simple must come before Double). Exact names: Simple Cannon, Double Cannon, Triple Cannon, Tank, Golden Jet.
 FRAME EMOTIONS: For each timestamp in the TIMESTAMP MAP, assign a single emotion word capturing the player's feeling (Anticipation, Excitement, Satisfaction, Empowerment, Tension, Almost Fail, Dread, Defeat, Triumph). Return as frame_emotions array with matching timestamps.
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
 Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"emotional_arc":string,"frame_emotions":[{"timestamp_seconds":number,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
 const reanalysisSystem = (entry: DNAEntry) =>
-  `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate type confusion (+ gates = cannon firing count, x gates = mob multiplier) 4.unit_evolution_chain — use exact tier names: Simple Cannon, Double Cannon, Triple Cannon, Tank, Golden Jet. Fix any generic names like "Level 1 Tank" to proper tier names. 5.frame_emotions — one emotion per timestamp 6.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${MOC_EVENTS_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
+  `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate type confusion (+ gates = cannon firing count, x gates = mob multiplier) 4.unit_evolution_chain — exact tier names only: Simple Cannon→Double Cannon→Triple Cannon→Tank→Golden Jet. Fix generic names. REMOVE any tier that was added because of a gate pass (gates never upgrade cannon). Each tier requires a container destruction event. 5.frame_emotions — one emotion per timestamp 6.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${MOC_EVENTS_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
 
 const briefSystem = (lib: any[], ctx: string, seg: string, iterateFrom?: string, refNote?: string) => {
   const refBlock = iterateFrom ? `\nITERATE FROM: "${iterateFrom}" — creative starting point.\n` : "";
@@ -1019,7 +1023,7 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
   d: DNAEntry; di: number; expandedDNA: number|null; setExpandedDNA: (n: number|null) => void;
   lib: DNAEntry[]; saveLib: (l: DNAEntry[]) => void;
   reanalyzingIds: Set<number>; handleReanalyzeSingle: (e: DNAEntry) => void;
-  onZoomFrame: (src: string) => void;
+  onZoomFrame: (src: string, list?: string[], index?: number) => void;
   isReanalyzing: boolean;
   onReupload?: (entry: DNAEntry, file: File, manualFrameFiles?: File[]) => void;
 }) {
@@ -1075,7 +1079,7 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
           <div style={{ display: "flex", gap: 4, overflowX: "auto", marginBottom: 8, paddingBottom: 2 }}>
             {d.auto_frames.filter(f => f.image_data).map((f, fi) => (
               <div key={fi} style={{ flexShrink: 0, position: "relative" as const, cursor: "zoom-in" }}
-                onClick={e => { e.stopPropagation(); onZoomFrame(`data:image/jpeg;base64,${f.image_data}`); }}>
+                onClick={e => { e.stopPropagation(); const imgs=d.auto_frames!.filter(fr=>fr.image_data).map(fr=>`data:image/jpeg;base64,${fr.image_data}`); onZoomFrame(imgs[fi]??`data:image/jpeg;base64,${f.image_data}`,imgs,fi); }}>
                 <img src={`data:image/jpeg;base64,${f.image_data}`} alt={`${f.timestamp_seconds}s`}
                   style={{ width: 48, height: 86, objectFit: "cover", borderRadius: 5, border: `0.5px solid ${D.border2}`, display: "block" }} />
                 <div style={{ position: "absolute" as const, bottom: 2, left: 0, right: 0, textAlign: "center" as const }}>
@@ -1378,6 +1382,20 @@ export default function App() {
   const [analyzeErr, setAnalyzeErr] = useState("");
   const [lastAnalyzedId, setLastAnalyzedId] = useState<number|null>(null);
   const [zoomedFrame, setZoomedFrame] = useState<string|null>(null);
+  const [zoomedFrameList, setZoomedFrameList] = useState<string[]>([]);
+  const [zoomedFrameIndex, setZoomedFrameIndex] = useState<number>(0);
+
+  // Keyboard navigation for zoomed frames/renders
+  React.useEffect(()=>{
+    if(!zoomedFrame) return;
+    const handler=(e: KeyboardEvent)=>{
+      if(e.key==="ArrowRight"||e.key==="ArrowDown"){ e.preventDefault(); setZoomedFrameIndex(i=>{ const next=Math.min(i+1,zoomedFrameList.length-1); setZoomedFrame(zoomedFrameList[next]??zoomedFrame); return next; }); }
+      if(e.key==="ArrowLeft"||e.key==="ArrowUp"){ e.preventDefault(); setZoomedFrameIndex(i=>{ const prev=Math.max(i-1,0); setZoomedFrame(zoomedFrameList[prev]??zoomedFrame); return prev; }); }
+      if(e.key==="Escape"){ setZoomedFrame(null); setZoomedFrameList([]); }
+    };
+    window.addEventListener("keydown",handler);
+    return ()=>window.removeEventListener("keydown",handler);
+  },[zoomedFrame,zoomedFrameList]);
   const [reanalyzingIds, setReanalyzingIds] = useState<Set<number>>(new Set());
   const [reanalyzingEntry, setReanalyzingEntry] = useState<number|null>(null);
   const [reanalyzingAll, setReanalyzingAll] = useState(false);
@@ -1676,9 +1694,18 @@ export default function App() {
       {showModal&&<UploadModal lib={lib} onConfirm={handleModalConfirm} onCancel={()=>setShowModal(false)} />}
       {/* Frame zoom lightbox */}
       {zoomedFrame && (
-        <div onClick={() => setZoomedFrame(null)} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out" }}>
-          <img src={zoomedFrame} alt="frame" style={{ maxHeight:"90vh",maxWidth:"90vw",borderRadius:10,boxShadow:"0 0 60px rgba(0,0,0,0.8)" }} />
-          <div style={{ position:"absolute",top:16,right:20,fontSize:20,color:"#fff",opacity:0.6,cursor:"pointer" }}>✕</div>
+        <div onClick={()=>{ setZoomedFrame(null); setZoomedFrameList([]); }} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center" }}>
+          {zoomedFrameList.length>1&&zoomedFrameIndex>0&&(
+            <div onClick={e=>{e.stopPropagation();setZoomedFrameIndex(i=>{const p=Math.max(i-1,0);setZoomedFrame(zoomedFrameList[p]);return p;})}} style={{ position:"absolute",left:20,top:"50%",transform:"translateY(-50%)",fontSize:32,color:"#fff",opacity:0.7,cursor:"pointer",background:"rgba(255,255,255,0.1)",borderRadius:"50%",width:48,height:48,display:"flex",alignItems:"center",justifyContent:"center",userSelect:"none" }}>‹</div>
+          )}
+          <img src={zoomedFrame} alt="frame" style={{ maxHeight:"90vh",maxWidth:"calc(100vw - 120px)",borderRadius:10,boxShadow:"0 0 60px rgba(0,0,0,0.8)",objectFit:"contain" }} onClick={e=>e.stopPropagation()} />
+          {zoomedFrameList.length>1&&zoomedFrameIndex<zoomedFrameList.length-1&&(
+            <div onClick={e=>{e.stopPropagation();setZoomedFrameIndex(i=>{const n=Math.min(i+1,zoomedFrameList.length-1);setZoomedFrame(zoomedFrameList[n]);return n;})}} style={{ position:"absolute",right:20,top:"50%",transform:"translateY(-50%)",fontSize:32,color:"#fff",opacity:0.7,cursor:"pointer",background:"rgba(255,255,255,0.1)",borderRadius:"50%",width:48,height:48,display:"flex",alignItems:"center",justifyContent:"center",userSelect:"none" }}>›</div>
+          )}
+          <div style={{ position:"absolute",top:16,left:0,right:0,display:"flex",justifyContent:"center",gap:16,alignItems:"center" }}>
+            {zoomedFrameList.length>1&&<span style={{ fontSize:12,color:"rgba(255,255,255,0.6)" }}>{zoomedFrameIndex+1} / {zoomedFrameList.length}</span>}
+            <span onClick={()=>{ setZoomedFrame(null); setZoomedFrameList([]); }} style={{ fontSize:18,color:"rgba(255,255,255,0.5)",cursor:"pointer" }}>✕</span>
+          </div>
         </div>
       )}
       <input ref={fileRef} type="file" accept="video/*,image/*" multiple style={{ display:"none" }} onChange={handleUpload} />
@@ -1963,7 +1990,7 @@ export default function App() {
               {/* Library cards */}
               <div style={{ maxHeight:480,overflowY:"auto" as const,padding:"8px 0" }}>
                 {lib.length===0&&!analyzing&&libraryLoaded&&<div style={{ padding:"2rem 16px",textAlign:"center" as const }}><p style={{ margin:0,fontSize:12,color:D.textMuted }}>Upload MOC ads to build your Creative DNA library.</p></div>}
-                {sortedLib.map((d,di)=><LibraryCard key={d.id} d={d} di={di} expandedDNA={expandedDNA} setExpandedDNA={setExpandedDNA} lib={lib} saveLib={saveLib} reanalyzingIds={reanalyzingIds} handleReanalyzeSingle={handleReanalyzeSingle} onZoomFrame={setZoomedFrame} isReanalyzing={reanalyzingEntry === d.id} onReupload={handleReupload} />)}
+                {sortedLib.map((d,di)=><LibraryCard key={d.id} d={d} di={di} expandedDNA={expandedDNA} setExpandedDNA={setExpandedDNA} lib={lib} saveLib={saveLib} reanalyzingIds={reanalyzingIds} handleReanalyzeSingle={handleReanalyzeSingle} onZoomFrame={(src,list,idx)=>{ setZoomedFrame(src); setZoomedFrameList(list??[src]); setZoomedFrameIndex(idx??0); }} isReanalyzing={reanalyzingEntry === d.id} onReupload={handleReupload} />)}
               </div>
             </div>
           )}
@@ -2151,7 +2178,7 @@ export default function App() {
                             {isNext&&!imgUrl&&<div style={{ position:"absolute" as const,top:6,left:0,right:0,display:"flex",justifyContent:"center" }}>
                               <span style={{ fontSize:9,padding:"2px 7px",background:sceneColor,color:"#fff",borderRadius:20,fontWeight:600,letterSpacing:"0.05em" }}>{scene==="start"?"START HERE":"RENDER NEXT"}</span>
                             </div>}
-                            {imgUrl?<img src={imgUrl} alt={scene} onClick={e=>{e.stopPropagation();setZoomedFrame(imgUrl);}} style={{ width:"100%",height:"100%",objectFit:"contain",background:"#0a0c10",cursor:"zoom-in" }} />
+                            {imgUrl?<img src={imgUrl} alt={scene} onClick={e=>{e.stopPropagation();const scenes=(["hook","start","middle","end"] as const).map(s=>c[`visual_${s}` as keyof Concept] as string|undefined).filter(Boolean) as string[];const idx=scenes.indexOf(imgUrl!);setZoomedFrameList(scenes);setZoomedFrameIndex(Math.max(idx,0));setZoomedFrame(imgUrl!);}} style={{ width:"100%",height:"100%",objectFit:"contain",background:"#0a0c10",cursor:"zoom-in" }} />
                               :loading?<p style={{ margin:0,fontSize:11,fontWeight:500,color:D.textMuted }}>Rendering…</p>
                               :(c as any)[`render_err_${scene}`]?<div style={{ textAlign:"center" as const,padding:"8px 6px" }}><p style={{ margin:0,fontSize:9,color:D.red,fontWeight:600 }}>Failed — click to retry</p><p style={{ margin:"5px 0 0",fontSize:8,color:D.textDim,wordBreak:"break-word" as const,lineHeight:1.4 }}>{((c as any)[`render_err_${scene}`] as string).slice(0,180)}</p></div>
                               :needsPrev?<div style={{ textAlign:"center" as const,padding:10 }}><p style={{ margin:0,fontSize:10,color:D.textDim,textTransform:"uppercase" as const }}>{sceneLabel}</p><p style={{ margin:"4px 0 0",fontSize:9,color:D.textDim }}>{lockedMsg}</p></div>
