@@ -1,11 +1,10 @@
 import type { Handler } from "@netlify/functions";
-import { connectLambda, getStore } from "@netlify/blobs";
+import { getStore } from "@netlify/blobs";
 
 export const handler: Handler = async (event) => {
   if (event.httpMethod !== "GET") {
     return { statusCode: 405, body: "Method not allowed" };
   }
-  connectLambda(event);
   try {
     const store = getStore("levelly");
     const data = await store.get("library");
