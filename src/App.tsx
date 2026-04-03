@@ -398,7 +398,7 @@ function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string): any[] {
 const BIOME_GUIDE = `BIOMES: Foggy Forest(grey/white atmospheric fog,dark pines,grey road—NOT snow), Desert(tan sand,blue sky), Water(grey bridge over blue water), Bunker(grey concrete tunnel,pipes,industrial), Cyber-City(grey metal,orange/blue neon), Volcanic(red/orange lava,black rocks), Snow(white snow ground), Toxic(purple paths,green slime), Meadow(green hills,grey brick bridge)`;
 const CHAMPION_GUIDE = `CHAMPIONS (ONLY these exist in Mob Control): Captain Kaboom(blue round mob, green hat with yellow brim, fires 3 golden streams), Gold Golem(LARGE golden muscular humanoid), Caveman(blue-skin muscular humanoid, blonde hair, club), Mobzilla(green dinosaur/T-Rex, pink spines, red mouth, cartoonish), Nexus(blue/white/orange mech, orange sword), Red Hulk(large red humanoid), Kraken(red octopus), Femme Zombie(crawling female zombie boss), Yellow Normie(large yellow/red round creature — BOSS ENEMY with HP bar), Unknown(generic enemy tower). Enemy tower = red/grey fortified block structure with HP number. NEVER invent champion appearances. If a champion name is not on this list, draw Unknown/generic tower.`;
 const MOC_EVENTS_GUIDE = `MOC-SPECIFIC EVENTS TO HUNT FOR (timestamp ALL of these if present):
-- CANNON UPGRADE (unit evolution): Player mobs destroy a breakable obstacle on the road — the obstacle type matches the environment (wooden barrel in forest, stone block in desert, blue crate in bunker, sandstone in volcanic, etc.). Destroying it triggers the cannon to transform into the next tier. ALWAYS name using exact tier names below.
+- CANNON UPGRADE (unit evolution): Player mobs destroy a breakable obstacle/container on the road. Destroying it upgrades the cannon tier. ALWAYS use format: "Blue container (HP: [number shown on it]) destroyed — cannon upgrades from [tier] to [tier]". Report the HP number visible on the container. If no number visible, describe its role: "upgrade container" (has cannon icon = gives upgrade), "empty container" (no icon = just health), "barrel/box" (environment obstacle). ALWAYS use exact tier names below.
 - GIANT/BOSS DEATH: Large enemy giant or boss character defeated. ALWAYS timestamp — key emotional payoff.
 - X GATE PASS: Player mobs pass through a multiplication gate (xN). Report gate value and timestamp for EACH pass.
 - + GATE PASS: Player mobs pass through an addition gate (+N). Report gate value and timestamp.
@@ -418,8 +418,9 @@ CANNON UPGRADE TIERS (exact names):
 6. (Other evolutions may exist — describe what you see)
 
 When you see an upgrade: "Cannon upgrades from [previous tier] to [new tier]" using exact names above.
-CRITICAL: A cannon upgrade ALWAYS requires a visible container/obstacle destruction on screen. If you cannot see a container being destroyed, do NOT report a cannon upgrade — report it as a gate pass only.
-CANNON MULTIPLICATION IS NOT AN UPGRADE: When +N gates increase the number of cannons firing, this is "cannon count increases via +N gate" — the cannon MODEL stays the same. Only container destruction changes Simple→Double→Triple→Tank.`;
+CRITICAL: A cannon upgrade ALWAYS requires a visible container/obstacle destruction. If you miss a container destruction, you will report the wrong unit_evolution_chain — so hunt for EVERY container on screen.
+CANNON MULTIPLICATION IS NOT AN UPGRADE: +N gates increase cannon COUNT (how many fire) — the cannon MODEL stays the same. Only container destruction changes Simple→Double→Triple→Tank.
+NEVER SKIP TIERS: If you see Simple Cannon at start and Triple Cannon later, there MUST be a Double Cannon step. Find the container destruction that caused it — look between 0s and the first Triple Cannon appearance.`;
 
 const GATE_GUIDE = `GATES — CRITICAL: passing through ANY gate NEVER upgrades the cannon model. Gates only affect mob COUNT.
 - Multiplication gate (x value, e.g. x3): multiplies the NUMBER OF MOBS in the lane. x3 = triple the mobs. ONLY this changes mob count.
@@ -1414,6 +1415,7 @@ export default function App() {
 
   useEffect(()=>{
     const sanitizeLib = (entries: any[]): DNAEntry[] => entries.map(e => sanitizeDNA(e) as DNAEntry);
+
     fetch("/api/load-library")
       .then(r=>{ if(!r.ok) throw new Error(); return r.json(); })
       .then((data: DNAEntry[])=>{ if(Array.isArray(data)&&data.length>0) setLib(sanitizeLib(data)); else { try { const l=localStorage.getItem("levelly_dna_library"); if(l) setLib(sanitizeLib(JSON.parse(l))); } catch {} } setLibraryLoaded(true); })
@@ -1425,13 +1427,8 @@ export default function App() {
     try { localStorage.setItem("levelly_dna_library",JSON.stringify(updated)); } catch {}
     if(libraryLoaded){
       setCloudStatus("saving");
-      // Strip image_data from auto_frames before cloud save — images are large and can exceed Blobs limits
-      // They're preserved in localStorage and in-memory lib for the current session
-      const stripped = updated.map(e => ({
-        ...e,
-        auto_frames: e.auto_frames?.map(f => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance }))
-      }));
-      fetch("/api/save-library",{ method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(stripped) })
+      // Save full library including image_data — per-entry saves keep payloads small
+      fetch("/api/save-library",{ method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(updated) })
         .then(r=>{ if(!r.ok) throw new Error(); setCloudStatus("saved"); setTimeout(()=>setCloudStatus("idle"),2000); })
         .catch(()=>{ setCloudStatus("error"); setTimeout(()=>setCloudStatus("idle"),3000); });
     }

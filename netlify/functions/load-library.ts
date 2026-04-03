@@ -5,17 +5,27 @@ export const handler: Handler = async (event) => {
   if (event.httpMethod !== "GET") {
     return { statusCode: 405, body: "Method not allowed" };
   }
-  // connectLambda MUST be called before getStore in Lambda compatibility mode
   connectLambda(event);
   try {
     const store = getStore("levelly");
-    const data = await store.get("library");
-    if (!data) {
-      return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: "[]" };
+    // Load index first
+    const indexRaw = await store.get("index");
+    if (indexRaw) {
+      const ids: string[] = JSON.parse(indexRaw);
+      const entries = await Promise.all(
+        ids.map(async (id: string) => {
+          try { const raw = await store.get(`entry:${id}`); return raw ? JSON.parse(raw) : null; }
+          catch { return null; }
+        })
+      );
+      const data = entries.filter(Boolean);
+      return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) };
     }
-    return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: data };
+    // Fallback: old single-blob format
+    const legacy = await store.get("library");
+    return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: legacy ?? "[]" };
   } catch (err: any) {
     console.error("load-library error:", err);
-    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+    return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: "[]" };
   }
 };
