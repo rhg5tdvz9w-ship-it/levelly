@@ -106,7 +106,7 @@ const TIER_ACCENT: Record<string, string> = {
 
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 const GEMINI_TEXT_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
-const GEMINI_IMAGE_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=${GEMINI_KEY}`;
+const GEMINI_IMAGE_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${GEMINI_KEY}`;
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const D = {
@@ -180,7 +180,7 @@ function parseJSON(text: string): any {
 // Ensure all array fields on a raw DNA response are actually arrays — prevents "e is not iterable"
 function sanitizeDNA(raw: any): any {
   if (!raw || typeof raw !== "object") return {};
-  const ARRAY_FIELDS = ["emotional_beats","gate_sequence","unit_evolution_chain","champions_visible","auto_frames","manual_frames","spend_networks","segments","production_script","performance_hooks","upgrade_triggers","tension_moments","engagement_hooks"];
+  const ARRAY_FIELDS = ["emotional_beats","gate_sequence","unit_evolution_chain","champions_visible","auto_frames","manual_frames","spend_networks","segments"];
   const out = { ...raw };
   for (const field of ARRAY_FIELDS) {
     if (!Array.isArray(out[field])) out[field] = out[field] ? [out[field]] : [];
@@ -197,6 +197,12 @@ function sanitizeDNA(raw: any): any {
     });
   }
   return out;
+}
+
+// Strips any data URI prefix — handles jpeg/png/webp returned by Gemini
+function parseDataURI(uri: string): { mimeType: string; data: string } {
+  const m = uri.match(/^data:([^;]+);base64,(.+)$/s);
+  return m ? { mimeType: m[1], data: m[2] } : { mimeType: "image/png", data: uri };
 }
 
 async function callImageDirect(prompt: string, refParts: any[]): Promise<string> {
@@ -518,9 +524,9 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
 - Single ${unitAtScene} cannon at BOTTOM CENTER. Cannon looks EXACTLY like the reference images: small rounded barrel body on 4 small black wheels. Cartoon 3D. Blue/grey color. NOT a military tank, NOT a truck, NOT a realistic vehicle.
 - 6-10 ${vi.player_mob_color} round blob mobs near the cannon — very sparse
 - CRITICAL — THE ROAD HAS 3 PARALLEL SUB-PATHS SIDE BY SIDE (same road width, divided into 3 lanes):
-  * LEFT LANE: Bright BLUE +N flat rectangular gate panels spanning left third of road width
+  * LEFT LANE: 4-6 identical Bright BLUE "+N" flat rectangular gate panels packed tightly, ALL showing the SAME value (e.g. all "+2" or all "+3") — they fill the ENTIRE left third of the road like a wall of gates
   * CENTER LANE: Main driving path — purple/pink xN gate panel + red enemy mob cluster ahead
-  * RIGHT LANE: A single breakable upgrade obstacle (barrel/crate/block) sitting on the right third
+  * RIGHT LANE: 3-4 breakable upgrade obstacles (barrels/crates stacked in sequence), each showing a DIFFERENT unit icon above it (Simple Cannon → Double Cannon → Triple Cannon) — player can clearly see the upgrade path available
   * [If lane_design specifies a different arrangement: "${laneDesign ? laneDesign.split(".")[0] : "use default described above"}"]
   * ALL THREE sub-paths are visible simultaneously in this top-down view — player can see all options
 - Enemy tower at very TOP of lane: health bar 100% full
@@ -1445,7 +1451,7 @@ export default function App() {
       const manualParts: any[]=[];
       if(manualFrameFiles&&manualFrameFiles.length>0){ for(const mf of manualFrameFiles){ manualParts.push({text:`Manual:${mf.name}`}); manualParts.push({inlineData:{mimeType:mf.type,data:await fileToBase64(mf)}}); } }
       setAnalyzeStep("analyzing");
-      const refParts=buildReferenceParts();
+      const refParts=Array.isArray(buildReferenceParts())?buildReferenceParts():[];
       const frameParts=extractedFrameParts.length>0?[{text:"### EXTRACTED FRAMES:"},...extractedFrameParts]:[];
       const hasManual=manualParts.length>0;
       const cfg={tier:entry.tier,ad_type:entry.ad_type,context:entry.upload_context||"",manual_frames:[]};
@@ -1515,7 +1521,7 @@ export default function App() {
         const manualParts: any[]=[];
         if(cfg.manual_frames.length>0){ for(const mf of cfg.manual_frames){ manualParts.push({text:`Manual:${mf.name}`}); manualParts.push({inlineData:{mimeType:mf.type,data:await fileToBase64(mf)}}); } }
         setAnalyzeStep("analyzing");
-        const refParts=buildReferenceParts();
+        const refParts=Array.isArray(buildReferenceParts())?buildReferenceParts():[];
         const frameParts = extractedFrameParts.length > 0
           ? [{text:"### EXTRACTED FRAMES — key moments at exact timestamps:"},...extractedFrameParts]
           : [];
@@ -1624,14 +1630,14 @@ export default function App() {
 
       if(scene==="hook"){
         // Hook rendered LAST — uses Start/Middle/End as style anchors
-        if(concept.visual_start){ prevParts.push({text:"### START SCENE — match art style, cannon, mobs, environment exactly:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_start.replace("data:image/png;base64,","")}}); }
-        if(concept.visual_middle){ prevParts.push({text:"### MIDDLE SCENE — also match:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_middle.replace("data:image/png;base64,","")}}); }
-        if(concept.visual_end){ prevParts.push({text:"### END SCENE — also match:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_end.replace("data:image/png;base64,","")}}); }
+        if(concept.visual_start){ prevParts.push({text:"### START SCENE — match art style, cannon, mobs, environment exactly:"}); prevParts.push({...(() => { const p=parseDataURI(concept.visual_start); return {inlineData:{mimeType:p.mimeType,data:p.data}}; }())}); }
+        if(concept.visual_middle){ prevParts.push({text:"### MIDDLE SCENE — also match:"}); prevParts.push({...(() => { const p=parseDataURI(concept.visual_middle); return {inlineData:{mimeType:p.mimeType,data:p.data}}; }())}); }
+        if(concept.visual_end){ prevParts.push({text:"### END SCENE — also match:"}); prevParts.push({...(() => { const p=parseDataURI(concept.visual_end); return {inlineData:{mimeType:p.mimeType,data:p.data}}; }())}); }
       } else {
         // Start→Middle→End chain: each scene references the previous
-        if(scene==="middle"&&concept.visual_start){ prevParts.push({text:"### START SCENE — match ALL assets exactly. Only change: mob count and HP bar:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_start.replace("data:image/png;base64,","")}}); }
-        if(scene==="end"&&concept.visual_start){ prevParts.push({text:"### START SCENE — match environment and art style:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_start.replace("data:image/png;base64,","")}}); }
-        if(scene==="end"&&concept.visual_middle){ prevParts.push({text:"### MIDDLE SCENE — match ALL assets. Only change: mob count reduced to 3-6, HP bar near empty:"}); prevParts.push({inlineData:{mimeType:"image/png",data:concept.visual_middle.replace("data:image/png;base64,","")}}); }
+        if(scene==="middle"&&concept.visual_start){ prevParts.push({text:"### START SCENE — match ALL assets exactly. Only change: mob count and HP bar:"}); prevParts.push({...(() => { const p=parseDataURI(concept.visual_start); return {inlineData:{mimeType:p.mimeType,data:p.data}}; }())}); }
+        if(scene==="end"&&concept.visual_start){ prevParts.push({text:"### START SCENE — match environment and art style:"}); prevParts.push({...(() => { const p=parseDataURI(concept.visual_start); return {inlineData:{mimeType:p.mimeType,data:p.data}}; }())}); }
+        if(scene==="end"&&concept.visual_middle){ prevParts.push({text:"### MIDDLE SCENE — match ALL assets. Only change: mob count reduced to 3-6, HP bar near empty:"}); prevParts.push({...(() => { const p=parseDataURI(concept.visual_middle); return {inlineData:{mimeType:p.mimeType,data:p.data}}; }())}); }
       }
 
       const continuityNote = scene === "hook"
@@ -2129,7 +2135,7 @@ export default function App() {
                       })}
                     </div>
                   </div>
-                  {Array.isArray(c.production_script)&&c.production_script.length>0&&(
+                  {c.production_script?.length>0&&(
                     <div style={{ marginBottom:14 }}>
                       <span style={labelStyle}>Production script</span>
                       <div style={{ border:`0.5px solid ${D.border}`,borderRadius:8,overflow:"hidden" }}>
@@ -2147,7 +2153,7 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  {Array.isArray(c.performance_hooks)&&c.performance_hooks.length>0&&(
+                  {c.performance_hooks?.length>0&&(
                     <div style={{ marginBottom:14 }}>
                       <span style={labelStyle}>Performance hooks</span>
                       <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10 }}>
