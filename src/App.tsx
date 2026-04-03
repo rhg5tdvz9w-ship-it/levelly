@@ -106,7 +106,7 @@ const TIER_ACCENT: Record<string, string> = {
 
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 const GEMINI_TEXT_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
-const GEMINI_IMAGE_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${GEMINI_KEY}`;
+const GEMINI_IMAGE_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=${GEMINI_KEY}`;
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const D = {
@@ -180,7 +180,7 @@ function parseJSON(text: string): any {
 // Ensure all array fields on a raw DNA response are actually arrays — prevents "e is not iterable"
 function sanitizeDNA(raw: any): any {
   if (!raw || typeof raw !== "object") return {};
-  const ARRAY_FIELDS = ["emotional_beats","gate_sequence","unit_evolution_chain","champions_visible","auto_frames","manual_frames","spend_networks","segments"];
+  const ARRAY_FIELDS = ["emotional_beats","gate_sequence","unit_evolution_chain","champions_visible","auto_frames","manual_frames","spend_networks","segments","production_script","performance_hooks","upgrade_triggers","tension_moments"];
   const out = { ...raw };
   for (const field of ARRAY_FIELDS) {
     if (!Array.isArray(out[field])) out[field] = out[field] ? [out[field]] : [];
@@ -199,7 +199,6 @@ function sanitizeDNA(raw: any): any {
   return out;
 }
 
-// Strips any data URI prefix — handles jpeg/png/webp returned by Gemini
 function parseDataURI(uri: string): { mimeType: string; data: string } {
   const m = uri.match(/^data:([^;]+);base64,(.+)$/s);
   return m ? { mimeType: m[1], data: m[2] } : { mimeType: "image/png", data: uri };
@@ -524,9 +523,9 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
 - Single ${unitAtScene} cannon at BOTTOM CENTER. Cannon looks EXACTLY like the reference images: small rounded barrel body on 4 small black wheels. Cartoon 3D. Blue/grey color. NOT a military tank, NOT a truck, NOT a realistic vehicle.
 - 6-10 ${vi.player_mob_color} round blob mobs near the cannon — very sparse
 - CRITICAL — THE ROAD HAS 3 PARALLEL SUB-PATHS SIDE BY SIDE (same road width, divided into 3 lanes):
-  * LEFT LANE: 4-6 identical Bright BLUE "+N" flat rectangular gate panels packed tightly, ALL showing the SAME value (e.g. all "+2" or all "+3") — they fill the ENTIRE left third of the road like a wall of gates
+  * LEFT LANE: 4-6 identical Bright BLUE "+N" flat rectangular gate panels packed tightly, ALL showing the SAME value (e.g. all "+2" or all "+3") — they fill the ENTIRE left third of the road
   * CENTER LANE: Main driving path — purple/pink xN gate panel + red enemy mob cluster ahead
-  * RIGHT LANE: 3-4 breakable upgrade obstacles (barrels/crates stacked in sequence), each showing a DIFFERENT unit icon above it (Simple Cannon → Double Cannon → Triple Cannon) — player can clearly see the upgrade path available
+  * RIGHT LANE: 3-4 breakable upgrade obstacles (barrels/crates in sequence), each showing a DIFFERENT unit icon above it (Simple Cannon → Double Cannon → Triple Cannon) — player sees the full upgrade path
   * [If lane_design specifies a different arrangement: "${laneDesign ? laneDesign.split(".")[0] : "use default described above"}"]
   * ALL THREE sub-paths are visible simultaneously in this top-down view — player can see all options
 - Enemy tower at very TOP of lane: health bar 100% full
@@ -1630,14 +1629,14 @@ export default function App() {
 
       if(scene==="hook"){
         // Hook rendered LAST — uses Start/Middle/End as style anchors
-        if(concept.visual_start){ prevParts.push({text:"### START SCENE — match art style, cannon, mobs, environment exactly:"}); prevParts.push({...(() => { const p=parseDataURI(concept.visual_start); return {inlineData:{mimeType:p.mimeType,data:p.data}}; }())}); }
-        if(concept.visual_middle){ prevParts.push({text:"### MIDDLE SCENE — also match:"}); prevParts.push({...(() => { const p=parseDataURI(concept.visual_middle); return {inlineData:{mimeType:p.mimeType,data:p.data}}; }())}); }
-        if(concept.visual_end){ prevParts.push({text:"### END SCENE — also match:"}); prevParts.push({...(() => { const p=parseDataURI(concept.visual_end); return {inlineData:{mimeType:p.mimeType,data:p.data}}; }())}); }
+        if(concept.visual_start){ prevParts.push({text:"### START SCENE — match art style, cannon, mobs, environment exactly:"}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_start).mimeType,data:parseDataURI(concept.visual_start).data}}); }
+        if(concept.visual_middle){ prevParts.push({text:"### MIDDLE SCENE — also match:"}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_middle).mimeType,data:parseDataURI(concept.visual_middle).data}}); }
+        if(concept.visual_end){ prevParts.push({text:"### END SCENE — also match:"}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_end).mimeType,data:parseDataURI(concept.visual_end).data}}); }
       } else {
         // Start→Middle→End chain: each scene references the previous
-        if(scene==="middle"&&concept.visual_start){ prevParts.push({text:"### START SCENE — match ALL assets exactly. Only change: mob count and HP bar:"}); prevParts.push({...(() => { const p=parseDataURI(concept.visual_start); return {inlineData:{mimeType:p.mimeType,data:p.data}}; }())}); }
-        if(scene==="end"&&concept.visual_start){ prevParts.push({text:"### START SCENE — match environment and art style:"}); prevParts.push({...(() => { const p=parseDataURI(concept.visual_start); return {inlineData:{mimeType:p.mimeType,data:p.data}}; }())}); }
-        if(scene==="end"&&concept.visual_middle){ prevParts.push({text:"### MIDDLE SCENE — match ALL assets. Only change: mob count reduced to 3-6, HP bar near empty:"}); prevParts.push({...(() => { const p=parseDataURI(concept.visual_middle); return {inlineData:{mimeType:p.mimeType,data:p.data}}; }())}); }
+        if(scene==="middle"&&concept.visual_start){ prevParts.push({text:"### START SCENE — match ALL assets exactly. Only change: mob count and HP bar:"}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_start).mimeType,data:parseDataURI(concept.visual_start).data}}); }
+        if(scene==="end"&&concept.visual_start){ prevParts.push({text:"### START SCENE — match environment and art style:"}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_start).mimeType,data:parseDataURI(concept.visual_start).data}}); }
+        if(scene==="end"&&concept.visual_middle){ prevParts.push({text:"### MIDDLE SCENE — match ALL assets. Only change: mob count reduced to 3-6, HP bar near empty:"}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_middle).mimeType,data:parseDataURI(concept.visual_middle).data}}); }
       }
 
       const continuityNote = scene === "hook"
@@ -2000,12 +1999,22 @@ export default function App() {
           )}
 
           {briefAnalysis&&(
-            <div style={{ background:D.surface2,border:`0.5px solid ${D.border2}`,borderRadius:10,padding:"14px 16px",marginBottom:14 }}>
-              <span style={labelStyle}>Creative strategy</span>
-              <p style={{ margin:"0 0 12px",fontSize:12,lineHeight:1.7,color:D.text }}>{briefAnalysis.strategy}</p>
-              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
-                <div><span style={labelStyle}>DNA sources used</span><p style={{ margin:0,fontSize:11,color:D.textMuted }}>{briefAnalysis.dna_sources?.join(", ")||briefAnalysis.patterns_used}</p></div>
-                <div><span style={labelStyle}>Segment insight</span><p style={{ margin:0,fontSize:11,color:D.textMuted }}>{briefAnalysis.segment_insight}</p></div>
+            <div style={{ background:D.surface,border:`0.5px solid ${D.border}`,borderRadius:10,padding:"14px 16px",marginBottom:16 }}>
+              <div style={{ fontSize:9,fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase" as const,color:D.textDim,marginBottom:8 }}>Creative strategy</div>
+              <p style={{ margin:"0 0 12px",fontSize:12,lineHeight:1.75,color:D.text }}>{briefAnalysis.strategy}</p>
+              <div style={{ display:"flex",gap:16,flexWrap:"wrap" as const,paddingTop:10,borderTop:`0.5px solid ${D.border}` }}>
+                <div style={{ display:"flex",flexDirection:"column" as const,gap:4 }}>
+                  <span style={{ fontSize:9,fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase" as const,color:D.textDim }}>DNA sources</span>
+                  <div style={{ display:"flex",gap:4,flexWrap:"wrap" as const }}>
+                    {(briefAnalysis.dna_sources||briefAnalysis.patterns_used?.split(",")).map((s:string,i:number)=>(
+                      <span key={i} style={{ fontSize:10,padding:"2px 7px",borderRadius:4,background:D.blueBg,color:D.blue,border:`0.5px solid ${D.blueDark}`,fontWeight:500 }}>{s.trim()}</span>
+                    ))}
+                  </div>
+                </div>
+                {briefAnalysis.segment_insight&&<div style={{ display:"flex",flexDirection:"column" as const,gap:4,flex:1,minWidth:160 }}>
+                  <span style={{ fontSize:9,fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase" as const,color:D.textDim }}>Segment insight</span>
+                  <span style={{ fontSize:11,color:D.textMuted,lineHeight:1.5 }}>{briefAnalysis.segment_insight}</span>
+                </div>}
               </div>
             </div>
           )}
@@ -2022,9 +2031,15 @@ export default function App() {
                     {iterateFrom.trim()&&<span style={pill(D.purpleBg,D.purple,D.purpleBdr)}>iterates {iterateFrom.trim()}</span>}
                     <span style={pill(TIER_STYLE["scalable"].bg,TIER_STYLE["scalable"].text,TIER_STYLE["scalable"].border)}>{c.target_segment}</span>
                   </div>
-                  <div style={{ fontSize:15,fontWeight:600,color:expandedConcept===ci?D.text:D.textMuted,marginBottom:4,transition:"color .15s" }}>{c.title}</div>
-                  {c.is_experimental&&c.experimental_note&&<p style={{ margin:"0 0 4px",fontSize:11,color:"#f472b6",fontStyle:"italic" }}>{c.experimental_note}</p>}
-                  <p style={{ margin:0,fontSize:12,color:D.textMuted,lineHeight:1.5 }}>{c.objective}</p>
+                  <div style={{ fontSize:15,fontWeight:600,color:expandedConcept===ci?D.text:D.textMuted,marginBottom:6,transition:"color .15s" }}>{c.title}</div>
+                  {c.is_experimental&&c.experimental_note&&<p style={{ margin:"0 0 6px",fontSize:11,color:"#f472b6",fontStyle:"italic" }}>{c.experimental_note}</p>}
+                  <p style={{ margin:"0 0 10px",fontSize:12,color:D.textMuted,lineHeight:1.5 }}>{c.objective}</p>
+                  <div style={{ display:"flex",gap:6,flexWrap:"wrap" as const }}>
+                    {(c as any).hook_timing_seconds!=null&&<span style={{ fontSize:10,padding:"2px 8px",borderRadius:4,background:D.blueBg,color:D.blue,border:`0.5px solid ${D.blueDark}` }}>Hook {(c as any).hook_timing_seconds}s</span>}
+                    {(c as any).unit_evolution_chain?.length>0&&<span style={{ fontSize:10,padding:"2px 8px",borderRadius:4,background:D.surface2,color:D.textMuted,border:`0.5px solid ${D.border}` }}>{(c as any).unit_evolution_chain.join(" → ")}</span>}
+                    {c.visual_identity?.environment&&<span style={{ fontSize:10,padding:"2px 8px",borderRadius:4,background:D.surface2,color:D.textMuted,border:`0.5px solid ${D.border}` }}>{c.visual_identity.environment}</span>}
+                    {c.quality_score&&<span style={{ fontSize:10,padding:"2px 8px",borderRadius:4,background:c.quality_score.overall>=85?D.greenBg:c.quality_score.overall>=75?D.blueBg:D.surface2,color:c.quality_score.overall>=85?D.green:c.quality_score.overall>=75?D.blue:D.textMuted,border:`0.5px solid ${c.quality_score.overall>=85?D.greenBdr:c.quality_score.overall>=75?D.blueDark:D.border}`,fontWeight:600 }}>Score {c.quality_score.overall}</span>}
+                  </div>
                 </div>
                 <div style={{ display:"flex",flexDirection:"column" as const,alignItems:"flex-end",gap:4,marginLeft:16,flexShrink:0 }}>
                   {c.quality_score&&<><div style={{ fontSize:24,fontWeight:600,color:scoreColor(c.quality_score.overall),lineHeight:1 }}>{c.quality_score.overall}</div><div style={{ fontSize:9,color:D.textDim }}>quality</div></>}
@@ -2135,7 +2150,7 @@ export default function App() {
                       })}
                     </div>
                   </div>
-                  {c.production_script?.length>0&&(
+                  {Array.isArray(c.production_script)&&c.production_script.length>0&&(
                     <div style={{ marginBottom:14 }}>
                       <span style={labelStyle}>Production script</span>
                       <div style={{ border:`0.5px solid ${D.border}`,borderRadius:8,overflow:"hidden" }}>
@@ -2153,7 +2168,7 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  {c.performance_hooks?.length>0&&(
+                  {Array.isArray(c.performance_hooks)&&c.performance_hooks.length>0&&(
                     <div style={{ marginBottom:14 }}>
                       <span style={labelStyle}>Performance hooks</span>
                       <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10 }}>
@@ -2167,14 +2182,20 @@ export default function App() {
                     </div>
                   )}
                   {c.quality_score&&(
-                    <div>
-                      <span style={labelStyle}>Quality score</span>
-                      <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:8,marginBottom:8 }}>
+                    <div style={{ marginTop:4 }}>
+                      <span style={labelStyle}>Quality breakdown</span>
+                      <div style={{ display:"flex",flexDirection:"column" as const,gap:6,marginBottom:8 }}>
                         {[{l:"Pattern fidelity",v:c.quality_score.pattern_fidelity},{l:"MOC DNA",v:c.quality_score.moc_dna},{l:"Emotional arc",v:c.quality_score.emotional_arc},{l:"Visual clarity",v:c.quality_score.visual_clarity},{l:"Segment fit",v:c.quality_score.segment_fit}].map(({l,v})=>(
-                          <div key={l} style={metricStyle}><div style={metricLabel}>{l}</div><div style={{ fontSize:18,fontWeight:500,color:scoreColor(v) }}>{v}</div></div>
+                          <div key={l} style={{ display:"flex",alignItems:"center",gap:10 }}>
+                            <span style={{ fontSize:11,color:D.textDim,width:110,flexShrink:0 }}>{l}</span>
+                            <div style={{ flex:1,height:5,background:D.surface2,borderRadius:3,overflow:"hidden" }}>
+                              <div style={{ width:`${v}%`,height:"100%",borderRadius:3,background:v>=85?D.green:v>=75?D.blue:D.gold,transition:"width .4s" }} />
+                            </div>
+                            <span style={{ fontSize:11,fontWeight:600,color:scoreColor(v),width:24,textAlign:"right" as const }}>{v}</span>
+                          </div>
                         ))}
                       </div>
-                      {c.quality_score.notes&&<p style={{ margin:0,fontSize:11,color:D.textMuted,fontStyle:"italic" }}>{c.quality_score.notes}</p>}
+                      {c.quality_score.notes&&<p style={{ margin:0,fontSize:11,color:D.textMuted,fontStyle:"italic",lineHeight:1.5 }}>{c.quality_score.notes}</p>}
                     </div>
                   )}
                 </div>
