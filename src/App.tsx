@@ -316,7 +316,7 @@ async function extractFramesFromVideo(
         ctx!.drawImage(video, 0, 0, canvas.width, canvas.height);
         const jpeg = canvas.toDataURL("image/jpeg", 0.80).split(",")[1];
         if (jpeg) {
-          parts.push({ text: `[FRAME ${idx + 1}]` });
+          parts.push({ text: `[FRAME at ${safeTimestamps[idx]}s]` });
           parts.push({ inlineData: { mimeType: "image/jpeg", data: jpeg } });
         }
       } catch {

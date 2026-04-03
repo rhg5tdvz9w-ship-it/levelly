@@ -1,14 +1,16 @@
-import type { Handler, HandlerContext } from "@netlify/functions";
-import { getStore } from "@netlify/blobs";
+import type { Handler } from "@netlify/functions";
+import { connectLambda, getStore } from "@netlify/blobs";
 
-export const handler: Handler = async (event, context: HandlerContext) => {
+export const handler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method not allowed" };
   }
+  // connectLambda MUST be called before getStore in Lambda compatibility mode
+  connectLambda(event);
   try {
     const library = event.body ?? "[]";
     JSON.parse(library); // validate JSON before saving
-    const store = getStore({ name: "levelly", context });
+    const store = getStore("levelly");
     await store.set("library", library);
     return {
       statusCode: 200,
