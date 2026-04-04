@@ -457,13 +457,17 @@ ${MOC_EVENTS_GUIDE}
 Return ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":number,"description":string,"significance":"hook|gate|upgrade|boss_death|container|swarm|almost_fail|loss|win|fail|transition|filler"}]}`;
 const hookDetectionSystem = () => `Expert mobile ad hook analyst.\n${HOOK_GUIDE}\n${TIMESTAMP_RULES}\nReturn ONLY JSON: {"hook_timing_seconds":number,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_description":string}`;
 const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtraction[], duration: number, hasFrameImages: boolean, hasRefs: boolean) =>
-  `World-Class Creative Intelligence Analyst for Mob Control ads. NEVER guess.
+  `${config.context ? `GROUND TRUTH — USER-PROVIDED FACTS (HIGHEST PRIORITY — override anything you think you see in the video if it contradicts this):
+${config.context}
+These facts are from the person who made or knows this creative. Trust them completely. Match your unit_evolution_chain, giant_kills, and gate_sequence to what is described here.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+` : ""}World-Class Creative Intelligence Analyst for Mob Control ads. NEVER guess.
 ANALYSIS APPROACH:
 Your PRIMARY source of truth is the EXTRACTED FRAME IMAGES provided above. These are actual screenshots at specific timestamps. For every event you report, you must be able to point to which frame shows it.
-DO NOT use temporal reasoning to invent events between frames. If something happened but is not visible in any extracted frame, report it only if it is explicitly mentioned in the CONTEXT field.
+DO NOT use temporal reasoning to invent events between frames. If something happened but is not visible in any extracted frame, report it only if it is explicitly mentioned in the CONTEXT field above.
 DISCIPLINE: When in doubt about an upgrade, gate value, or giant kill — omit it rather than guess. Under-reporting is better than hallucinating.
 AD TYPE:${config.ad_type} TIER:${config.tier}
-CONTEXT (trust this — user-provided facts about the video):${config.context||"none"}
 DURATION:${duration}s
 LIBRARY:${lib.length>0?JSON.stringify(lib.map(d=>({title:d.title,tier:d.tier,hook_type:d.hook_type,hook_timing_seconds:d.hook_timing_seconds}))):"empty"}
 ${hasRefs?buildReferenceContext():""}
@@ -475,7 +479,6 @@ ${GATE_GUIDE}
 ${MOC_EVENTS_GUIDE}
 ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}
-CRITICAL: If the CONTEXT field mentions a specific number of upgrades or unit evolutions, that is ground truth — match your unit_evolution_chain length to it exactly. The user who uploaded this video knows the creative.
 UNIT EVOLUTION CHAIN: Look through the extracted frame images and count how many frames show a cannon WITH A UNIT ICON on a container (= upgrade container). That count = number of upgrades. Add one tier to the chain per upgrade. NEVER add Tank or Golden Jet unless you see a 4th/5th upgrade container icon in the frames. Most ads: 1-2 upgrades. Default to fewer if unsure. CROSS-CHECK: the cannon in later frames should visually look different (more barrels) than earlier frames — use this to validate your upgrade count. Exact tier names: Simple Cannon → Double Cannon → Triple Cannon → Tank.
 FRAME EMOTIONS: For each extracted frame timestamp, assign one emotion word for the player's feeling at that moment (Anticipation, Excitement, Satisfaction, Empowerment, Tension, Almost Fail, Dread, Defeat, Triumph). Return as frame_emotions array using the same timestamps as your auto_frames entries.
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
@@ -621,8 +624,13 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
     ? "COMPOSITION: Cinematic close-up or medium shot — dramatic framing, NOT the standard top-down lane view. NO HUD, NO score UI, NO text overlays of any kind."
     : "COMPOSITION: 3/4 cinematic top-down angle. Cannon at bottom center. Lane runs up center. NO HUD, NO score counter, NO hearts, NO text overlays, NO watermarks, NO speech bubbles.";
 
+  const chainNote = chain.length > 0 && scene !== "hook"
+    ? `UNIT EVOLUTION CHAIN FOR THIS CREATIVE: ${chain.join(" → ")}. At THIS scene (${scene}), the cannon is: ${unitAtScene}. ${cannonVisual}. The cannon model MUST match this tier exactly — if it's Double Cannon, show 2 barrels. If Triple Cannon, show 3 barrels. If Tank, show tank with turret. Do NOT use a different cannon model.`
+    : "";
+
   return [
     "Mob Control mobile game screenshot. MATCH the MOC reference images above EXACTLY in art style, 3D render quality, colour palette, and cartoon aesthetic.",
+    chainNote,
     "", sceneDesc, "", biomeRule, "",
     cannonNote,
     scene !== "hook" ? `ENEMY BOSS: ${vi.enemy_champion||"generic boss tower"} at top of lane.` : "",
@@ -1742,15 +1750,16 @@ export default function App() {
         if(concept.visual_end){ prevParts.push({text:"### END SCENE — also match:"}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_end).mimeType,data:parseDataURI(concept.visual_end).data}}); }
       } else {
         // Start→Middle→End chain: each scene references the previous
-        if(scene==="middle"&&concept.visual_start){ prevParts.push({text:"### START SCENE — match ALL assets exactly. Only change: mob count and HP bar:"}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_start).mimeType,data:parseDataURI(concept.visual_start).data}}); }
-        if(scene==="end"&&concept.visual_start){ prevParts.push({text:"### START SCENE — match environment and art style:"}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_start).mimeType,data:parseDataURI(concept.visual_start).data}}); }
-        if(scene==="end"&&concept.visual_middle){ prevParts.push({text:"### MIDDLE SCENE — match ALL assets. Only change: mob count reduced to 3-6, HP bar near empty:"}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_middle).mimeType,data:parseDataURI(concept.visual_middle).data}}); }
+        if(scene==="middle"&&concept.visual_start){ prevParts.push({text:"EDIT THIS IMAGE to show the mid-battle state. KEEP IDENTICAL: cannon model/color/shape, gate colors/positions, road texture, environment, mob blob shape. CHANGE ONLY: increase mob density to fill 45% of lane, reduce enemy HP bar to 50%, show upgrade debris on right lane."}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_start).mimeType,data:parseDataURI(concept.visual_start).data}}); }
+        if(scene==="end"&&concept.visual_middle){ prevParts.push({text:"EDIT THIS IMAGE to show the almost-fail state. KEEP IDENTICAL: cannon model/color/shape, gate positions, road texture, environment. CHANGE ONLY: reduce player mobs to 3-5 tiny blobs, set enemy HP bar to near-empty sliver, show tension."}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_middle).mimeType,data:parseDataURI(concept.visual_middle).data}}); }
       }
 
       const continuityNote = scene === "hook"
         ? `This is a CINEMATIC CLOSE-UP, not top-down. Match the exact art style, colours, cannon design, and mob appearance from the 3 scene references above. Only the composition and framing changes.`
-        : scene !== "start"
-          ? `Match ALL visual assets from the reference scene(s) — same cannon, same mob blob design, same gate style, same environment colours. ONLY change what the composition rules specify (mob count, HP bar).`
+        : scene === "middle" && concept.visual_start
+          ? `IMAGE EDITING MODE: You are editing the START SCENE image provided. DO NOT redraw from scratch. Modify ONLY: mob count (increase to fill 45% of lane), enemy HP bar (set to 50%). Everything else — cannon shape, color, gate appearance, road, trees, environment — must be pixel-identical to the source image.`
+          : scene === "end" && concept.visual_middle
+          ? `IMAGE EDITING MODE: You are editing the MIDDLE SCENE image provided. DO NOT redraw from scratch. Modify ONLY: reduce player mobs to 3-5 blobs, set enemy HP bar to near-empty. Keep cannon, gates, road, and environment identical.`
           : undefined;
 
       const url=await callImageDirect(imagePromptFn(concept,scene,continuityNote),[...refParts,...prevParts]);
@@ -1998,7 +2007,7 @@ export default function App() {
           {/* 3-column layout: Analyse + Brief (equal) + Library (narrow) */}
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 0.55fr",gap:12,marginBottom:12,alignItems:"stretch" }}>
             {/* Analyse card */}
-            <div onClick={()=>{ setAnalysePanelOpen(p=>!p); setBriefPanelOpen(false); }}
+            <div onClick={()=>{ setAnalysePanelOpen(p=>!p); setBriefPanelOpen(false); setLibPanelOpen(false); }}
               style={{ background:analysePanelOpen?"#1a2130":D.surface,border:`0.5px solid ${analysePanelOpen?D.greenBdr:D.border2}`,borderRadius:12,padding:20,cursor:"pointer",transition:"border-color .18s,background .18s,transform .12s" }}
               onMouseEnter={e=>{ (e.currentTarget as HTMLDivElement).style.transform="translateY(-1px)"; (e.currentTarget as HTMLDivElement).style.borderColor=D.greenBdr; }}
               onMouseLeave={e=>{ (e.currentTarget as HTMLDivElement).style.transform=""; (e.currentTarget as HTMLDivElement).style.borderColor=analysePanelOpen?D.greenBdr:D.border2; }}>
@@ -2011,7 +2020,7 @@ export default function App() {
             </div>
 
             {/* Generate brief card */}
-            <div onClick={()=>{ setBriefPanelOpen(p=>!p); setAnalysePanelOpen(false); }}
+            <div onClick={()=>{ setBriefPanelOpen(p=>!p); setAnalysePanelOpen(false); setLibPanelOpen(false); }}
               style={{ background:briefPanelOpen?"#1a2130":D.surface,border:`0.5px solid ${briefPanelOpen?D.blueDark:D.border2}`,borderRadius:12,padding:20,cursor:"pointer",transition:"border-color .18s,background .18s,transform .12s" }}
               onMouseEnter={e=>{ (e.currentTarget as HTMLDivElement).style.transform="translateY(-1px)"; (e.currentTarget as HTMLDivElement).style.borderColor=D.blueDark; }}
               onMouseLeave={e=>{ (e.currentTarget as HTMLDivElement).style.transform=""; (e.currentTarget as HTMLDivElement).style.borderColor=briefPanelOpen?D.blueDark:D.border2; }}>
@@ -2024,7 +2033,7 @@ export default function App() {
             </div>
 
             {/* Library card — narrow */}
-            <div onClick={()=>setLibPanelOpen(p=>!p)}
+            <div onClick={()=>{ setLibPanelOpen(p=>!p); setBriefPanelOpen(false); setAnalysePanelOpen(false); }}
               style={{ background:libPanelOpen?"#1a2130":D.surface,border:`0.5px solid ${libPanelOpen?D.gold:D.border2}`,borderRadius:12,padding:16,cursor:"pointer",transition:"border-color .18s,background .18s,transform .12s",display:"flex",flexDirection:"column" as const }}>
               <div onMouseEnter={e=>{ (e.currentTarget.parentElement as HTMLDivElement).style.transform="translateY(-1px)"; (e.currentTarget.parentElement as HTMLDivElement).style.borderColor=D.gold; }}
                 onMouseLeave={e=>{ (e.currentTarget.parentElement as HTMLDivElement).style.transform=""; (e.currentTarget.parentElement as HTMLDivElement).style.borderColor=libPanelOpen?D.gold:D.border2; }}
