@@ -1293,14 +1293,7 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
             </div>
           )}
 
-          {canTag && (() => {
-              <div style={{ marginTop:14,borderTop:`0.5px solid ${D.border}`,paddingTop:10 }}>
-                <button onClick={()=>setSpendOpen(p=>!p)} style={{ background:"none",border:"none",color:spendOpen?D.blue:D.textMuted,cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:500,padding:"2px 0",display:"flex",alignItems:"center",gap:5 }}>
-                  {spendOpen?"▲":"▼"} {spendOpen?"Hide":"Edit"} spend metadata
-                </button>
-                {spendOpen && <div style={{ marginTop:10 }}><SpendTagger entry={d} lib={lib} onSave={fields => saveLib(lib.map(x => x.id === d.id ? { ...x, ...fields } : x))} /></div>}
-              </div>
-          )}
+
 
           {canTag && (
             <div style={{ marginTop:14,borderTop:`0.5px solid ${D.border}`,paddingTop:10 }}>
