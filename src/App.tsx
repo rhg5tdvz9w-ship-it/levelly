@@ -483,6 +483,16 @@ UNIT EVOLUTION CHAIN: Look through the extracted frame images and count how many
 FRAME EMOTIONS: For each extracted frame timestamp, assign one emotion word for the player's feeling at that moment (Anticipation, Excitement, Satisfaction, Empowerment, Tension, Almost Fail, Dread, Defeat, Triumph). Return as frame_emotions array using the same timestamps as your auto_frames entries.
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
 Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"frame_emotions":[{"timestamp_seconds":number,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
+const refinementSystem = (concept: Concept, userPrompt: string) =>
+  `You are refining a Mob Control ad brief. Apply ONLY what the user requested. Keep all other fields identical.
+
+CURRENT CONCEPT:
+${JSON.stringify(concept, null, 2)}
+
+USER REQUEST: ${userPrompt}
+
+RULES: Change ONLY what was asked. If visual_identity or unit_evolution_chain changes, null out visual_hook/start/middle/end. If unit_evolution_chain changes, update upgrade_triggers and cannon_count_progression too. Return ONLY the complete updated concept as valid JSON, same schema. No explanation.`;
+
 const reanalysisSystem = (entry: DNAEntry) =>
   `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate type confusion (+ gates = cannon firing count, x gates = mob multiplier) 4.unit_evolution_chain — count only UPGRADE CONTAINERS (with cannon icon on top) that were destroyed. REMOVE any tier beyond what upgrade containers justify. Most ads: 1-2 upgrades. Only add Tank/Golden Jet if 3rd/4th upgrade container was explicitly seen. Trust extracted frames to count upgrades. 5.frame_emotions — one emotion per timestamp 6.giant_kills — add any missed boss/giant deaths as [{timestamp_seconds, giant_name, note}] 7.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${MOC_EVENTS_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
 
@@ -804,7 +814,7 @@ function ReferenceDropZone({ onRef, currentRef, onClear, iterateFrom, onIterateF
 }
 
 // ─── AI text enhancement (Claude via Netlify) ─────────────────────────────────
-async function enhanceText(raw: string, mode: "upload" | "brief"): Promise<string> {
+async function enhanceText(raw: string, mode: "upload" | "brief" | "refine"): Promise<string> {
   const systemPrompt = mode === "upload"
     ? `You are a Mob Control creative analyst helping structure upload notes for Gemini DNA analysis.
 
@@ -815,6 +825,7 @@ RULES — follow strictly:
 - Output: plain text, max 4 sentences, no bullet points.
 
 Your job is to make the user's note more precise for Gemini — not to rewrite it.`
+    : mode === "refine" ? `You are a Mob Control creative producer refining a specific brief concept. RULES: PRESERVE exact intent. EXPAND vague requests into specific MOC field changes — e.g. "more tension" becomes a specific tension_moment addition. Name cannon tiers exactly: Simple Cannon / Double Cannon / Triple Cannon / Tank. Mention which scene (hook/start/middle/end) for visual changes. Output: plain text, max 4 sentences, no bullets. Make it specific and actionable.`
     : `You are a Mob Control creative producer helping structure brief prompts for generation.
 
 RULES — follow strictly:
@@ -1477,6 +1488,9 @@ export default function App() {
   const [concepts, setConcepts] = useState<Concept[]>([]);
   const [briefAnalysis, setBriefAnalysis] = useState<BriefAnalysis|null>(null);
   const [expandedConcept, setExpandedConcept] = useState<number|null>(null);
+  const [refineTexts, setRefineTexts] = useState<Record<number,string>>({});
+  const [refining, setRefining] = useState<Record<number,boolean>>({});
+  const [refineErr, setRefineErr] = useState<Record<number,string>>({});
   const [renderingScene, setRenderingScene] = useState<Record<string,boolean>>({});
   const fileRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
@@ -2296,6 +2310,38 @@ export default function App() {
                       </div>
                     </div>
                   )}
+
+                                    <div style={{ marginTop:16,border:`0.5px solid ${D.border2}`,borderRadius:10,overflow:"hidden" }}>
+                    <div style={{ padding:"9px 14px",background:D.surface2,borderBottom:`0.5px solid ${D.border}` }}>
+                      <span style={{ fontSize:11,fontWeight:500,color:D.textMuted }}>Refine this concept</span>
+                    </div>
+                    <div style={{ padding:"10px 12px" }}>
+                      <div style={{ display:"flex",gap:6,marginBottom:8,flexWrap:"wrap" as const }}>
+                        {["Fix cannon tier","Change biome","More tension","Aggressive hook","Regen renders"].map(chip=>(
+                          <button key={chip} onClick={()=>chip==="Regen renders"
+                            ? setConcepts(p=>p.map((c,i)=>i===ci?{...c,visual_hook:undefined,visual_start:undefined,visual_middle:undefined,visual_end:undefined}:c))
+                            : setRefineTexts(p=>({...p,[ci]:(p[ci]?p[ci]+" ":"")+chip.toLowerCase()}))
+                          } style={{ fontSize:11,padding:"3px 10px",borderRadius:20,border:`0.5px solid ${D.border2}`,color:D.textMuted,background:D.surface2,cursor:"pointer",fontFamily:"inherit" }}>{chip}</button>
+                        ))}
+                      </div>
+                      <div style={{ display:"flex",gap:6,alignItems:"flex-end" }}>
+                        <textarea value={refineTexts[ci]||""} onChange={e=>setRefineTexts(p=>({...p,[ci]:e.target.value}))}
+                          placeholder="e.g. change biome to Foggy Forest, Triple Cannon should have 3 barrels, make the almost-fail more extreme…"
+                          rows={2} style={{ flex:1,fontSize:12,padding:"8px 10px",background:D.surface,border:`0.5px solid ${D.border2}`,borderRadius:7,color:D.text,resize:"vertical" as const,minHeight:56,fontFamily:"inherit",outline:"none",lineHeight:1.5 }} />
+                        <div style={{ display:"flex",flexDirection:"column" as const,gap:5,flexShrink:0 }}>
+                          {(refineTexts[ci]||"").trim().length>8&&(
+                            <button onClick={async()=>{ try { const e=await enhanceText(refineTexts[ci],"refine"); setRefineTexts(p=>({...p,[ci]:e})); } catch {} }}
+                              style={{ padding:"6px 11px",fontSize:11,background:"none",border:`0.5px solid ${D.border2}`,borderRadius:7,color:D.textMuted,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap" as const }}>✦ Enhance</button>
+                          )}
+                          <button onClick={()=>handleRefineConcept(ci,refineTexts[ci]||"")} disabled={refining[ci]||!(refineTexts[ci]||"").trim()}
+                            style={{ padding:"6px 14px",fontSize:12,background:refining[ci]||!(refineTexts[ci]||"").trim()?D.surface2:D.blueDark,border:"none",borderRadius:7,color:refining[ci]||!(refineTexts[ci]||"").trim()?D.textMuted:"#fff",cursor:refining[ci]||!(refineTexts[ci]||"").trim()?"not-allowed":"pointer",fontFamily:"inherit",fontWeight:500,whiteSpace:"nowrap" as const }}>
+                            {refining[ci]?"Refining…":"Refine →"}
+                          </button>
+                        </div>
+                      </div>
+                      {refineErr[ci]&&<p style={{ margin:"6px 0 0",fontSize:11,color:refineErr[ci].includes("cleared")?D.textMuted:D.red }}>{refineErr[ci]}</p>}
+                    </div>
+                  </div>
 
                   {c.network_adaptations&&Object.keys(c.network_adaptations).length>0&&(
                     <div style={{ marginTop:14,paddingTop:12,borderTop:`0.5px solid ${D.border}` }}>
