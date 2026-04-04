@@ -8,7 +8,7 @@ interface DNASegment {
   start_seconds: number; end_seconds: number; hook_type: string;
   hook_timing_seconds: number; hook_description: string; gate_sequence: string[];
   swarm_peak_moment_seconds: number | null; loss_event_type: string;
-  loss_event_timing_seconds: number | null; unit_evolution_chain: string[];
+  loss_event_timing_seconds: number | null; unit_evolution_chain: string[]; giant_kills?: Array<{timestamp_seconds: number; giant_name: string; note: string}>;
   champions_visible: string[]; key_mechanic: string; emotional_beats: EmotionalBeat[];
   why_it_works: string; why_it_fails: string | null;
 }
@@ -197,7 +197,7 @@ function parseJSON(text: string): any {
 // Ensure all array fields on a raw DNA response are actually arrays — prevents "e is not iterable"
 function sanitizeDNA(raw: any): any {
   if (!raw || typeof raw !== "object") return {};
-  const ARRAY_FIELDS = ["emotional_beats","gate_sequence","unit_evolution_chain","champions_visible","auto_frames","manual_frames","spend_networks","segments","production_script","performance_hooks","upgrade_triggers","tension_moments","frame_emotions"];
+  const ARRAY_FIELDS = ["emotional_beats","gate_sequence","unit_evolution_chain","champions_visible","auto_frames","manual_frames","spend_networks","segments","production_script","performance_hooks","upgrade_triggers","tension_moments","frame_emotions","giant_kills"];
   const out = { ...raw };
   for (const field of ARRAY_FIELDS) {
     if (!Array.isArray(out[field])) out[field] = out[field] ? [out[field]] : [];
@@ -399,7 +399,7 @@ const BIOME_GUIDE = `BIOMES: Foggy Forest(grey/white atmospheric fog,dark pines,
 const CHAMPION_GUIDE = `CHAMPIONS (ONLY these exist in Mob Control): Captain Kaboom(blue round mob, green hat with yellow brim, fires 3 golden streams), Gold Golem(LARGE golden muscular humanoid), Caveman(blue-skin muscular humanoid, blonde hair, club), Mobzilla(green dinosaur/T-Rex, pink spines, red mouth, cartoonish), Nexus(blue/white/orange mech, orange sword), Red Hulk(large red humanoid), Kraken(red octopus), Femme Zombie(crawling female zombie boss), Yellow Normie(large yellow/red round creature — BOSS ENEMY with HP bar), Unknown(generic enemy tower). Enemy tower = red/grey fortified block structure with HP number. NEVER invent champion appearances. If a champion name is not on this list, draw Unknown/generic tower.`;
 const MOC_EVENTS_GUIDE = `MOC-SPECIFIC EVENTS TO HUNT FOR (timestamp ALL of these if present):
 - CANNON UPGRADE (unit evolution): Player mobs destroy a breakable obstacle/container on the road. Destroying it upgrades the cannon tier. ALWAYS use format: "Blue container (HP: [number shown on it]) destroyed — cannon upgrades from [tier] to [tier]". Report the HP number visible on the container. If no number visible, describe its role: "upgrade container" (has cannon icon = gives upgrade), "empty container" (no icon = just health), "barrel/box" (environment obstacle). ALWAYS use exact tier names below.
-- GIANT/BOSS DEATH: Large enemy giant or boss character defeated. ALWAYS timestamp — key emotional payoff.
+- GIANT/BOSS DEATH: Large enemy giant or boss character defeated. ALWAYS timestamp — key emotional payoff. REQUIRED: every boss death MUST appear in the giant_kills array with timestamp, name (e.g. "Yellow Normie", "Red Giant"), and a note on how it died (e.g. "overwhelmed by mob swarm at swarm peak").
 - X GATE PASS: Player mobs pass through a multiplication gate (xN). Report gate value and timestamp for EACH pass.
 - + GATE PASS: Player mobs pass through an addition gate (+N). Report gate value and timestamp.
 - ALMOST-FAIL MOMENT: Player mob count drops to dangerously low level (near wipeout) but survives.
@@ -418,9 +418,10 @@ CANNON UPGRADE TIERS (exact names):
 6. (Other evolutions may exist — describe what you see)
 
 When you see an upgrade: "Cannon upgrades from [previous tier] to [new tier]" using exact names above.
-CRITICAL: A cannon upgrade ALWAYS requires a visible container/obstacle destruction. If you miss a container destruction, you will report the wrong unit_evolution_chain — so hunt for EVERY container on screen.
+CRITICAL: Hunt for EVERY container/obstacle on screen — missing one means a wrong evolution chain.
 CANNON MULTIPLICATION IS NOT AN UPGRADE: +N gates increase cannon COUNT (how many fire) — the cannon MODEL stays the same. Only container destruction changes Simple→Double→Triple→Tank.
-NEVER SKIP TIERS: If you see Simple Cannon at start and Triple Cannon later, there MUST be a Double Cannon step. Find the container destruction that caused it — look between 0s and the first Triple Cannon appearance.`;
+EVIDENCE RULE: For each unit_evolution_chain step, report what triggered it in the description field (e.g. "Blue container HP:20 destroyed" or "red barrel destroyed" or "unknown trigger at 7s — cannon visually changed"). If you can see a container HP number, always include it. If you cannot identify the trigger, describe what you observe visually rather than inventing one.
+NEVER SKIP TIERS: If you see Simple Cannon at start and Triple Cannon later, there MUST be a Double Cannon step unless you can confirm visually that the upgrade went directly from Simple to Triple (some MOC variants allow this — note it in replication_instructions).`;
 
 const GATE_GUIDE = `GATES — CRITICAL: passing through ANY gate NEVER upgrades the cannon model. Gates only affect mob COUNT.
 - Multiplication gate (x value, e.g. x3): multiplies the NUMBER OF MOBS in the lane. x3 = triple the mobs. ONLY this changes mob count.
@@ -429,7 +430,8 @@ const GATE_GUIDE = `GATES — CRITICAL: passing through ANY gate NEVER upgrades 
 - Dynamic gate: activates when nearby structures are broken.
 
 CANNON UPGRADE RULE — ABSOLUTE: The cannon model (Simple/Double/Triple/Tank) ONLY changes when player mobs physically DESTROY a breakable obstacle/container on the road. This is a separate event from any gate pass. NEVER write "cannon upgrades after passing a gate". If you see a cannon change and a gate in the same second, the upgrade came from a container that was also destroyed at that moment, NOT from the gate.
-Report EVERY gate with its exact value. If unclear: "x?" or "+?".`;
+Report EVERY gate with its exact value. If unclear: "x?" or "+?".
+cannon_count_log: track cannon count as a running string showing only +N gate changes: "1 cannon start → +2 gate at 3s: 3 cannons → +3 gate at 8s: 6 cannons". x-gates do NOT appear here (they affect mobs, not cannons).`;
 const HOOK_GUIDE = `HOOK: EXACT SECOND thumb stops scrolling. NEVER 0 unless frame-0 drama. hook_timing_seconds=REAL SECOND (2,4,8) NEVER fraction.`;
 const TIMESTAMP_RULES = `TIMESTAMPS: Real seconds only (0,2,5,8,14,22). NEVER fractions (0.03,0.28). 30s video midpoint=15.`;
 
@@ -437,6 +439,7 @@ const frameExtractionSystem = () => `Precise video timestamp analyst for Mob Con
 
 RULES:
 1. MUST timestamp these MOC events if present: container destructions, unit evolutions, giant/boss deaths, every x-gate pass (with value), almost-fail moments, swarm peak, final defeat
+2. VERIFICATION RULE: For each event you report, confirm you can see it in the frame image. If the frame shows something different, trust the frame over your prediction. Write only what you can visually confirm.
 2. Fill gaps larger than 8 seconds with a filler timestamp
 3. Total timestamps: between 10 and 14. Never more than 14.
 4. ${TIMESTAMP_RULES}
@@ -449,6 +452,9 @@ Return ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":numb
 const hookDetectionSystem = () => `Expert mobile ad hook analyst.\n${HOOK_GUIDE}\n${TIMESTAMP_RULES}\nReturn ONLY JSON: {"hook_timing_seconds":number,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_description":string}`;
 const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtraction[], duration: number, hasFrameImages: boolean, hasRefs: boolean) =>
   `World-Class Creative Intelligence Analyst for Mob Control ads. NEVER guess.
+ANALYSIS APPROACH — two passes:
+PASS 1 (before writing JSON): Watch the full video mentally and list to yourself: how many cannon upgrades occurred? how many giants were defeated? what gates were passed? Only then write the JSON.
+PASS 2: For each event identified in pass 1, find the exact timestamp using the TIMESTAMP MAP and EXTRACTED FRAMES. Every event from pass 1 must appear in the output.
 AD TYPE:${config.ad_type} TIER:${config.tier}
 CONTEXT (trust this — user-provided facts about the video):${config.context||"none"}
 DURATION:${duration}s
@@ -466,9 +472,9 @@ CRITICAL: If the CONTEXT mentions a specific number of upgrades or unit evolutio
 UNIT EVOLUTION CHAIN: ONLY physical cannon upgrades triggered by container/obstacle DESTRUCTION. NEVER add a tier because a gate was passed — gates change mob count, never cannon model. Never skip tiers (Simple must come before Double). Exact names: Simple Cannon, Double Cannon, Triple Cannon, Tank, Golden Jet.
 FRAME EMOTIONS: For each timestamp in the TIMESTAMP MAP, assign a single emotion word capturing the player's feeling (Anticipation, Excitement, Satisfaction, Empowerment, Tension, Almost Fail, Dread, Defeat, Triumph). Return as frame_emotions array with matching timestamps.
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
-Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"emotional_arc":string,"frame_emotions":[{"timestamp_seconds":number,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
+Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"frame_emotions":[{"timestamp_seconds":number,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
 const reanalysisSystem = (entry: DNAEntry) =>
-  `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate type confusion (+ gates = cannon firing count, x gates = mob multiplier) 4.unit_evolution_chain — exact tier names only: Simple Cannon→Double Cannon→Triple Cannon→Tank→Golden Jet. Fix generic names. REMOVE any tier that was added because of a gate pass (gates never upgrade cannon). Each tier requires a container destruction event. 5.frame_emotions — one emotion per timestamp 6.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${MOC_EVENTS_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
+  `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate type confusion (+ gates = cannon firing count, x gates = mob multiplier) 4.unit_evolution_chain — exact tier names only: Simple Cannon→Double Cannon→Triple Cannon→Tank→Golden Jet. Fix generic names. REMOVE any tier that was added because of a gate pass (gates never upgrade cannon). Each tier requires a container destruction event. 5.frame_emotions — one emotion per timestamp 6.giant_kills — add any missed boss/giant deaths as [{timestamp_seconds, giant_name, note}] 7.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${MOC_EVENTS_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
 
 const briefSystem = (lib: any[], ctx: string, seg: string, iterateFrom?: string, refNote?: string) => {
   const refBlock = iterateFrom ? `\nITERATE FROM: "${iterateFrom}" — creative starting point.\n` : "";
@@ -1302,6 +1308,20 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const }}>
                 {d.champions_visible.map((c, i) => (
                   <span key={i} style={{ fontSize: 10, padding: "2px 7px", background: D.purpleBg, color: D.purple, borderRadius: 20, border: `0.5px solid ${D.purpleBdr}` }}>{c}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {(d as any).giant_kills?.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <span style={labelStyle}>Giant kills</span>
+              <div style={{ display: "flex", flexDirection: "column" as const, gap: 3 }}>
+                {(d as any).giant_kills.map((g: any, i: number) => (
+                  <div key={i} style={{ fontSize: 11, padding: "4px 8px", background: D.goldBg, borderRadius: 5, display: "flex", gap: 8, border: `0.5px solid ${D.goldBdr}` }}>
+                    <span style={{ fontWeight: 600, color: D.gold, minWidth: 28, flexShrink: 0 }}>{g.timestamp_seconds}s</span>
+                    <span style={{ color: D.text, flex: 1 }}>{g.giant_name}</span>
+                    {g.note && <span style={{ fontSize: 10, color: D.textDim, fontStyle: "italic" }}>{g.note}</span>}
+                  </div>
                 ))}
               </div>
             </div>
