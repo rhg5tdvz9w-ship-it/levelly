@@ -1741,7 +1741,34 @@ export default function App() {
     finally { setGenerating(false); }
   };
 
-  const handleRenderScene=async(ci: number,scene: "hook"|"start"|"middle"|"end")=>{
+  const handleRefineConcept = async (ci: number, prompt: string) => {
+    if (!prompt.trim()) return;
+    setRefining(p => ({ ...p, [ci]: true }));
+    setRefineErr(p => ({ ...p, [ci]: "" }));
+    try {
+      const current = concepts[ci];
+      const result = await callGeminiDirect(
+        refinementSystem(current, prompt),
+        [{ text: "Apply the refinement. Return updated concept JSON only." }]
+      );
+      const refined = sanitizeDNA(result) as unknown as Concept;
+      const structuralChange =
+        JSON.stringify(refined.visual_identity) !== JSON.stringify(current.visual_identity) ||
+        JSON.stringify(refined.unit_evolution_chain) !== JSON.stringify(current.unit_evolution_chain);
+      const updated: Concept = structuralChange
+        ? { ...refined, visual_hook: undefined, visual_start: undefined, visual_middle: undefined, visual_end: undefined }
+        : refined;
+      setConcepts(p => p.map((c, i) => i === ci ? updated : c));
+      setRefineTexts(p => ({ ...p, [ci]: "" }));
+      setRefineErr(p => ({ ...p, [ci]: structuralChange ? "✓ Updated — renders cleared, re-render with the new concept." : "✓ Concept updated." }));
+    } catch (err: any) {
+      setRefineErr(p => ({ ...p, [ci]: "Refine failed: " + (err as Error).message }));
+    } finally {
+      setRefining(p => ({ ...p, [ci]: false }));
+    }
+  };
+
+    const handleRenderScene=async(ci: number,scene: "hook"|"start"|"middle"|"end")=>{
     const k=`${ci}-${scene}`; setRenderingScene(p=>({...p,[k]:true}));
     // Clear any previous error for this slot
     setConcepts(p=>p.map((c,i)=>i===ci?{...c,[`render_err_${scene}`]:undefined}:c));
@@ -2279,6 +2306,77 @@ export default function App() {
                       })}
                     </div>
                   </div>
+
+                  {/* ── Refine concept ── */}
+                  <div style={{ margin:"16px 0",border:`1.5px solid ${D.blueDark}`,borderRadius:10,overflow:"hidden",background:"#0d1a2d" }}>
+                    <div style={{ padding:"12px 16px",borderBottom:`0.5px solid ${D.border}`,display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+                      <span style={{ fontSize:12,fontWeight:600,color:D.blue,letterSpacing:"0.02em" }}>✦ Refine this concept</span>
+                      <span style={{ fontSize:11,color:D.textDim }}>Changes apply instantly — renders auto-clear if needed</span>
+                    </div>
+                    <div style={{ padding:"12px 14px" }}>
+                      <div style={{ display:"flex",gap:6,marginBottom:10,flexWrap:"wrap" as const }}>
+                        {[
+                          {label:"Fix cannon tier",text:"Fix the unit_evolution_chain to exactly match what's described in the brief. Ensure the cannon model shown at each scene matches the correct tier."},
+                          {label:"Change biome",text:"Change biome to "},
+                          {label:"More tension",text:"Make the almost-fail moment more extreme — reduce surviving mobs to 1-2. Heighten the tension_moments description."},
+                          {label:"Aggressive hook",text:"Make the hook more aggressive and threatening. Enemy boss should dominate the frame."},
+                          {label:"🔄 Regen renders",text:"__REGEN__"},
+                        ].map(({label,text})=>(
+                          <button key={label} onClick={()=>{
+                            if(text==="__REGEN__"){
+                              setConcepts(p=>p.map((cc,i)=>i===ci?{...cc,visual_hook:undefined,visual_start:undefined,visual_middle:undefined,visual_end:undefined}:cc));
+                              setRefineErr(p=>({...p,[ci]:"Renders cleared — click render buttons to regenerate."}));
+                            } else {
+                              setRefineTexts(p=>({...p,[ci]:text}));
+                            }
+                          }} style={{ fontSize:11,padding:"4px 11px",borderRadius:20,border:`0.5px solid ${label.includes("Regen")?D.greenBdr:D.blueDark}`,color:label.includes("Regen")?D.green:D.blue,background:label.includes("Regen")?D.greenBg:D.blueBg,cursor:"pointer",fontFamily:"inherit",transition:"opacity .15s" }}>{label}</button>
+                        ))}
+                      </div>
+                      <textarea
+                        value={refineTexts[ci]||""}
+                        onChange={e=>setRefineTexts(p=>({...p,[ci]:e.target.value}))}
+                        placeholder="Describe what to change… e.g. 'change biome to Desert', 'Triple Cannon should have 3 barrels', 'add a second giant'"
+                        rows={3}
+                        style={{ width:"100%",boxSizing:"border-box" as const,fontSize:12,padding:"10px 12px",background:D.surface,border:`1px solid ${(refineTexts[ci]||"").trim().length>3?D.blueDark:D.border2}`,borderRadius:8,color:D.text,resize:"vertical" as const,minHeight:70,fontFamily:"inherit",outline:"none",lineHeight:1.6,transition:"border-color .2s",marginBottom:10 }}
+                      />
+                      <div style={{ display:"flex",gap:8,alignItems:"center",justifyContent:"space-between" }}>
+                        <div style={{ display:"flex",gap:8,alignItems:"center" }}>
+                          {(refineTexts[ci]||"").trim().length>8&&!refining[ci]&&(
+                            <button onClick={async()=>{
+                              setRefineErr(p=>({...p,[ci]:"Enhancing your prompt…"}));
+                              try {
+                                const enhanced=await enhanceText(refineTexts[ci],"refine");
+                                setRefineTexts(p=>({...p,[ci]:enhanced}));
+                                setRefineErr(p=>({...p,[ci]:""}));
+                              } catch(e: any) {
+                                setRefineErr(p=>({...p,[ci]:"Enhance failed: "+(e as Error).message}));
+                              }
+                            }} style={{ padding:"8px 14px",fontSize:12,background:"none",border:`1px solid ${D.border2}`,borderRadius:8,color:D.textMuted,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:6 }}>
+                              <span style={{ fontSize:13 }}>✦</span> Enhance prompt
+                            </button>
+                          )}
+                          {refining[ci]&&(
+                            <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                              <span style={{ width:14,height:14,borderRadius:"50%",border:`2px solid ${D.blueBg}`,borderTopColor:D.blue,display:"inline-block",animation:"spin .7s linear infinite",flexShrink:0 }} />
+                              <span style={{ fontSize:12,color:D.blue }}>Applying refinement…</span>
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          onClick={()=>handleRefineConcept(ci,refineTexts[ci]||"")}
+                          disabled={refining[ci]||!(refineTexts[ci]||"").trim()}
+                          style={{ padding:"9px 20px",fontSize:13,fontWeight:600,background:refining[ci]||!(refineTexts[ci]||"").trim()?"#1a2130":D.blue,border:"none",borderRadius:8,color:refining[ci]||!(refineTexts[ci]||"").trim()?D.textDim:"#fff",cursor:refining[ci]||!(refineTexts[ci]||"").trim()?"not-allowed":"pointer",fontFamily:"inherit",transition:"background .2s,color .2s",letterSpacing:"0.01em" }}>
+                          {refining[ci]?"Working…":"Refine →"}
+                        </button>
+                      </div>
+                      {refineErr[ci]&&(
+                        <div style={{ marginTop:10,padding:"8px 12px",borderRadius:7,background:refineErr[ci].startsWith("✓")?D.greenBg:refineErr[ci].includes("cleared")||refineErr[ci].includes("Enhancing")?D.blueBg:D.redBg,border:`0.5px solid ${refineErr[ci].startsWith("✓")?D.greenBdr:refineErr[ci].includes("cleared")||refineErr[ci].includes("Enhancing")?D.blueDark:"#6e2020"}`,fontSize:11,color:refineErr[ci].startsWith("✓")?D.green:refineErr[ci].includes("cleared")||refineErr[ci].includes("Enhancing")?D.blue:D.red }}>
+                          {refineErr[ci]}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   {Array.isArray(c.production_script)&&c.production_script.length>0&&(
                     <div style={{ marginBottom:14 }}>
                       <span style={labelStyle}>Production script</span>
@@ -2311,39 +2409,7 @@ export default function App() {
                     </div>
                   )}
 
-                                    <div style={{ marginTop:16,border:`0.5px solid ${D.border2}`,borderRadius:10,overflow:"hidden" }}>
-                    <div style={{ padding:"9px 14px",background:D.surface2,borderBottom:`0.5px solid ${D.border}` }}>
-                      <span style={{ fontSize:11,fontWeight:500,color:D.textMuted }}>Refine this concept</span>
-                    </div>
-                    <div style={{ padding:"10px 12px" }}>
-                      <div style={{ display:"flex",gap:6,marginBottom:8,flexWrap:"wrap" as const }}>
-                        {["Fix cannon tier","Change biome","More tension","Aggressive hook","Regen renders"].map(chip=>(
-                          <button key={chip} onClick={()=>chip==="Regen renders"
-                            ? setConcepts(p=>p.map((c,i)=>i===ci?{...c,visual_hook:undefined,visual_start:undefined,visual_middle:undefined,visual_end:undefined}:c))
-                            : setRefineTexts(p=>({...p,[ci]:(p[ci]?p[ci]+" ":"")+chip.toLowerCase()}))
-                          } style={{ fontSize:11,padding:"3px 10px",borderRadius:20,border:`0.5px solid ${D.border2}`,color:D.textMuted,background:D.surface2,cursor:"pointer",fontFamily:"inherit" }}>{chip}</button>
-                        ))}
-                      </div>
-                      <div style={{ display:"flex",gap:6,alignItems:"flex-end" }}>
-                        <textarea value={refineTexts[ci]||""} onChange={e=>setRefineTexts(p=>({...p,[ci]:e.target.value}))}
-                          placeholder="e.g. change biome to Foggy Forest, Triple Cannon should have 3 barrels, make the almost-fail more extreme…"
-                          rows={2} style={{ flex:1,fontSize:12,padding:"8px 10px",background:D.surface,border:`0.5px solid ${D.border2}`,borderRadius:7,color:D.text,resize:"vertical" as const,minHeight:56,fontFamily:"inherit",outline:"none",lineHeight:1.5 }} />
-                        <div style={{ display:"flex",flexDirection:"column" as const,gap:5,flexShrink:0 }}>
-                          {(refineTexts[ci]||"").trim().length>8&&(
-                            <button onClick={async()=>{ try { const e=await enhanceText(refineTexts[ci],"refine"); setRefineTexts(p=>({...p,[ci]:e})); } catch {} }}
-                              style={{ padding:"6px 11px",fontSize:11,background:"none",border:`0.5px solid ${D.border2}`,borderRadius:7,color:D.textMuted,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap" as const }}>✦ Enhance</button>
-                          )}
-                          <button onClick={()=>handleRefineConcept(ci,refineTexts[ci]||"")} disabled={refining[ci]||!(refineTexts[ci]||"").trim()}
-                            style={{ padding:"6px 14px",fontSize:12,background:refining[ci]||!(refineTexts[ci]||"").trim()?D.surface2:D.blueDark,border:"none",borderRadius:7,color:refining[ci]||!(refineTexts[ci]||"").trim()?D.textMuted:"#fff",cursor:refining[ci]||!(refineTexts[ci]||"").trim()?"not-allowed":"pointer",fontFamily:"inherit",fontWeight:500,whiteSpace:"nowrap" as const }}>
-                            {refining[ci]?"Refining…":"Refine →"}
-                          </button>
-                        </div>
-                      </div>
-                      {refineErr[ci]&&<p style={{ margin:"6px 0 0",fontSize:11,color:refineErr[ci].includes("cleared")?D.textMuted:D.red }}>{refineErr[ci]}</p>}
-                    </div>
-                  </div>
-
-                  {c.network_adaptations&&Object.keys(c.network_adaptations).length>0&&(
+                                    {c.network_adaptations&&Object.keys(c.network_adaptations).length>0&&(
                     <div style={{ marginTop:14,paddingTop:12,borderTop:`0.5px solid ${D.border}` }}>
                       <span style={{ ...labelStyle,marginBottom:8 }}>Network adaptations</span>
                       <div style={{ display:"flex",flexDirection:"column" as const,gap:6 }}>
