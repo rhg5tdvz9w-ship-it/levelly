@@ -458,9 +458,10 @@ Return ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":numb
 const hookDetectionSystem = () => `Expert mobile ad hook analyst.\n${HOOK_GUIDE}\n${TIMESTAMP_RULES}\nReturn ONLY JSON: {"hook_timing_seconds":number,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_description":string}`;
 const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtraction[], duration: number, hasFrameImages: boolean, hasRefs: boolean) =>
   `World-Class Creative Intelligence Analyst for Mob Control ads. NEVER guess.
-ANALYSIS APPROACH — two passes:
-PASS 1 (before writing JSON): Watch the full video mentally and list to yourself: how many cannon upgrades occurred? how many giants were defeated? what gates were passed? Only then write the JSON.
-PASS 2: For each event identified in pass 1, find the exact timestamp using the TIMESTAMP MAP and EXTRACTED FRAMES. Every event from pass 1 must appear in the output.
+ANALYSIS APPROACH:
+Your PRIMARY source of truth is the EXTRACTED FRAME IMAGES provided above. These are actual screenshots at specific timestamps. For every event you report, you must be able to point to which frame shows it.
+DO NOT use temporal reasoning to invent events between frames. If something happened but is not visible in any extracted frame, report it only if it is explicitly mentioned in the CONTEXT field.
+DISCIPLINE: When in doubt about an upgrade, gate value, or giant kill — omit it rather than guess. Under-reporting is better than hallucinating.
 AD TYPE:${config.ad_type} TIER:${config.tier}
 CONTEXT (trust this — user-provided facts about the video):${config.context||"none"}
 DURATION:${duration}s
@@ -474,9 +475,9 @@ ${GATE_GUIDE}
 ${MOC_EVENTS_GUIDE}
 ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}
-CRITICAL: If the CONTEXT mentions a specific number of upgrades or unit evolutions, trust that count and find the correct timestamps for each. Do not under-count.
-UNIT EVOLUTION CHAIN: Count only UPGRADE CONTAINERS destroyed (containers with a cannon icon on top). The chain starts with the initial cannon tier and adds one tier per upgrade container seen. NEVER add a tier for an empty container. NEVER add Tank or Golden Jet unless you explicitly saw a 4th or 5th upgrade container with icon destroyed. Most MOC ads have 1-2 upgrades, rarely 3. If unsure, default to fewer tiers — it is better to under-report than invent. Exact tier names: Simple Cannon → Double Cannon → Triple Cannon → Tank.
-FRAME EMOTIONS: For each timestamp in the TIMESTAMP MAP, assign a single emotion word capturing the player's feeling (Anticipation, Excitement, Satisfaction, Empowerment, Tension, Almost Fail, Dread, Defeat, Triumph). Return as frame_emotions array with matching timestamps.
+CRITICAL: If the CONTEXT field mentions a specific number of upgrades or unit evolutions, that is ground truth — match your unit_evolution_chain length to it exactly. The user who uploaded this video knows the creative.
+UNIT EVOLUTION CHAIN: Look through the extracted frame images and count how many frames show a cannon WITH A UNIT ICON on a container (= upgrade container). That count = number of upgrades. Add one tier to the chain per upgrade. NEVER add Tank or Golden Jet unless you see a 4th/5th upgrade container icon in the frames. Most ads: 1-2 upgrades. Default to fewer if unsure. CROSS-CHECK: the cannon in later frames should visually look different (more barrels) than earlier frames — use this to validate your upgrade count. Exact tier names: Simple Cannon → Double Cannon → Triple Cannon → Tank.
+FRAME EMOTIONS: For each extracted frame timestamp, assign one emotion word for the player's feeling at that moment (Anticipation, Excitement, Satisfaction, Empowerment, Tension, Almost Fail, Dread, Defeat, Triumph). Return as frame_emotions array using the same timestamps as your auto_frames entries.
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
 Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"frame_emotions":[{"timestamp_seconds":number,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
 const reanalysisSystem = (entry: DNAEntry) =>
