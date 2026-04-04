@@ -483,15 +483,31 @@ UNIT EVOLUTION CHAIN: Look through the extracted frame images and count how many
 FRAME EMOTIONS: For each extracted frame timestamp, assign one emotion word for the player's feeling at that moment (Anticipation, Excitement, Satisfaction, Empowerment, Tension, Almost Fail, Dread, Defeat, Triumph). Return as frame_emotions array using the same timestamps as your auto_frames entries.
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
 Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"frame_emotions":[{"timestamp_seconds":number,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
-const refinementSystem = (concept: Concept, userPrompt: string) =>
-  `You are refining a Mob Control ad brief. Apply ONLY what the user requested. Keep all other fields identical.
+// Field groups for surgical refinement — each group maps to specific concept fields
+const REFINE_FIELD_GROUPS = {
+  visual: ["visual_identity","biome_visual_notes"],
+  evolution: ["unit_evolution_chain","cannon_count_progression","upgrade_triggers"],
+  hook: ["hook_description","hook_timing_seconds","engagement_hooks"],
+  lane: ["lane_design"],
+  tension: ["tension_moments"],
+  strategy: ["objective","title"],
+} as const;
 
-CURRENT CONCEPT:
-${JSON.stringify(concept, null, 2)}
+const refinementSystem = (fields: Partial<Concept>, userPrompt: string, fieldNames: string[]) =>
+  `You are surgically editing specific fields of a Mob Control ad brief.
+
+FIELDS TO MODIFY (ONLY THESE — return ONLY these fields in your JSON response):
+${JSON.stringify(fields, null, 2)}
 
 USER REQUEST: ${userPrompt}
 
-RULES: Change ONLY what was asked. If visual_identity or unit_evolution_chain changes, null out visual_hook/start/middle/end. If unit_evolution_chain changes, update upgrade_triggers and cannon_count_progression too. Return ONLY the complete updated concept as valid JSON, same schema. No explanation.`;
+RULES:
+- Return a JSON object containing ONLY the fields listed above. No other fields.
+- Apply the user's request precisely to these fields only.
+- For visual_identity: only change the specific sub-field mentioned (e.g. environment only, not lighting or mob colors).
+- For unit_evolution_chain: use exact tier names — Simple Cannon, Double Cannon, Triple Cannon, Tank. Also update upgrade_triggers to match.
+- Be conservative — if unsure whether a sub-field should change, leave it as-is.
+- Return ONLY valid JSON. No explanation. No markdown.`;
 
 const reanalysisSystem = (entry: DNAEntry) =>
   `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate type confusion (+ gates = cannon firing count, x gates = mob multiplier) 4.unit_evolution_chain — count only UPGRADE CONTAINERS (with cannon icon on top) that were destroyed. REMOVE any tier beyond what upgrade containers justify. Most ads: 1-2 upgrades. Only add Tank/Golden Jet if 3rd/4th upgrade container was explicitly seen. Trust extracted frames to count upgrades. 5.frame_emotions — one emotion per timestamp 6.giant_kills — add any missed boss/giant deaths as [{timestamp_seconds, giant_name, note}] 7.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${MOC_EVENTS_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
@@ -1489,6 +1505,7 @@ export default function App() {
   const [briefAnalysis, setBriefAnalysis] = useState<BriefAnalysis|null>(null);
   const [expandedConcept, setExpandedConcept] = useState<number|null>(null);
   const [refineTexts, setRefineTexts] = useState<Record<number,string>>({});
+  const [copiedConcept, setCopiedConcept] = useState<number|null>(null);
   const [refining, setRefining] = useState<Record<number,boolean>>({});
   const [refineErr, setRefineErr] = useState<Record<number,string>>({});
   const [renderingScene, setRenderingScene] = useState<Record<string,boolean>>({});
@@ -1741,26 +1758,173 @@ export default function App() {
     finally { setGenerating(false); }
   };
 
-  const handleRefineConcept = async (ci: number, prompt: string) => {
+  const handleRegenScript = async (ci: number) => {
+    setRefining(p => ({ ...p, [ci]: true }));
+    setRefineErr(p => ({ ...p, [ci]: "Regenerating production script…" }));
+    try {
+      const c = concepts[ci];
+      const prompt = `Generate a new production_script for this Mob Control ad concept. Return ONLY a JSON object with a single key "production_script" containing an array of steps.
+
+CONCEPT:
+Title: ${c.title}
+Hook: ${c.hook_description}
+Unit evolution: ${(c.unit_evolution_chain||[]).join(" → ")}
+Lane design: ${c.lane_design||""}
+Tension moments: ${(c.tension_moments||[]).join("; ")}
+Upgrade triggers: ${(c.upgrade_triggers||[]).join("; ")}
+Visual identity: ${JSON.stringify(c.visual_identity||{})}
+
+Each production_script step must have: time (e.g. "0:00–0:02"), action (what happens in the game), visual_cue (what Gemini renders), audio_cue (sound design note).
+Generate 6–8 steps covering hook → gates → first upgrade → swarm peak → almost-fail → loss/win.
+Return ONLY: {"production_script": [{time, action, visual_cue, audio_cue}]}`;
+
+      const result = await callGeminiDirect(prompt, [{ text: "Return the production_script JSON only." }]);
+      if (Array.isArray(result?.production_script)) {
+        setConcepts(p => p.map((concept, i) => i === ci ? { ...concept, production_script: result.production_script } : concept));
+        setRefineErr(p => ({ ...p, [ci]: "✓ Production script regenerated." }));
+      } else {
+        throw new Error("No production_script returned");
+      }
+    } catch (err: any) {
+      setRefineErr(p => ({ ...p, [ci]: "Script regen failed: " + (err as Error).message }));
+    } finally {
+      setRefining(p => ({ ...p, [ci]: false }));
+    }
+  };
+
+    const formatBriefAsHTML = (c: Concept, ci: number): string => {
+    const vi = c.visual_identity || {};
+    const chain = (c.unit_evolution_chain||[]).join(" → ");
+    const seg = (c as any).target_segment||"Whale + Dolphin";
+
+    const section = (title: string, body: string) =>
+      `<div style="margin:0 0 18px"><div style="font-size:10px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px">${title}</div><div style="font-size:13px;color:#e6edf3;line-height:1.6">${body}</div></div>`;
+
+    const pill = (t: string) => `<span style="display:inline-block;font-size:10px;padding:2px 8px;border-radius:4px;background:#1d2d3f;color:#58a6ff;border:0.5px solid #1f6feb;margin:2px 2px 2px 0">${t}</span>`;
+
+    const renders = (["start","middle","end","hook"] as const)
+      .map(scene => {
+        const img = c[`visual_${scene}` as keyof Concept] as string|undefined;
+        return img
+          ? `<div style="text-align:center"><div style="font-size:9px;color:#8b949e;margin-bottom:4px;text-transform:uppercase">${scene}</div><img src="${img}" style="width:100%;border-radius:6px;display:block"/></div>`
+          : `<div style="aspect-ratio:9/16;background:#161b22;border-radius:6px;display:flex;align-items:center;justify-content:center"><span style="font-size:10px;color:#484f58">${scene}</span></div>`;
+      });
+
+    const scriptRows = Array.isArray(c.production_script) ? c.production_script.map((s:any,i:number) =>
+      `<tr style="background:${i%2===0?"#161b22":"#0d1117"}"><td style="padding:6px 10px;color:#58a6ff;white-space:nowrap;vertical-align:top;font-size:11px">${s.time||""}</td><td style="padding:6px 10px;font-size:11px;color:#e6edf3">${s.action||""}</td><td style="padding:6px 10px;font-size:11px;color:#8b949e;font-style:italic">${s.visual_cue||""}</td><td style="padding:6px 10px;font-size:11px;color:#6e7681">${s.audio_cue||""}</td></tr>`
+    ).join("") : "";
+
+    const netAdapt = c.network_adaptations ? (["AppLovin","Facebook","Google","TikTok"] as const)
+      .filter(n => c.network_adaptations?.[n])
+      .map(n => `<div style="margin-bottom:6px"><span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:3px;background:#1d2d3f;color:#58a6ff;margin-right:6px">${n}</span><span style="font-size:12px;color:#8b949e">${c.network_adaptations![n]}</span></div>`)
+      .join("") : "";
+
+    return `<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d1117;color:#e6edf3;padding:24px;max-width:900px;margin:0 auto">
+<div style="border-bottom:1px solid #21262d;padding-bottom:16px;margin-bottom:24px">
+  <div style="font-size:11px;color:#8b949e;margin-bottom:4px">LEVELLY CREATIVE BRIEF · CONCEPT ${ci+1} · ${seg}</div>
+  <div style="font-size:22px;font-weight:700;color:#e6edf3;margin-bottom:6px">${c.title||""}</div>
+  <div style="font-size:13px;color:#8b949e">${c.objective||""}</div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+<div>
+${(c as any).analysis?.strategy ? section("Strategy", (c as any).analysis.strategy) : ""}
+${section("Hook", `<strong style="color:#58a6ff">${(c as any).hook_type||"Challenge"} at ${(c as any).hook_timing_seconds??0}s</strong><br/>${c.hook_description||""}`)}
+${chain ? section("Unit evolution chain", pill(chain)) : ""}
+${vi.environment ? section("Visual identity", [
+  `Biome: <strong>${vi.environment}</strong>`,
+  vi.lighting ? `Lighting: ${vi.lighting}` : "",
+  vi.player_mob_color ? `Player mobs: ${vi.player_mob_color} · Enemy: ${vi.enemy_mob_color||"red"}` : "",
+  vi.mood_notes ? `Mood: ${vi.mood_notes}` : ""
+].filter(Boolean).join("<br/>")) : ""}
+${c.lane_design ? section("Lane design", c.lane_design) : ""}
+${(c.upgrade_triggers||[]).length ? section("Upgrade triggers", (c.upgrade_triggers||[]).map((t:string)=>`↑ ${t}`).join("<br/>")) : ""}
+${(c.tension_moments||[]).length ? section("Tension moments", (c.tension_moments||[]).map((t:string)=>`⚡ ${t}`).join("<br/>")) : ""}
+${c.engagement_hooks ? section("Engagement hooks", c.engagement_hooks) : ""}
+${netAdapt ? section("Network adaptations", netAdapt) : ""}
+</div>
+
+<div>
+<div style="font-size:10px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Scene renders</div>
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:20px">${renders.join("")}</div>
+</div>
+</div>
+
+${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Production script</div><table style="width:100%;border-collapse:collapse;border:0.5px solid #21262d;border-radius:8px;overflow:hidden"><thead><tr style="background:#161b22"><th style="padding:6px 10px;text-align:left;font-size:9px;color:#8b949e;font-weight:600;text-transform:uppercase">Time</th><th style="padding:6px 10px;text-align:left;font-size:9px;color:#8b949e;font-weight:600;text-transform:uppercase">Action</th><th style="padding:6px 10px;text-align:left;font-size:9px;color:#8b949e;font-weight:600;text-transform:uppercase">Visual cue</th><th style="padding:6px 10px;text-align:left;font-size:9px;color:#8b949e;font-weight:600;text-transform:uppercase">Audio cue</th></tr></thead><tbody>${scriptRows}</tbody></table></div>` : ""}
+
+<div style="margin-top:20px;padding-top:12px;border-top:1px solid #21262d;font-size:10px;color:#484f58">Generated by Levelly — MOC Creative Intelligence</div>
+</body></html>`;
+  };
+
+    const handleRefineConcept = async (ci: number, prompt: string) => {
     if (!prompt.trim()) return;
     setRefining(p => ({ ...p, [ci]: true }));
     setRefineErr(p => ({ ...p, [ci]: "" }));
     try {
       const current = concepts[ci];
+      const lp = prompt.toLowerCase();
+
+      // Detect which field groups the user wants to change
+      const wantsVisual = /biome|environment|lighting|forest|desert|snow|bunker|volcano|cyber|meadow|toxic|mob color|enemy color/.test(lp);
+      const wantsEvolution = /cannon|tier|upgrade|evolution|chain|simple|double|triple|tank|golden jet/.test(lp);
+      const wantsHook = /hook|opening|first second|thumb|engage/.test(lp);
+      const wantsLane = /lane|gate|path|sub.lane|left|right|center/.test(lp);
+      const wantsTension = /tension|almost.fail|dramatic|threat|giant|boss|survive/.test(lp);
+
+      // Build the subset of fields to send
+      const fieldsToSend: Partial<Concept> = {};
+      const fieldNames: string[] = [];
+      if (wantsVisual || (!wantsEvolution && !wantsHook && !wantsLane && !wantsTension)) {
+        (fieldsToSend as any).visual_identity = current.visual_identity;
+        fieldNames.push("visual_identity");
+      }
+      if (wantsEvolution) {
+        (fieldsToSend as any).unit_evolution_chain = current.unit_evolution_chain;
+        (fieldsToSend as any).cannon_count_progression = current.cannon_count_progression;
+        (fieldsToSend as any).upgrade_triggers = current.upgrade_triggers;
+        fieldNames.push("unit_evolution_chain","cannon_count_progression","upgrade_triggers");
+      }
+      if (wantsHook) {
+        (fieldsToSend as any).hook_description = current.hook_description;
+        (fieldsToSend as any).hook_timing_seconds = current.hook_timing_seconds;
+        (fieldsToSend as any).engagement_hooks = current.engagement_hooks;
+        fieldNames.push("hook_description","hook_timing_seconds");
+      }
+      if (wantsLane) {
+        (fieldsToSend as any).lane_design = current.lane_design;
+        fieldNames.push("lane_design");
+      }
+      if (wantsTension) {
+        (fieldsToSend as any).tension_moments = current.tension_moments;
+        fieldNames.push("tension_moments");
+      }
+
+      // Send only the relevant fields to Gemini
       const result = await callGeminiDirect(
-        refinementSystem(current, prompt),
-        [{ text: "Apply the refinement. Return updated concept JSON only." }]
+        refinementSystem(fieldsToSend, prompt, fieldNames),
+        [{ text: "Return only the modified fields as JSON." }]
       );
-      const refined = sanitizeDNA(result) as unknown as Concept;
-      const structuralChange =
-        JSON.stringify(refined.visual_identity) !== JSON.stringify(current.visual_identity) ||
-        JSON.stringify(refined.unit_evolution_chain) !== JSON.stringify(current.unit_evolution_chain);
-      const updated: Concept = structuralChange
-        ? { ...refined, visual_hook: undefined, visual_start: undefined, visual_middle: undefined, visual_end: undefined }
-        : refined;
+
+      // Merge returned fields back into concept — never overwrite what wasn't sent
+      const merged: Concept = { ...current, ...result };
+
+      // Determine if renders need to be cleared
+      const visualChanged = wantsVisual && JSON.stringify(result.visual_identity) !== JSON.stringify(current.visual_identity);
+      const evolutionChanged = wantsEvolution && JSON.stringify(result.unit_evolution_chain) !== JSON.stringify(current.unit_evolution_chain);
+      const clearRenders = visualChanged || evolutionChanged;
+
+      const updated: Concept = clearRenders
+        ? { ...merged, visual_hook: undefined, visual_start: undefined, visual_middle: undefined, visual_end: undefined }
+        : merged;
+
       setConcepts(p => p.map((c, i) => i === ci ? updated : c));
       setRefineTexts(p => ({ ...p, [ci]: "" }));
-      setRefineErr(p => ({ ...p, [ci]: structuralChange ? "✓ Updated — renders cleared, re-render with the new concept." : "✓ Concept updated." }));
+
+      const changedList = fieldNames.join(", ");
+      const msg = clearRenders
+        ? `✓ Updated ${changedList} — renders cleared, re-render with the new concept.`
+        : `✓ Updated ${changedList}.`;
+      setRefineErr(p => ({ ...p, [ci]: msg }));
     } catch (err: any) {
       setRefineErr(p => ({ ...p, [ci]: "Refine failed: " + (err as Error).message }));
     } finally {
@@ -2210,6 +2374,20 @@ export default function App() {
                 <div style={{ display:"flex",flexDirection:"column" as const,alignItems:"flex-end",gap:4,marginLeft:16,flexShrink:0 }}>
                   {c.quality_score&&<><div style={{ fontSize:24,fontWeight:600,color:scoreColor(c.quality_score.overall),lineHeight:1 }}>{c.quality_score.overall}</div><div style={{ fontSize:9,color:D.textDim }}>quality</div></>}
   <div style={{ fontSize:11,padding:"4px 10px",borderRadius:6,background:expandedConcept===ci?D.blueBg:D.surface2,color:expandedConcept===ci?D.blue:D.textMuted,border:`0.5px solid ${expandedConcept===ci?D.blueDark:D.border2}`,fontWeight:500,marginTop:4,whiteSpace:"nowrap" as const }}>{expandedConcept===ci?"▲ Collapse":"▼ Expand"}</div>
+                  <div onClick={async e=>{ e.stopPropagation();
+                    try {
+                      const html = formatBriefAsHTML(c,ci);
+                      await navigator.clipboard.write([new ClipboardItem({
+                        "text/html": new Blob([html],{type:"text/html"}),
+                        "text/plain": new Blob([c.title+(c.objective?"\n"+c.objective:"")],{type:"text/plain"})
+                      })]);
+                    } catch {
+                      // Fallback: plain text if ClipboardItem not supported
+                      const lines=[c.title||"",c.objective||"",c.hook_description||"",c.lane_design||"",(c.unit_evolution_chain||[]).join(" → ")].filter(Boolean).join("\n");
+                      await navigator.clipboard.writeText(lines);
+                    }
+                    setCopiedConcept(ci); setTimeout(()=>setCopiedConcept(null),2500);
+                  }} style={{ fontSize:11,padding:"4px 10px",borderRadius:6,background:copiedConcept===ci?D.greenBg:D.surface2,color:copiedConcept===ci?D.green:D.textMuted,border:`0.5px solid ${copiedConcept===ci?D.greenBdr:D.border2}`,fontWeight:500,cursor:"pointer",whiteSpace:"nowrap" as const,marginTop:2,transition:"background .2s,color .2s,border-color .2s" }}>{copiedConcept===ci?"✓ Copied!":"⎘ Copy brief"}</div>
                 </div>
               </div>
               {expandedConcept===ci&&(
@@ -2321,15 +2499,18 @@ export default function App() {
                           {label:"More tension",text:"Make the almost-fail moment more extreme — reduce surviving mobs to 1-2. Heighten the tension_moments description."},
                           {label:"Aggressive hook",text:"Make the hook more aggressive and threatening. Enemy boss should dominate the frame."},
                           {label:"🔄 Regen renders",text:"__REGEN__"},
+                          {label:"📋 Regen script",text:"__REGEN_SCRIPT__"},
                         ].map(({label,text})=>(
                           <button key={label} onClick={()=>{
                             if(text==="__REGEN__"){
                               setConcepts(p=>p.map((cc,i)=>i===ci?{...cc,visual_hook:undefined,visual_start:undefined,visual_middle:undefined,visual_end:undefined}:cc));
                               setRefineErr(p=>({...p,[ci]:"Renders cleared — click render buttons to regenerate."}));
+                            } else if(text==="__REGEN_SCRIPT__"){
+                              handleRegenScript(ci);
                             } else {
                               setRefineTexts(p=>({...p,[ci]:text}));
                             }
-                          }} style={{ fontSize:11,padding:"4px 11px",borderRadius:20,border:`0.5px solid ${label.includes("Regen")?D.greenBdr:D.blueDark}`,color:label.includes("Regen")?D.green:D.blue,background:label.includes("Regen")?D.greenBg:D.blueBg,cursor:"pointer",fontFamily:"inherit",transition:"opacity .15s" }}>{label}</button>
+                          }} style={{ fontSize:11,padding:"4px 11px",borderRadius:20,border:`0.5px solid ${label.includes("script")?D.goldBdr:label.includes("Regen")?D.greenBdr:D.blueDark}`,color:label.includes("script")?D.gold:label.includes("Regen")?D.green:D.blue,background:label.includes("script")?D.goldBg:label.includes("Regen")?D.greenBg:D.blueBg,cursor:"pointer",fontFamily:"inherit",transition:"opacity .15s" }}>{label}</button>
                         ))}
                       </div>
                       <textarea
