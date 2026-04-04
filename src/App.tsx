@@ -1094,6 +1094,7 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
 }) {
   const [showReuploadModal, setShowReuploadModal] = React.useState(false);
   const [spendOpen, setSpendOpen] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
   // ✅ canTag fix: inspiration tier now shows metadata fields
   const canTag = d.ad_type === "moc";
   const spendSt = SPEND_TIERS.find(t => t.value === d.spend_tier);
@@ -1279,6 +1280,35 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
               </>
             );
           })()}
+          <button
+            onClick={async()=>{
+              try {
+                const vi = d.visual_identity||{};
+                const frames = (d.auto_frames||[]).filter((f:any)=>f.image_data);
+                const frameImgs = frames.map((f:any)=>`<div style="text-align:center;flex:1 1 80px"><div style="font-size:9px;color:#8b949e;margin-bottom:3px">${f.timestamp_seconds}s</div><img src="data:image/jpeg;base64,${f.image_data}" style="width:100%;border-radius:4px"/><div style="font-size:9px;color:#8b949e;margin-top:3px">${f.description||""}</div></div>`).join("");
+                const timeline = (d.auto_frames||[]).map((f:any)=>`<tr><td style="padding:4px 8px;color:#58a6ff;white-space:nowrap;font-size:11px;vertical-align:top">${f.timestamp_seconds}s</td><td style="padding:4px 8px;font-size:11px;color:#e6edf3">${f.description||""}</td><td style="padding:4px 8px;font-size:10px;color:#8b949e">${f.significance||""}</td></tr>`).join("");
+                const html = `<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d1117;color:#e6edf3;padding:24px;max-width:960px;margin:0 auto">
+<div style="border-bottom:1px solid #21262d;padding-bottom:14px;margin-bottom:20px">
+  <div style="font-size:11px;color:#8b949e;margin-bottom:3px">${d.creative_id||"#"+d.id} · ${d.tier} · ${d.biome||""}</div>
+  <div style="font-size:22px;font-weight:700">${d.title||""}</div>
+</div>
+<div style="display:grid;grid-template-columns:auto auto auto auto auto auto;gap:12px;margin-bottom:20px">
+  ${[["Hook type",d.hook_type],["Hook at",(d.hook_timing_seconds!=null?d.hook_timing_seconds+"s":"—")],["Biome",d.biome],["Pacing",d.pacing],["Loss event",d.loss_event_type],["Swarm peak",(d.swarm_peak_moment_seconds!=null?d.swarm_peak_moment_seconds+"s":"—")]].map(([l,v])=>`<div><div style="font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px">${l}</div><div style="font-size:12px;font-weight:500">${v||"—"}</div></div>`).join("")}
+</div>
+${(d.unit_evolution_chain||[]).length?`<div style="margin-bottom:16px"><div style="font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Unit evolution chain</div><div>${(d.unit_evolution_chain||[]).map((s:string)=>`<span style="display:inline-block;font-size:11px;padding:3px 10px;border-radius:4px;background:#1d2d3f;color:#58a6ff;border:0.5px solid #1f6feb;margin-right:6px">${s}</span>`).join("→")}</div></div>`:""}
+${frames.length?`<div style="margin-bottom:16px"><div style="font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Extracted frames</div><div style="display:flex;gap:8px;flex-wrap:wrap">${frameImgs}</div></div>`:""}
+${timeline?`<div style="margin-bottom:16px"><div style="font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Timeline</div><table style="width:100%;border-collapse:collapse;border:0.5px solid #21262d"><tbody>${timeline}</tbody></table></div>`:""}
+${d.why_it_works?`<div style="margin-bottom:12px"><div style="font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Why it works</div><div style="font-size:12px;color:#8b949e;line-height:1.6">${d.why_it_works}</div></div>`:""}
+${d.creative_gaps?`<div style="margin-bottom:12px"><div style="font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Creative gaps</div><div style="font-size:12px;color:#8b949e;line-height:1.6">${d.creative_gaps}</div></div>`:""}
+<div style="margin-top:16px;padding-top:10px;border-top:1px solid #21262d;font-size:10px;color:#484f58">Levelly — MOC Creative Intelligence</div>
+</body></html>`;
+                await navigator.clipboard.write([new ClipboardItem({"text/html":new Blob([html],{type:"text/html"}),"text/plain":new Blob([d.title||""],{type:"text/plain"})})]);
+                setCopied(true); setTimeout(()=>setCopied(false),2500);
+              } catch(e){ console.error(e); }
+            }}
+            style={{ ...btnSec,fontSize:10,padding:"4px 9px",background:copied?D.greenBg:D.blueBg,color:copied?D.green:D.blue,border:`0.5px solid ${copied?D.greenBdr:D.blueDark}`,transition:"all .2s" }}>
+            {copied?"✓ Copied":"⎘ Copy"}
+          </button>
           <button
             style={btnDanger}
             onClick={() => { if (confirm(`Remove "${displayId || d.title}" from library?`)) saveLib(lib.filter(x => x.id !== d.id)); }}
@@ -1905,26 +1935,18 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
         [{ text: "Return only the modified fields as JSON." }]
       );
 
-      // Merge returned fields back into concept — never overwrite what wasn't sent
-      const merged: Concept = { ...current, ...result };
+      // Merge ONLY the fields that were sent — never touch what wasn't in fieldsToSend
+      const merged: Concept = { ...current };
+      for (const key of fieldNames) { if (key in result) (merged as any)[key] = (result as any)[key]; }
 
-      // Determine if renders need to be cleared
-      const visualChanged = wantsVisual && JSON.stringify(result.visual_identity) !== JSON.stringify(current.visual_identity);
-      const evolutionChanged = wantsEvolution && JSON.stringify(result.unit_evolution_chain) !== JSON.stringify(current.unit_evolution_chain);
-      const clearRenders = visualChanged || evolutionChanged;
-
-      const updated: Concept = clearRenders
-        ? { ...merged, visual_hook: undefined, visual_start: undefined, visual_middle: undefined, visual_end: undefined }
-        : merged;
+      // Always clear renders after any refinement — brief changed means renders are stale
+      const updated: Concept = { ...merged, visual_hook: undefined, visual_start: undefined, visual_middle: undefined, visual_end: undefined };
 
       setConcepts(p => p.map((c, i) => i === ci ? updated : c));
       setRefineTexts(p => ({ ...p, [ci]: "" }));
 
       const changedList = fieldNames.join(", ");
-      const msg = clearRenders
-        ? `✓ Updated ${changedList} — renders cleared, re-render with the new concept.`
-        : `✓ Updated ${changedList}.`;
-      setRefineErr(p => ({ ...p, [ci]: msg }));
+      setRefineErr(p => ({ ...p, [ci]: `✓ Updated ${changedList} — renders cleared. Re-render with the updated brief.` }));
     } catch (err: any) {
       setRefineErr(p => ({ ...p, [ci]: "Refine failed: " + (err as Error).message }));
     } finally {
@@ -2328,7 +2350,7 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
             </div>
           )}
 
-          {briefAnalysis&&(
+          {(!libPanelOpen&&!analysePanelOpen)&&briefAnalysis&&(
 <div style={{ background:"#0d1f35",border:`1.5px solid ${D.blueDark}`,borderRadius:10,padding:"16px 18px",marginBottom:16,boxShadow:`0 0 0 1px ${D.blueBg}` }}>
               <div style={{ fontSize:9,fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase" as const,color:D.textDim,marginBottom:8 }}>Creative strategy</div>
               <p style={{ margin:"0 0 12px",fontSize:12,lineHeight:1.75,color:D.text }}>{briefAnalysis.strategy}</p>
@@ -2349,7 +2371,7 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
             </div>
           )}
 
-          {concepts.map((c,ci)=>(
+          {(!libPanelOpen&&!analysePanelOpen)&&concepts.map((c,ci)=>(
             <div key={ci} style={{ background:expandedConcept===ci?"#161f2e":D.surface,border:`0.5px solid ${(c as any).is_experimental?"#9d174d":D.border}`,borderRadius:10,padding:0,marginBottom:10,overflow:"hidden",transition:"background .15s,box-shadow .15s,border-color .15s",boxShadow:expandedConcept===ci?`0 0 0 2px ${D.blueBg}`:"none",borderLeft:`3px solid ${expandedConcept===ci?D.blue:"transparent"}`,animation:`slideIn .2s ease-out ${ci*0.05}s both` }}>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",cursor:"pointer",padding:"14px 16px" }} onClick={()=>setExpandedConcept(expandedConcept===ci?null:ci)}>
                 <div style={{ flex:1 }}>
@@ -2387,7 +2409,7 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                       await navigator.clipboard.writeText(lines);
                     }
                     setCopiedConcept(ci); setTimeout(()=>setCopiedConcept(null),2500);
-                  }} style={{ fontSize:11,padding:"4px 10px",borderRadius:6,background:copiedConcept===ci?D.greenBg:D.surface2,color:copiedConcept===ci?D.green:D.textMuted,border:`0.5px solid ${copiedConcept===ci?D.greenBdr:D.border2}`,fontWeight:500,cursor:"pointer",whiteSpace:"nowrap" as const,marginTop:2,transition:"background .2s,color .2s,border-color .2s" }}>{copiedConcept===ci?"✓ Copied!":"⎘ Copy brief"}</div>
+                  }} style={{ fontSize:11,padding:"4px 10px",borderRadius:6,background:copiedConcept===ci?D.greenBg:D.blueBg,color:copiedConcept===ci?D.green:D.blue,border:`0.5px solid ${copiedConcept===ci?D.greenBdr:D.blueDark}`,fontWeight:500,cursor:"pointer",whiteSpace:"nowrap" as const,marginTop:2,transition:"background .2s,color .2s,border-color .2s" }}>{copiedConcept===ci?"✓ Copied!":"⎘ Copy"}</div>
                 </div>
               </div>
               {expandedConcept===ci&&(
