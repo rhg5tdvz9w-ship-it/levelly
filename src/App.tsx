@@ -67,7 +67,7 @@ interface BriefAnalysis { patterns_used: string; segment_insight: string; strate
 // ─── Constants ────────────────────────────────────────────────────────────────
 const TIERS = ["winner", "scalable", "failed", "inspiration"] as const;
 const PROVEN_BIOMES = ["Desert", "Foggy Forest", "Water", "Bunker", "Meadow"];
-const SEGMENTS_LIST = ["Whale", "Dolphin", "Minnow", "Non-Payer"];
+const SEGMENTS_LIST = ["Whale", "Dolphin"];
 const NETWORK_OPTIONS = ["AppLovin", "Facebook", "TikTok", "Google", "Voodoo Ads", "Unity"];
 const CREATIVE_STATUS = [
   { value: "briefed",  label: "Briefed",  bg: "#1a2a4a", text: "#58a6ff", border: "#1f6feb" },
@@ -491,7 +491,9 @@ const briefSystem = (lib: any[], ctx: string, seg: string, iterateFrom?: string,
 DNA LIBRARY (${lib.length} winners):
 ${JSON.stringify(lib, null, 2)}
 
-BRIEF: ${ctx} | SEGMENT: ${seg}${refBlock}${visualRefBlock}
+BRIEF: ${ctx} | SEGMENT: ${seg}
+AUDIENCE PROFILE:
+${seg==="Whale"?"Whale: Age 45-59 (68%), male, USA. Completionist mindset — #1 motivation is unlocking all elements. Opens game to RELAX (46%). 217 avg active days. Almost-win hook = incompleteness anxiety (so close to unlocking), not competitive pressure.":"Dolphin: Age 35-44, male, USA. Mix of completionist + competitive. 170 avg active days. Responds to clear progression path and almost-win tension."}${refBlock}${visualRefBlock}
 
 MOC MECHANICS TO UNDERSTAND BEFORE GENERATING:
 MOC MECHANICS — READ CAREFULLY, THESE ARE EXACT RULES:
@@ -1056,6 +1058,7 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
   onReupload?: (entry: DNAEntry, file: File, manualFrameFiles?: File[], context?: string) => void;
 }) {
   const [showReuploadModal, setShowReuploadModal] = React.useState(false);
+  const [spendOpen, setSpendOpen] = React.useState(false);
   // ✅ canTag fix: inspiration tier now shows metadata fields
   const canTag = d.ad_type === "moc";
   const spendSt = SPEND_TIERS.find(t => t.value === d.spend_tier);
@@ -1239,8 +1242,7 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
                   {reuploading ? "↑ Uploading…" : "↑ Re-upload"}
                 </button>
               </>
-            );
-          })()}
+          )}
           <button
             style={btnDanger}
             onClick={() => { if (confirm(`Remove "${displayId || d.title}" from library?`)) saveLib(lib.filter(x => x.id !== d.id)); }}
@@ -1291,28 +1293,22 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
           )}
 
           {canTag && (() => {
-            const [spendOpen, setSpendOpen] = React.useState(false);
-            return (
               <div style={{ marginTop:14,borderTop:`0.5px solid ${D.border}`,paddingTop:10 }}>
                 <button onClick={()=>setSpendOpen(p=>!p)} style={{ background:"none",border:"none",color:spendOpen?D.blue:D.textMuted,cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:500,padding:"2px 0",display:"flex",alignItems:"center",gap:5 }}>
                   {spendOpen?"▲":"▼"} {spendOpen?"Hide":"Edit"} spend metadata
                 </button>
                 {spendOpen && <div style={{ marginTop:10 }}><SpendTagger entry={d} lib={lib} onSave={fields => saveLib(lib.map(x => x.id === d.id ? { ...x, ...fields } : x))} /></div>}
               </div>
-            );
-          })()}
+          )}
 
-          {canTag && (() => {
-            const [spendOpen, setSpendOpen] = React.useState(false);
-            return (
-              <div style={{ marginTop:14,borderTop:`0.5px solid ${D.border}`,paddingTop:10 }}>
-                <button onClick={()=>setSpendOpen(p=>!p)} style={{ background:"none",border:`0.5px solid ${D.border2}`,borderRadius:6,color:spendOpen?D.blue:D.textMuted,cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:500,padding:"4px 12px",display:"flex",alignItems:"center",gap:5 }}>
-                  {spendOpen?"▲ Hide":"▼ Edit"} spend metadata
-                </button>
-                {spendOpen && <div style={{ marginTop:10 }}><SpendTagger entry={d} lib={lib} onSave={fields => saveLib(lib.map(x => x.id === d.id ? { ...x, ...fields } : x))} /></div>}
-              </div>
-            );
-          })()}
+          {canTag && (
+            <div style={{ marginTop:14,borderTop:`0.5px solid ${D.border}`,paddingTop:10 }}>
+              <button onClick={()=>setSpendOpen(p=>!p)} style={{ background:"none",border:`0.5px solid ${D.border2}`,borderRadius:6,color:spendOpen?D.blue:D.textMuted,cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:500,padding:"4px 12px",display:"flex",alignItems:"center",gap:5 }}>
+                {spendOpen?"▲ Hide":"▼ Edit"} spend metadata
+              </button>
+              {spendOpen && <div style={{ marginTop:10 }}><SpendTagger entry={d} lib={lib} onSave={fields => saveLib(lib.map(x => x.id === d.id ? { ...x, ...fields } : x))} /></div>}
+            </div>
+          )}
 
           {d.auto_frames && d.auto_frames.length > 0 && (
             <div style={{ marginBottom: 10 }}>
@@ -1441,6 +1437,8 @@ export default function App() {
   const [libPanelOpen, setLibPanelOpen] = useState(false);
   const [briefPanelOpen, setBriefPanelOpen] = useState(false);
   const [analysePanelOpen, setAnalysePanelOpen] = useState(false);
+  // Track which panel was last opened — content persists when switching panels
+  const [lastOpenPanel, setLastOpenPanel] = useState<"brief"|"analyse"|"lib"|null>(null);
   const [expandedDNA, setExpandedDNA] = useState<number|null>(null);
   const [libSort, setLibSort] = useState<SortMode>("all");
   const [showModal, setShowModal] = useState(false);
@@ -1562,7 +1560,7 @@ export default function App() {
       } catch(canvasErr: any){ console.warn("Canvas extraction failed:",canvasErr?.message); }
       setAnalyzeStep("hook");
       let hookData: any={};
-      try { hookData=await callGeminiDirect(hookDetectionSystem(),[{text:`Frames:${JSON.stringify(autoFrames)}.Context:${entry.upload_context||""}.Find hook:`},videoPart]); } catch {}
+      try { hookData=await callGeminiDirect(hookDetectionSystem(),[{text:`Frames:${JSON.stringify(autoFrames)}.Context:${newContext||entry.upload_context||""}.Find hook:`},videoPart]); } catch {}
       const manualParts: any[]=[];
       if(manualFrameFiles&&manualFrameFiles.length>0){ for(const mf of manualFrameFiles){ manualParts.push({text:`Manual:${mf.name}`}); manualParts.push({inlineData:{mimeType:mf.type,data:await fileToBase64(mf)}}); } }
       setAnalyzeStep("analyzing");
@@ -1583,7 +1581,7 @@ export default function App() {
         id: entry.id,
         tier: entry.tier,
         ad_type: entry.ad_type,
-        upload_context: entry.upload_context,
+        upload_context: newContext||entry.upload_context,
         creative_id: entry.creative_id,
         parent_id: entry.parent_id,
         spend_tier: entry.spend_tier,
@@ -1685,7 +1683,7 @@ export default function App() {
           spend_tier: d.spend_tier||null,
           spend_networks: d.spend_networks||[],
         }));
-      const systemPrompt = briefSystem(trimmedLib, briefCtx, segment, iterateFrom.trim()||undefined, refNote);
+      const systemPrompt = briefSystem(trimmedLib, briefCtx, "Whale+Dolphin", iterateFrom.trim()||undefined, refNote);
       const jobId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
       // Start background job (returns immediately, Claude runs async)
@@ -1839,8 +1837,7 @@ export default function App() {
                   <button onClick={() => setLibPanelOpen(true)} style={{ ...btnSec, fontSize: 11 }}>View in library</button>
                 </div>
               </div>
-            );
-          })()}
+          )}
 
           {/* ── Analysis complete: full inline report ── */}
           {!analyzing && !analyzeErr && lastAnalyzedId && (() => {
@@ -2000,8 +1997,7 @@ export default function App() {
                   )}
                 </div>
               </div>
-            );
-          })()}
+          )}
 
           {/* 3-column layout: Analyse + Brief (equal) + Library (narrow) */}
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 0.55fr",gap:12,marginBottom:12,alignItems:"stretch" }}>
@@ -2083,6 +2079,7 @@ export default function App() {
           )}
 
           {briefPanelOpen&&!(!generating&&concepts.length>=4)&&(
+            /* Brief input panel - hidden when all concepts generated */
             <div style={{ background:D.surface,border:`1.5px solid ${D.blueDark}`,borderRadius:10,overflow:"hidden",marginBottom:14,animation:"slideIn .2s ease-out" }}>
               <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:`0.5px solid ${D.border}` }}>
                 <div style={{ display:"flex",alignItems:"center",gap:8,color:D.blue,fontSize:13,fontWeight:500 }}>
@@ -2101,10 +2098,8 @@ export default function App() {
               <div style={{ padding:"0 16px 8px" }}>
                 <ReferenceDropZone onRef={setBriefRef} currentRef={briefRef} onClear={() => setBriefRef(null)} iterateFrom={iterateFrom} onIterateFrom={setIterateFrom} />
               </div>
-              <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderTop:`0.5px solid ${D.border}`,flexWrap:"wrap" as const,gap:8 }}>
-                <div style={{ display:"flex",gap:6,flexWrap:"wrap" as const }}>
-                  {SEGMENTS_LIST.map(seg=><button key={seg} onClick={()=>setSegment(seg)} style={chipStyle(segment===seg)}>{seg}</button>)}
-                </div>
+              <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderTop:`0.5px solid ${D.border}` }}>
+                <span style={{ fontSize:11,color:D.textDim }}>Generating for <strong style={{ color:D.text }}>Whale</strong> + <strong style={{ color:D.text }}>Dolphin</strong></span>
                 <button onClick={generating ? undefined : handleGenerateBrief} style={{ ...btnPri,display:"flex",alignItems:"center",gap:6,background:generating?"#1a7f37":D.blueDark,border:generating?`1px solid ${D.greenBdr}`:"none",transition:"background .3s",cursor:generating?"default":"pointer" }}>
                   {generating?<><span style={{ width:10,height:10,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.3)",borderTopColor:"#fff",display:"inline-block",animation:"spin .6s linear infinite" }} />Generating…</>:"Generate concepts ↗"}
                 </button>
@@ -2114,7 +2109,7 @@ export default function App() {
           )}
 
           {analysePanelOpen&&(
-            <div style={{ background:D.surface,border:`1.5px solid ${D.greenBdr}`,borderRadius:10,padding:"20px",marginBottom:14,animation:"slideIn .2s ease-out" }}>
+            <div style={{ background:D.surface,border:`1.5px solid ${D.greenBdr}`,borderRadius:10,padding:"20px",marginBottom:14,animation:"slideIn .2s ease-out",transition:"all .2s" }}>
               <p style={{ margin:0,fontSize:13,color:D.textMuted }}>Drop a video file or paste a URL to analyse it and add it to the DNA library.</p>
               <div style={{ display:"flex",gap:8,marginTop:12 }}>
                 <button style={btnPri} onClick={()=>{ setAnalysePanelOpen(false); setShowModal(true); }}>+ Upload video</button>
