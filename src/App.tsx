@@ -1831,7 +1831,8 @@ export default function App() {
                   <button onClick={() => setLibPanelOpen(true)} style={{ ...btnSec, fontSize: 11 }}>View in library</button>
                 </div>
               </div>
-          )}
+            );
+          })()}
 
           {/* ── Analysis complete: full inline report ── */}
           {!analyzing && !analyzeErr && lastAnalyzedId && (() => {
@@ -1991,7 +1992,8 @@ export default function App() {
                   )}
                 </div>
               </div>
-          )}
+            );
+          })()}
 
           {/* 3-column layout: Analyse + Brief (equal) + Library (narrow) */}
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 0.55fr",gap:12,marginBottom:12,alignItems:"stretch" }}>
