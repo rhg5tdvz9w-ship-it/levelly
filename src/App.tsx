@@ -987,13 +987,14 @@ function SpendTagger({ entry, onSave, lib }: { entry: DNAEntry; onSave: (fields:
 // ─── Re-upload Modal ──────────────────────────────────────────────────────────
 function ReuploadModal({ entry, onConfirm, onCancel }: {
   entry: DNAEntry;
-  onConfirm: (videoFile: File, manualFrames: File[]) => void;
+  onConfirm: (videoFile: File, manualFrames: File[], context: string) => void;
   onCancel: () => void;
 }) {
   const videoRef = React.useRef<HTMLInputElement>(null);
   const framesRef = React.useRef<HTMLInputElement>(null);
   const [videoFile, setVideoFile] = React.useState<File|null>(null);
   const [frameFiles, setFrameFiles] = React.useState<File[]>([]);
+  const [reuploadCtx, setReuploadCtx] = React.useState("");
   const displayId = entry.creative_id || `#${entry.id}`;
 
   return (
@@ -1026,9 +1027,16 @@ function ReuploadModal({ entry, onConfirm, onCancel }: {
           </button>
         </div>
 
+        {/* Context field */}
+        <div style={{ marginBottom:16 }}>
+          <span style={{ fontSize:10,fontWeight:600,color:D.textDim,letterSpacing:"0.08em",textTransform:"uppercase" as const,display:"block",marginBottom:6 }}>Analysis context (optional but recommended)</span>
+          <textarea value={reuploadCtx} onChange={e=>setReuploadCtx(e.target.value)}
+            placeholder="Describe what you know: number of upgrades, giant kills, biome, key mechanics…"
+            style={{ width:"100%",boxSizing:"border-box" as const,fontSize:12,padding:"8px 10px",background:D.surface2,border:`0.5px solid ${D.border2}`,borderRadius:8,color:D.text,resize:"vertical" as const,minHeight:72,fontFamily:"inherit",outline:"none" }} />
+        </div>
         <div style={{ display:"flex",gap:8,justifyContent:"flex-end" }}>
           <button onClick={onCancel} style={{ padding:"8px 18px",fontSize:13,background:"none",border:`0.5px solid ${D.border2}`,borderRadius:8,color:D.textMuted,cursor:"pointer",fontFamily:"inherit" }}>Cancel</button>
-          <button onClick={()=>{ if(videoFile) onConfirm(videoFile,frameFiles); }} disabled={!videoFile}
+          <button onClick={()=>{ if(videoFile) onConfirm(videoFile,frameFiles,reuploadCtx); }} disabled={!videoFile}
             style={{ padding:"8px 18px",fontSize:13,background:videoFile?D.blue:"#333",border:"none",borderRadius:8,color:"#fff",cursor:videoFile?"pointer":"not-allowed",fontFamily:"inherit",opacity:videoFile?1:0.5 }}>
             Analyze →
           </button>
@@ -1045,7 +1053,7 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
   reanalyzingIds: Set<number>; handleReanalyzeSingle: (e: DNAEntry) => void;
   onZoomFrame: (src: string, list?: string[], index?: number) => void;
   isReanalyzing: boolean;
-  onReupload?: (entry: DNAEntry, file: File, manualFrameFiles?: File[]) => void;
+  onReupload?: (entry: DNAEntry, file: File, manualFrameFiles?: File[], context?: string) => void;
 }) {
   const [showReuploadModal, setShowReuploadModal] = React.useState(false);
   // ✅ canTag fix: inspiration tier now shows metadata fields
@@ -1207,11 +1215,12 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
             display: "flex",
             alignItems: "center",
             gap: 5,
-            color: isExpanded ? D.blue : D.textMuted,
-            borderColor: isExpanded ? D.blueDark : D.border2,
+            color: isExpanded ? D.blue : D.text,
+            borderColor: isExpanded ? D.blueDark : D.border,
+            background: isExpanded ? D.blueBg : D.surface2,
           }}
         >
-          {isExpanded ? "▲ Collapse" : "▼ Expand details"}
+{isExpanded ? "▲ Collapse details" : "▼ Expand details"}
         </button>
         <div style={{ display:"flex",gap:6,alignItems:"center" }}>
           {onReupload && (() => {
@@ -1221,7 +1230,7 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
                 {showReuploadModal && (
                   <ReuploadModal entry={d}
                     onCancel={()=>setShowReuploadModal(false)}
-                    onConfirm={(videoFile, manualFrames)=>{ setShowReuploadModal(false); onReupload(d, videoFile, manualFrames.length>0?manualFrames:undefined); }} />
+                    onConfirm={(videoFile, manualFrames, ctx)=>{ setShowReuploadModal(false); onReupload(d, videoFile, manualFrames.length>0?manualFrames:undefined, ctx||undefined); }} />
                 )}
                 <button style={{ ...btnSec, fontSize:10, padding:"4px 9px", cursor:reuploading?"not-allowed":"pointer", opacity:reuploading?0.5:1 }}
                   disabled={reuploading}
@@ -1249,7 +1258,7 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
           background: D.surface2,
           borderLeft: "none", // accent is on parent already
         }}>
-          {canTag && <SpendTagger entry={d} lib={lib} onSave={fields => saveLib(lib.map(x => x.id === d.id ? { ...x, ...fields } : x))} />}
+          {/* SpendTagger moved to bottom — see end of expanded section */}
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 5, marginTop: 14, marginBottom: 10 }}>
             {[
@@ -1280,6 +1289,30 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
               </div>
             </div>
           )}
+
+          {canTag && (() => {
+            const [spendOpen, setSpendOpen] = React.useState(false);
+            return (
+              <div style={{ marginTop:14,borderTop:`0.5px solid ${D.border}`,paddingTop:10 }}>
+                <button onClick={()=>setSpendOpen(p=>!p)} style={{ background:"none",border:"none",color:spendOpen?D.blue:D.textMuted,cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:500,padding:"2px 0",display:"flex",alignItems:"center",gap:5 }}>
+                  {spendOpen?"▲":"▼"} {spendOpen?"Hide":"Edit"} spend metadata
+                </button>
+                {spendOpen && <div style={{ marginTop:10 }}><SpendTagger entry={d} lib={lib} onSave={fields => saveLib(lib.map(x => x.id === d.id ? { ...x, ...fields } : x))} /></div>}
+              </div>
+            );
+          })()}
+
+          {canTag && (() => {
+            const [spendOpen, setSpendOpen] = React.useState(false);
+            return (
+              <div style={{ marginTop:14,borderTop:`0.5px solid ${D.border}`,paddingTop:10 }}>
+                <button onClick={()=>setSpendOpen(p=>!p)} style={{ background:"none",border:`0.5px solid ${D.border2}`,borderRadius:6,color:spendOpen?D.blue:D.textMuted,cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:500,padding:"4px 12px",display:"flex",alignItems:"center",gap:5 }}>
+                  {spendOpen?"▲ Hide":"▼ Edit"} spend metadata
+                </button>
+                {spendOpen && <div style={{ marginTop:10 }}><SpendTagger entry={d} lib={lib} onSave={fields => saveLib(lib.map(x => x.id === d.id ? { ...x, ...fields } : x))} /></div>}
+              </div>
+            );
+          })()}
 
           {d.auto_frames && d.auto_frames.length > 0 && (
             <div style={{ marginBottom: 10 }}>
@@ -1510,7 +1543,7 @@ export default function App() {
   };
 
   // Re-upload: keep existing metadata (tier/spend/creative_id/parent_id), re-run full analysis pipeline on new video
-  const handleReupload=useCallback(async(entry: DNAEntry, file: File, manualFrameFiles?: File[])=>{
+  const handleReupload=useCallback(async(entry: DNAEntry, file: File, manualFrameFiles?: File[], newContext?: string)=>{
     setReanalyzingIds(p=>new Set(p).add(entry.id));
     setReanalyzingEntry(entry.id);
     setAnalyzeStep("uploading"); setAnalyzeFileName(file.name);
@@ -1536,7 +1569,7 @@ export default function App() {
       const refParts=(()=>{try{const r=buildReferenceParts();return Array.isArray(r)?r:[];}catch{return[];}})();
       const frameParts=Array.isArray(extractedFrameParts)&&extractedFrameParts.length>0?[{text:"### EXTRACTED FRAMES:"},...extractedFrameParts]:[];
       const hasManual=manualParts.length>0;
-      const cfg={tier:entry.tier,ad_type:entry.ad_type,context:entry.upload_context||"",manual_frames:[]};
+      const cfg={tier:entry.tier,ad_type:entry.ad_type,context:newContext||entry.upload_context||"",manual_frames:[]};
       const rawDna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(hasManual?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
       const dna=sanitizeDNA(rawDna);
       setAnalyzeStep("saving");
@@ -2049,7 +2082,7 @@ export default function App() {
             </div>
           )}
 
-          {briefPanelOpen&&(
+          {briefPanelOpen&&!(!generating&&concepts.length>=4)&&(
             <div style={{ background:D.surface,border:`1.5px solid ${D.blueDark}`,borderRadius:10,overflow:"hidden",marginBottom:14,animation:"slideIn .2s ease-out" }}>
               <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:`0.5px solid ${D.border}` }}>
                 <div style={{ display:"flex",alignItems:"center",gap:8,color:D.blue,fontSize:13,fontWeight:500 }}>
@@ -2091,7 +2124,7 @@ export default function App() {
           )}
 
           {briefAnalysis&&(
-            <div style={{ background:D.surface,border:`0.5px solid ${D.border}`,borderRadius:10,padding:"14px 16px",marginBottom:16 }}>
+<div style={{ background:"#0d1f35",border:`1.5px solid ${D.blueDark}`,borderRadius:10,padding:"16px 18px",marginBottom:16,boxShadow:`0 0 0 1px ${D.blueBg}` }}>
               <div style={{ fontSize:9,fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase" as const,color:D.textDim,marginBottom:8 }}>Creative strategy</div>
               <p style={{ margin:"0 0 12px",fontSize:12,lineHeight:1.75,color:D.text }}>{briefAnalysis.strategy}</p>
               <div style={{ display:"flex",gap:16,flexWrap:"wrap" as const,paddingTop:10,borderTop:`0.5px solid ${D.border}` }}>
@@ -2112,7 +2145,7 @@ export default function App() {
           )}
 
           {concepts.map((c,ci)=>(
-            <div key={ci} style={{ background:expandedConcept===ci?"#161f2e":D.surface,border:`0.5px solid ${(c as any).is_experimental?"#9d174d":D.border}`,borderRadius:10,padding:0,marginBottom:10,overflow:"hidden",transition:"background .15s,box-shadow .15s",boxShadow:expandedConcept===ci?`0 0 0 2px ${D.blueBg}`:"none",borderLeft:`3px solid ${expandedConcept===ci?D.blue:"transparent"}` }}>
+            <div key={ci} style={{ background:expandedConcept===ci?"#161f2e":D.surface,border:`0.5px solid ${(c as any).is_experimental?"#9d174d":D.border}`,borderRadius:10,padding:0,marginBottom:10,overflow:"hidden",transition:"background .15s,box-shadow .15s,border-color .15s",boxShadow:expandedConcept===ci?`0 0 0 2px ${D.blueBg}`:"none",borderLeft:`3px solid ${expandedConcept===ci?D.blue:"transparent"}`,animation:`slideIn .2s ease-out ${ci*0.05}s both` }}>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",cursor:"pointer",padding:"14px 16px" }} onClick={()=>setExpandedConcept(expandedConcept===ci?null:ci)}>
                 <div style={{ flex:1 }}>
                   <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap" as const }}>
@@ -2135,7 +2168,7 @@ export default function App() {
                 </div>
                 <div style={{ display:"flex",flexDirection:"column" as const,alignItems:"flex-end",gap:4,marginLeft:16,flexShrink:0 }}>
                   {c.quality_score&&<><div style={{ fontSize:24,fontWeight:600,color:scoreColor(c.quality_score.overall),lineHeight:1 }}>{c.quality_score.overall}</div><div style={{ fontSize:9,color:D.textDim }}>quality</div></>}
-                  <div style={{ fontSize:9,color:expandedConcept===ci?D.blue:D.textDim,marginTop:4 }}>{expandedConcept===ci?"▲":"▼"}</div>
+  <div style={{ fontSize:11,padding:"4px 10px",borderRadius:6,background:expandedConcept===ci?D.blueBg:D.surface2,color:expandedConcept===ci?D.blue:D.textMuted,border:`0.5px solid ${expandedConcept===ci?D.blueDark:D.border2}`,fontWeight:500,marginTop:4,whiteSpace:"nowrap" as const }}>{expandedConcept===ci?"▲ Collapse":"▼ Expand"}</div>
                 </div>
               </div>
               {expandedConcept===ci&&(
@@ -2191,17 +2224,7 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  {c.network_adaptations&&Object.keys(c.network_adaptations).length>0&&(
-                    <div style={{ marginBottom:14 }}>
-                      <span style={{ ...labelStyle,marginBottom:8 }}>Network adaptations</span>
-                      <div style={{ display:"flex",flexDirection:"column" as const,gap:6 }}>
-                        {(["AppLovin","Facebook","Google","TikTok"] as const).filter(net=>c.network_adaptations?.[net]).map(net=>{
-                          const nc={AppLovin:{bg:D.blueBg,text:D.blue,border:D.blueDark},Facebook:{bg:D.surface2,text:D.textMuted,border:D.border2},Google:{bg:D.greenBg,text:D.green,border:D.greenBdr},TikTok:{bg:D.purpleBg,text:D.purple,border:D.purpleBdr}}[net];
-                          return <div key={net} style={{ display:"flex",gap:8,alignItems:"flex-start",fontSize:11,lineHeight:1.5 }}><span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:500,flexShrink:0,marginTop:1,background:nc.bg,color:nc.text,border:`0.5px solid ${nc.border}` }}>{net}</span><span style={{ color:D.textMuted }}>{c.network_adaptations![net]}</span></div>;
-                        })}
-                      </div>
-                    </div>
-                  )}
+
                   <div style={{ marginBottom:14 }}>
                     <span style={labelStyle}>Scene renders</span>
                     {c.is_experimental&&<div style={{ marginBottom:8,padding:"7px 12px",background:"#2a1a2e",border:"0.5px solid #9d174d",borderRadius:7,fontSize:11,color:"#f472b6" }}>⚠ Experimental biome — no spend data. Use for inspiration only.</div>}
@@ -2273,21 +2296,16 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  {c.quality_score&&(
-                    <div style={{ marginTop:4 }}>
-                      <span style={labelStyle}>Quality breakdown</span>
-                      <div style={{ display:"flex",flexDirection:"column" as const,gap:6,marginBottom:8 }}>
-                        {[{l:"Pattern fidelity",v:c.quality_score.pattern_fidelity},{l:"MOC DNA",v:c.quality_score.moc_dna},{l:"Emotional arc",v:c.quality_score.emotional_arc},{l:"Visual clarity",v:c.quality_score.visual_clarity},{l:"Segment fit",v:c.quality_score.segment_fit}].map(({l,v})=>(
-                          <div key={l} style={{ display:"flex",alignItems:"center",gap:10 }}>
-                            <span style={{ fontSize:11,color:D.textDim,width:110,flexShrink:0 }}>{l}</span>
-                            <div style={{ flex:1,height:5,background:D.surface2,borderRadius:3,overflow:"hidden" }}>
-                              <div style={{ width:`${v}%`,height:"100%",borderRadius:3,background:v>=85?D.green:v>=75?D.blue:D.gold }} />
-                            </div>
-                            <span style={{ fontSize:11,fontWeight:600,color:scoreColor(v),width:24,textAlign:"right" as const }}>{v}</span>
-                          </div>
-                        ))}
+
+                  {c.network_adaptations&&Object.keys(c.network_adaptations).length>0&&(
+                    <div style={{ marginTop:14,paddingTop:12,borderTop:`0.5px solid ${D.border}` }}>
+                      <span style={{ ...labelStyle,marginBottom:8 }}>Network adaptations</span>
+                      <div style={{ display:"flex",flexDirection:"column" as const,gap:6 }}>
+                        {(["AppLovin","Facebook","Google","TikTok"] as const).filter(net=>c.network_adaptations?.[net]).map(net=>{
+                          const nc={AppLovin:{bg:D.blueBg,text:D.blue,border:D.blueDark},Facebook:{bg:D.surface2,text:D.textMuted,border:D.border2},Google:{bg:D.greenBg,text:D.green,border:D.greenBdr},TikTok:{bg:D.purpleBg,text:D.purple,border:D.purpleBdr}}[net];
+                          return <div key={net} style={{ display:"flex",gap:8,alignItems:"flex-start",fontSize:11,lineHeight:1.5 }}><span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:500,flexShrink:0,marginTop:1,background:nc.bg,color:nc.text,border:`0.5px solid ${nc.border}` }}>{net}</span><span style={{ color:D.textMuted }}>{c.network_adaptations![net]}</span></div>;
+                        })}
                       </div>
-                      {c.quality_score.notes&&<p style={{ margin:0,fontSize:11,color:D.textMuted,fontStyle:"italic",lineHeight:1.5 }}>{c.quality_score.notes}</p>}
                     </div>
                   )}
                 </div>
