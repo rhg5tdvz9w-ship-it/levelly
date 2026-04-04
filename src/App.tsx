@@ -1242,7 +1242,8 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
                   {reuploading ? "↑ Uploading…" : "↑ Re-upload"}
                 </button>
               </>
-          )}
+            );
+          })()}
           <button
             style={btnDanger}
             onClick={() => { if (confirm(`Remove "${displayId || d.title}" from library?`)) saveLib(lib.filter(x => x.id !== d.id)); }}
