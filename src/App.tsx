@@ -398,10 +398,14 @@ function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string): any[] {
 const BIOME_GUIDE = `BIOMES: Foggy Forest(grey/white atmospheric fog,dark pines,grey road—NOT snow), Desert(tan sand,blue sky), Water(grey bridge over blue water), Bunker(grey concrete tunnel,pipes,industrial), Cyber-City(grey metal,orange/blue neon), Volcanic(red/orange lava,black rocks), Snow(white snow ground), Toxic(purple paths,green slime), Meadow(green hills,grey brick bridge)`;
 const CHAMPION_GUIDE = `CHAMPIONS (ONLY these exist in Mob Control): Captain Kaboom(blue round mob, green hat with yellow brim, fires 3 golden streams), Gold Golem(LARGE golden muscular humanoid), Caveman(blue-skin muscular humanoid, blonde hair, club), Mobzilla(green dinosaur/T-Rex, pink spines, red mouth, cartoonish), Nexus(blue/white/orange mech, orange sword), Red Hulk(large red humanoid), Kraken(red octopus), Femme Zombie(crawling female zombie boss), Yellow Normie(large yellow/red round creature — BOSS ENEMY with HP bar), Unknown(generic enemy tower). Enemy tower = red/grey fortified block structure with HP number. NEVER invent champion appearances. If a champion name is not on this list, draw Unknown/generic tower.`;
 const MOC_EVENTS_GUIDE = `MOC-SPECIFIC EVENTS TO HUNT FOR (timestamp ALL of these if present):
-- CANNON UPGRADE (unit evolution): Player mobs destroy a breakable obstacle/container on the road. Destroying it upgrades the cannon tier. ALWAYS use format: "Blue container (HP: [number shown on it]) destroyed — cannon upgrades from [tier] to [tier]". Report the HP number visible on the container. If no number visible, describe its role: "upgrade container" (has cannon icon = gives upgrade), "empty container" (no icon = just health), "barrel/box" (environment obstacle). ALWAYS use exact tier names below.
+- CONTAINER DESTRUCTION: The MOB SWARM destroys a breakable container/obstacle. Report it with HP number visible. CRITICAL — containers have two types:
+  * UPGRADE CONTAINER: Has a cannon/unit icon visible ON TOP of the container. Destroying this one upgrades the cannon tier. Use: "Upgrade container (HP:20, cannon icon) destroyed — cannon upgrades from Simple to Double Cannon"
+  * EMPTY CONTAINER: Has NO icon on top — just a health number. Destroying this does NOT upgrade the cannon. Use: "Empty container (HP:184) destroyed — no upgrade"
+  * If you cannot see whether there is an icon, look at what happens to the cannon IMMEDIATELY after destruction. If the cannon visually changes shape/size, it was an upgrade container. If the cannon looks the same, it was empty.
+  * NEVER assume every container = upgrade. Most containers in a video are empty health obstacles.
 - GIANT/BOSS DEATH: Large enemy giant or boss character defeated. ALWAYS timestamp — key emotional payoff. REQUIRED: every boss death MUST appear in the giant_kills array with timestamp, name (e.g. "Yellow Normie", "Red Giant"), and a note on how it died (e.g. "overwhelmed by mob swarm at swarm peak").
-- X GATE PASS: Player mobs pass through a multiplication gate (xN). Report gate value and timestamp for EACH pass.
-- + GATE PASS: Player mobs pass through an addition gate (+N). Report gate value and timestamp.
+- X GATE PASS: The MOB SWARM passes through a multiplication gate (xN). Report gate value and timestamp for EACH pass.
+- + GATE PASS: The MOB SWARM passes through an addition gate (+N), which adds more cannons to the firing lineup (not more mobs). Report gate value and timestamp.
 - ALMOST-FAIL MOMENT: Player mob count drops to dangerously low level (near wipeout) but survives.
 - SWARM PEAK: Maximum mob count on screen.
 - FINAL FAIL/DEFEAT: Last mob destroyed, FAILED screen appears.
@@ -421,15 +425,15 @@ When you see an upgrade: "Cannon upgrades from [previous tier] to [new tier]" us
 CRITICAL: Hunt for EVERY container/obstacle on screen — missing one means a wrong evolution chain.
 CANNON MULTIPLICATION IS NOT AN UPGRADE: +N gates increase cannon COUNT (how many fire) — the cannon MODEL stays the same. Only container destruction changes Simple→Double→Triple→Tank.
 EVIDENCE RULE: For each unit_evolution_chain step, report what triggered it in the description field (e.g. "Blue container HP:20 destroyed" or "red barrel destroyed" or "unknown trigger at 7s — cannon visually changed"). If you can see a container HP number, always include it. If you cannot identify the trigger, describe what you observe visually rather than inventing one.
-NEVER SKIP TIERS: If you see Simple Cannon at start and Triple Cannon later, there MUST be a Double Cannon step unless you can confirm visually that the upgrade went directly from Simple to Triple (some MOC variants allow this — note it in replication_instructions).`;
+TIER COUNT RULE: Count the number of UPGRADE CONTAINERS (those with a cannon icon) you saw destroyed. That count equals the number of entries to add to unit_evolution_chain AFTER the starting cannon. Example: started as Simple Cannon, saw 1 upgrade container destroyed → chain is [Simple Cannon, Double Cannon]. Saw 2 upgrade containers → [Simple Cannon, Double Cannon, Triple Cannon]. Do NOT add tiers you did not see upgrade containers for. Trust your container icon count over logical sequence.`;
 
 const GATE_GUIDE = `GATES — CRITICAL: passing through ANY gate NEVER upgrades the cannon model. Gates only affect mob COUNT.
 - Multiplication gate (x value, e.g. x3): multiplies the NUMBER OF MOBS in the lane. x3 = triple the mobs. ONLY this changes mob count.
-- Addition gate (+ value, e.g. +3): adds more mobs to the lane. Does NOT change the cannon model in any way.
-- Death gate (RED rect + SKULL): instantly kills ALL player mobs.
+- Addition gate (+ value, e.g. +3): when the mob swarm passes through, it adds +N more CANNONS to the firing lineup (the cannon count grows). Does NOT multiply mobs. Does NOT change the cannon MODEL/TIER.
+- Death gate (RED rect + SKULL): instantly kills ALL mobs in the swarm.
 - Dynamic gate: activates when nearby structures are broken.
 
-CANNON UPGRADE RULE — ABSOLUTE: The cannon model (Simple/Double/Triple/Tank) ONLY changes when player mobs physically DESTROY a breakable obstacle/container on the road. This is a separate event from any gate pass. NEVER write "cannon upgrades after passing a gate". If you see a cannon change and a gate in the same second, the upgrade came from a container that was also destroyed at that moment, NOT from the gate.
+CANNON UPGRADE RULE — ABSOLUTE: The cannon model (Simple/Double/Triple/Tank) ONLY changes when the MOB SWARM physically DESTROYS a breakable obstacle/container on the road. This is a separate event from any gate pass. NEVER write "cannon upgrades after passing a gate". If you see a cannon change and a gate in the same second, the upgrade came from a container that was also destroyed at that moment, NOT from the gate.
 Report EVERY gate with its exact value. If unclear: "x?" or "+?".
 cannon_count_log: track cannon count as a running string showing only +N gate changes: "1 cannon start → +2 gate at 3s: 3 cannons → +3 gate at 8s: 6 cannons". x-gates do NOT appear here (they affect mobs, not cannons).`;
 const HOOK_GUIDE = `HOOK: EXACT SECOND thumb stops scrolling. NEVER 0 unless frame-0 drama. hook_timing_seconds=REAL SECOND (2,4,8) NEVER fraction.`;
@@ -439,7 +443,9 @@ const frameExtractionSystem = () => `Precise video timestamp analyst for Mob Con
 
 RULES:
 1. MUST timestamp these MOC events if present: container destructions, unit evolutions, giant/boss deaths, every x-gate pass (with value), almost-fail moments, swarm peak, final defeat
-2. VERIFICATION RULE: For each event you report, confirm you can see it in the frame image. If the frame shows something different, trust the frame over your prediction. Write only what you can visually confirm.
+2. VERIFICATION RULE: For each event you report, confirm you can see it in the frame image. Trust the extracted frame images above all else.
+   - For cannon upgrades specifically: look for a frame where the cannon VISUALLY CHANGES shape. If no frame shows a cannon shape change, do not add that tier to unit_evolution_chain.
+   - For container destructions: look for a cannon/unit icon ON TOP of the container before it's destroyed. No icon = empty container = no upgrade.
 2. Fill gaps larger than 8 seconds with a filler timestamp
 3. Total timestamps: between 10 and 14. Never more than 14.
 4. ${TIMESTAMP_RULES}
@@ -469,12 +475,12 @@ ${MOC_EVENTS_GUIDE}
 ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}
 CRITICAL: If the CONTEXT mentions a specific number of upgrades or unit evolutions, trust that count and find the correct timestamps for each. Do not under-count.
-UNIT EVOLUTION CHAIN: ONLY physical cannon upgrades triggered by container/obstacle DESTRUCTION. NEVER add a tier because a gate was passed — gates change mob count, never cannon model. Never skip tiers (Simple must come before Double). Exact names: Simple Cannon, Double Cannon, Triple Cannon, Tank, Golden Jet.
+UNIT EVOLUTION CHAIN: Count only UPGRADE CONTAINERS destroyed (containers with a cannon icon on top). The chain starts with the initial cannon tier and adds one tier per upgrade container seen. NEVER add a tier for an empty container. NEVER add Tank or Golden Jet unless you explicitly saw a 4th or 5th upgrade container with icon destroyed. Most MOC ads have 1-2 upgrades, rarely 3. If unsure, default to fewer tiers — it is better to under-report than invent. Exact tier names: Simple Cannon → Double Cannon → Triple Cannon → Tank.
 FRAME EMOTIONS: For each timestamp in the TIMESTAMP MAP, assign a single emotion word capturing the player's feeling (Anticipation, Excitement, Satisfaction, Empowerment, Tension, Almost Fail, Dread, Defeat, Triumph). Return as frame_emotions array with matching timestamps.
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
 Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"frame_emotions":[{"timestamp_seconds":number,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
 const reanalysisSystem = (entry: DNAEntry) =>
-  `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate type confusion (+ gates = cannon firing count, x gates = mob multiplier) 4.unit_evolution_chain — exact tier names only: Simple Cannon→Double Cannon→Triple Cannon→Tank→Golden Jet. Fix generic names. REMOVE any tier that was added because of a gate pass (gates never upgrade cannon). Each tier requires a container destruction event. 5.frame_emotions — one emotion per timestamp 6.giant_kills — add any missed boss/giant deaths as [{timestamp_seconds, giant_name, note}] 7.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${MOC_EVENTS_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
+  `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate type confusion (+ gates = cannon firing count, x gates = mob multiplier) 4.unit_evolution_chain — count only UPGRADE CONTAINERS (with cannon icon on top) that were destroyed. REMOVE any tier beyond what upgrade containers justify. Most ads: 1-2 upgrades. Only add Tank/Golden Jet if 3rd/4th upgrade container was explicitly seen. Trust extracted frames to count upgrades. 5.frame_emotions — one emotion per timestamp 6.giant_kills — add any missed boss/giant deaths as [{timestamp_seconds, giant_name, note}] 7.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${MOC_EVENTS_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
 
 const briefSystem = (lib: any[], ctx: string, seg: string, iterateFrom?: string, refNote?: string) => {
   const refBlock = iterateFrom ? `\nITERATE FROM: "${iterateFrom}" — creative starting point.\n` : "";
@@ -497,7 +503,13 @@ MOC MECHANICS — READ CAREFULLY, THESE ARE EXACT RULES:
 
 NETWORK RULES: AppLovin=custom side cam+skeleton/knight hook+blue+3+ evolution steps. Facebook=default cam+almost-win 1-5HP+colour/biome swap. Google=almost-win+foggy forest/water.
 HOOK CHARACTERS: The skeleton and knight are ENEMY boss hook characters that appear at 0s. The SKELETON is a large realistic human skeleton (bone-white, full ribcage, skull head) that physically blocks or kicks the cannon. The KNIGHT is a large armored enemy boss that challenges the cannon. They are NOT player avatars, NOT champions — they are the antagonist hook. Do not confuse them with player units.
-PLAYER UNIT: The cannon IS the player (Simple Cannon/Double Cannon/Triple Cannon/Tank). Golden Jet is NOT a player unit in ads. No player avatar exists. The "player_champion" visual identity field should describe the cannon appearance only.
+PLAYER UNIT TERMINOLOGY — CRITICAL:
+- CANNON = the wheeled vehicle at the bottom of the screen (Simple Cannon, Double Cannon, etc). This is the player's main unit. It moves up the lane. It does NOT pass through gates.
+- MOBS = the small round blob creatures that flow ahead of and around the cannon. They are projectiles/followers. MOBS pass through gates. MOBS destroy containers (by swarming them). MOBS fight enemy mobs.
+- NEVER say "player mobs pass through a +1 gate" — +1 gates change how many CANNONS are firing (cannon count), not mob count. The cannon count grows when mobs flow through +N gates.
+- NEVER say "player mobs pass through a xN gate" — xN gates multiply the MOB count, not cannon count.
+- CORRECT language: "Mob swarm passes through x4 gate, multiplying from 6 to 24 mobs" / "Swarm passes through +1 gate, adding 1 more firing cannon (now 2 cannons)"
+- The "player_mob_color" field = the colour of the small blob mobs (e.g. blue). The cannon is always blue/grey.
 BIOME SELECTION: If user specifies a biome in their prompt, use EXACTLY that biome for data-backed concepts. Do NOT substitute. Desert+Facebook = CZ65 ($7K/d top-1) + CT43 as primary DNA. Foggy Forest+Facebook = CB57+CR17. Water = CZ94+CV73. Biome directly determines network fit — match the user's stated target.
 9-STEP CURVE: Pressure→Investment→Validate→Investment2→Payoff→FalseSafety→Pressure++→AlmostWin→Fail
 BIOMES (concepts 1-2): Desert, Foggy Forest, Water, Bunker, Meadow ONLY. Concept 3: experimental biome (is_experimental:true).
@@ -1440,7 +1452,24 @@ export default function App() {
 
     fetch("/api/load-library")
       .then(r=>{ if(!r.ok) throw new Error(); return r.json(); })
-      .then((data: DNAEntry[])=>{ if(Array.isArray(data)&&data.length>0) setLib(sanitizeLib(data)); else { try { const l=localStorage.getItem("levelly_dna_library"); if(l) setLib(sanitizeLib(JSON.parse(l))); } catch {} } setLibraryLoaded(true); })
+      .then((data: DNAEntry[])=>{
+      if(Array.isArray(data)&&data.length>0){
+        // Restore image_data from localStorage — Blobs strips frames to stay under size limit
+        try {
+          const local=localStorage.getItem("levelly_dna_library");
+          if(local){
+            const localMap=new Map(JSON.parse(local).map((e: DNAEntry)=>[e.id,e]));
+            const merged=data.map((e: DNAEntry)=>{
+              const loc=localMap.get(e.id) as DNAEntry|undefined;
+              if(!loc?.auto_frames) return e;
+              const imgMap=new Map(loc.auto_frames.map(f=>[f.timestamp_seconds,f.image_data]));
+              return{...e,auto_frames:e.auto_frames?.map(f=>({...f,image_data:imgMap.get(f.timestamp_seconds)??f.image_data}))};
+            });
+            setLib(sanitizeLib(merged));
+          } else setLib(sanitizeLib(data));
+        } catch { setLib(sanitizeLib(data)); }
+      } else { try { const l=localStorage.getItem("levelly_dna_library"); if(l) setLib(sanitizeLib(JSON.parse(l))); } catch {} }
+      setLibraryLoaded(true); })
       .catch(()=>{ try { const l=localStorage.getItem("levelly_dna_library"); if(l) setLib(sanitizeLib(JSON.parse(l))); } catch {} setLibraryLoaded(true); });
   },[]);
 
