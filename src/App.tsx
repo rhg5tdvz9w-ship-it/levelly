@@ -295,7 +295,7 @@ async function extractFramesFromVideo(
     const safeTimestamps = timestamps
       .map(t => Math.min(Math.max(t, 0), Math.max(duration - 0.1, 0)))
       .filter((t, i, arr) => arr.indexOf(t) === i) // dedupe
-      .slice(0, 14); // hard cap — matches frameExtractionSystem max
+      .slice(0, 25); // hard cap — matches increased frameExtractionSystem max
 
     let idx = 0;
 
@@ -513,9 +513,9 @@ RULES:
    - For cannon upgrades specifically: look for a frame where the cannon VISUALLY CHANGES shape. If no frame shows a cannon shape change, do not add that tier to unit_evolution_chain.
    - For container destructions: look for a cannon/unit icon ON TOP of the container before it's destroyed. No icon = empty container = no upgrade.
 2. Fill gaps larger than 8 seconds with a filler timestamp
-3. Total timestamps: between 10 and 14. Never more than 14.
+3. Total timestamps: between 18 and 24. Never more than 24. Prioritize every second where you see a visual change (cannon shape change, gate pass, container destruction, giant appearance). Fill gaps larger than 3 seconds with intermediate timestamps.
 4. ${TIMESTAMP_RULES}
-5. No two timestamps closer than 2 seconds apart
+5. No two timestamps closer than 1 second apart
 6. ONLY report what you can clearly see. If ambiguous, skip — do not guess.
 
 ${MOC_EVENTS_GUIDE}
@@ -546,7 +546,7 @@ ${MOC_EVENTS_GUIDE}
 ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}
 UNIT EVOLUTION CHAIN: Look through the extracted frame images and count how many frames show a cannon WITH A UNIT ICON on a container (= upgrade container). That count = number of upgrades. Add one tier to the chain per upgrade. NEVER add Tank or Golden Jet unless you see a 4th/5th upgrade container icon in the frames. Most ads: 1-2 upgrades. Default to fewer if unsure. CROSS-CHECK: the cannon in later frames should visually look different (more barrels) than earlier frames — use this to validate your upgrade count. Exact tier names: Simple Cannon → Double Cannon → Triple Cannon → Tank.
-FRAME EMOTIONS: For each extracted frame timestamp, assign one emotion word for the player's feeling at that moment (Anticipation, Excitement, Satisfaction, Empowerment, Tension, Almost Fail, Dread, Defeat, Triumph). Return as frame_emotions array using the same timestamps as your auto_frames entries.
+FRAME EMOTIONS: For each extracted frame timestamp shown above, assign one emotion word (Anticipation, Excitement, Satisfaction, Empowerment, Tension, Almost Fail, Dread, Defeat, Triumph). Return as frame_emotions array. Include ALL timestamps you received frames for — not just key moments.
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
 Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"frame_emotions":[{"timestamp_seconds":number,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
 // Field groups for surgical refinement — each group maps to specific concept fields
@@ -1683,10 +1683,17 @@ export default function App() {
       else { videoPart={inlineData:{mimeType:file.type,data:await fileToBase64(file)}}; }
       setAnalyzeStep("frames");
       let autoFrames: FrameExtraction[]=[],duration=30;
-      try { const fr=await callGeminiDirect(frameExtractionSystem(),[{text:"Extract 8 key frames:"},videoPart]); autoFrames=Array.isArray(fr?.frames)?fr.frames:[]; duration=typeof fr?.duration_seconds==="number"?fr.duration_seconds:30; } catch(frameErr: any){ console.warn("Frame extraction failed:",frameErr?.message); }
+      try { const fr=await callGeminiDirect(frameExtractionSystem(),[{text:"Extract 20-24 key frames — prioritise every second with a visible change, fill gaps between events:"},videoPart]); autoFrames=Array.isArray(fr?.frames)?fr.frames:[]; duration=typeof fr?.duration_seconds==="number"?fr.duration_seconds:30; } catch(frameErr: any){ console.warn("Frame extraction failed:",frameErr?.message); }
       let extractedFrameParts: any[]=[];
       try {
-        const timestamps=autoFrames.map(f=>f.timestamp_seconds).filter(t=>typeof t==="number");
+        const baseTs=autoFrames.map(f=>f.timestamp_seconds).filter(t=>typeof t==="number").sort((a,b)=>a-b);
+        // Fill gaps > 2s with uniform frames so no significant moment is missed
+        const filledTs=new Set(baseTs.map(t=>Math.round(t)));
+        for(let s=0;s<duration-1;s+=2){
+          const nearbyFrame=baseTs.some(t=>Math.abs(t-s)<1.5);
+          if(!nearbyFrame&&filledTs.size<25) filledTs.add(s);
+        }
+        const timestamps=Array.from(filledTs).sort((a,b)=>a-b);
         if(timestamps.length>0){ setAnalyzeStep("extracting"); extractedFrameParts=await extractFramesFromVideo(file,timestamps,duration); }
       } catch(canvasErr: any){ console.warn("Canvas extraction failed:",canvasErr?.message); }
       setAnalyzeStep("hook");
@@ -1747,12 +1754,18 @@ export default function App() {
         else { videoPart={inlineData:{mimeType:file.type,data:await fileToBase64(file)}}; }
         setAnalyzeStep("frames");
         let autoFrames: FrameExtraction[]=[],duration=30;
-        try { const fr=await callGeminiDirect(frameExtractionSystem(),[{text:"Extract 8 key frames:"},videoPart]); autoFrames=Array.isArray(fr?.frames)?fr.frames:[]; duration=typeof fr?.duration_seconds==="number"?fr.duration_seconds:30; } catch(frameErr: any){ console.warn("Frame extraction failed:",frameErr?.message); }
+        try { const fr=await callGeminiDirect(frameExtractionSystem(),[{text:"Extract 20-24 key frames — prioritise every second with a visible change, fill gaps between events:"},videoPart]); autoFrames=Array.isArray(fr?.frames)?fr.frames:[]; duration=typeof fr?.duration_seconds==="number"?fr.duration_seconds:30; } catch(frameErr: any){ console.warn("Frame extraction failed:",frameErr?.message); }
 
         // Extract actual frame images at Gemini's chosen timestamps (non-blocking fallback)
         let extractedFrameParts: any[] = [];
         try {
-          const timestamps = autoFrames.map(f => f.timestamp_seconds).filter(t => typeof t === "number");
+          const baseTs2=autoFrames.map(f=>f.timestamp_seconds).filter(t=>typeof t==="number").sort((a,b)=>a-b);
+          const filledTs2=new Set(baseTs2.map(t=>Math.round(t)));
+          for(let s=0;s<duration-1;s+=2){
+            const nearbyFrame=baseTs2.some(t=>Math.abs(t-s)<1.5);
+            if(!nearbyFrame&&filledTs2.size<25) filledTs2.add(s);
+          }
+          const timestamps=Array.from(filledTs2).sort((a,b)=>a-b);
           if (timestamps.length > 0) {
             setAnalyzeStep("extracting");
             extractedFrameParts = await extractFramesFromVideo(file, timestamps, duration);
