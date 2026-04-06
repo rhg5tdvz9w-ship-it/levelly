@@ -358,8 +358,15 @@ function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string): any[] {
     biome.includes("volcanic") ? "volcanic" :
     biome.includes("snow") ? "snow" : biome;
 
-  const biomeRef = populated.find(r => r.category === "biome" && r.label.toLowerCase().includes(biomeKeyword));
+  // For biomes with multiple refs, prefer the one matching the scene type
+  // Desert has both top-down and side-cam refs — pick based on what's available
+  let biomeRef = populated.find(r => r.category === "biome" && r.label.toLowerCase().includes(biomeKeyword));
   if (biomeRef) selected.push(biomeRef);
+  // For desert, also include the second biome ref (barrels/obstacles variant)
+  if (biome.includes("desert")) {
+    const desertRef2 = populated.find(r => r.category === "biome" && r.label.toLowerCase().includes("desert") && r !== biomeRef);
+    if (desertRef2 && !selected.includes(desertRef2)) selected.push(desertRef2);
+  }
 
   // 2. Cannon tier ref — match the specific tier being rendered
   if (unitAtScene) {
@@ -380,13 +387,29 @@ function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string): any[] {
     if (simpleRef) selected.push(simpleRef);
   }
 
-  // 3. Gate refs — always include to show correct colours and style
+  // 3. Champion/boss ref — match enemy_champion from visual_identity
+  if (vi.enemy_champion) {
+    const champLower = vi.enemy_champion.toLowerCase().replace(/\s+/g, "_");
+    const champRef = populated.find(r =>
+      (r.category === "champion" || r.category === "boss" || r.category === "enemy" || r.category === "giant") &&
+      (r.key.includes(champLower) || r.label.toLowerCase().includes(vi.enemy_champion!.toLowerCase()))
+    );
+    if (champRef && !selected.includes(champRef)) selected.push(champRef);
+  }
+
+  // 4. Upgrade container ref — include triple_cannon_container when there are upgrades
+  if (unitAtScene && unitAtScene !== "Simple Cannon") {
+    const upgradeContainerRef = populated.find(r => r.key === "triple_cannon_container");
+    if (upgradeContainerRef && !selected.includes(upgradeContainerRef)) selected.push(upgradeContainerRef);
+  }
+
+  // 5. Gate refs — always include to show correct colours and style
   const gateRef = populated.find(r => r.key === "x_gates_purple");
   const plusGateRef = populated.find(r => r.key === "plus_gates_blue");
   if (gateRef && !selected.includes(gateRef)) selected.push(gateRef);
-  if (plusGateRef && !selected.includes(plusGateRef) && selected.length < 5) selected.push(plusGateRef);
+  if (plusGateRef && !selected.includes(plusGateRef)) selected.push(plusGateRef);
 
-  const parts: any[] = [{ text: "### MOC VISUAL REFERENCES — match this exact art style, road layout, gate style, and game aesthetic:" }];
+  const parts: any[] = [{ text: `### MOC VISUAL REFERENCES (${selected.length} refs: ${selected.map(r=>r.key).join(", ")}) — match this exact art style, road layout, gate style, and game aesthetic:` }];
   selected.forEach(ref => {
     parts.push({ text: `[${ref.category.toUpperCase()}]: ${ref.label}` });
     parts.push({ inlineData: { mimeType: (ref as any).mimeType || "image/png", data: ref.base64 } });
@@ -396,7 +419,7 @@ function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string): any[] {
 
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 const BIOME_GUIDE = `BIOMES: Foggy Forest(grey/white atmospheric fog,dark pines,grey road—NOT snow), Desert(tan sand,blue sky), Water(grey bridge over blue water), Bunker(grey concrete tunnel,pipes,industrial), Cyber-City(grey metal,orange/blue neon), Volcanic(red/orange lava,black rocks), Snow(white snow ground), Toxic(purple paths,green slime), Meadow(green hills,grey brick bridge)`;
-const CHAMPION_GUIDE = `CHAMPIONS (ONLY these exist in Mob Control): Captain Kaboom(blue round mob, green hat with yellow brim, fires 3 golden streams), Gold Golem(LARGE golden muscular humanoid), Caveman(blue-skin muscular humanoid, blonde hair, club), Mobzilla(green dinosaur/T-Rex, pink spines, red mouth, cartoonish), Nexus(blue/white/orange mech, orange sword), Red Hulk(large red humanoid), Kraken(red octopus), Femme Zombie(crawling female zombie boss), Yellow Normie(large yellow/red round creature — BOSS ENEMY with HP bar), Unknown(generic enemy tower). Enemy tower = red/grey fortified block structure with HP number. NEVER invent champion appearances. If a champion name is not on this list, draw Unknown/generic tower.`;
+const CHAMPION_GUIDE = `CHAMPIONS (ONLY these exist in Mob Control): Captain Kaboom(blue round mob, green hat with yellow brim, fires 3 golden streams), Gold Golem(LARGE golden muscular humanoid), Caveman(blue-skin muscular humanoid, blonde hair, club), Mobzilla(green dinosaur/T-Rex, pink spines, red mouth, cartoonish), Nexus(blue/white/orange mech, orange sword), Red Hulk(large red humanoid), Kraken(red octopus), Femme Zombie(crawling female zombie boss), Yellow Normie(LARGE HUMANOID giant, bright yellow skin, bald round head, simple chunky body like a cartoon yellow man/golem, stands upright on 2 legs, arms raised in attack pose, RED HP bar above head, approximately 3x height of lane width — NOT a blob, NOT a sphere, IS a humanoid figure), Unknown(generic enemy tower). Enemy tower = red/grey fortified block structure with HP number. NEVER invent champion appearances. If a champion name is not on this list, draw Unknown/generic tower.`;
 const MOC_EVENTS_GUIDE = `MOC-SPECIFIC EVENTS TO HUNT FOR (timestamp ALL of these if present):
 - CONTAINER DESTRUCTION: The MOB SWARM destroys a breakable container/obstacle. Report it with HP number visible. CRITICAL — containers have two types:
   * UPGRADE CONTAINER: Has a cannon/unit icon visible ON TOP of the container. Destroying this one upgrades the cannon tier. Use: "Upgrade container (HP:20, cannon icon) destroyed — cannon upgrades from Simple to Double Cannon"
@@ -493,21 +516,22 @@ const REFINE_FIELD_GROUPS = {
   strategy: ["objective","title"],
 } as const;
 
-const refinementSystem = (fields: Partial<Concept>, userPrompt: string, fieldNames: string[]) =>
-  `You are surgically editing specific fields of a Mob Control ad brief.
+const refinementSystem = (fields: Partial<Concept>, userPrompt: string, fieldNames: string[], subFieldHints?: string[]) =>
+  `You are making a surgical edit to a Mob Control ad brief. Apply ONLY the specific change requested.
 
-FIELDS TO MODIFY (ONLY THESE — return ONLY these fields in your JSON response):
+CURRENT VALUES OF FIELDS YOU MAY EDIT:
 ${JSON.stringify(fields, null, 2)}
 
 USER REQUEST: ${userPrompt}
 
-RULES:
-- Return a JSON object containing ONLY the fields listed above. No other fields.
-- Apply the user's request precisely to these fields only.
-- For visual_identity: only change the specific sub-field mentioned (e.g. environment only, not lighting or mob colors).
-- For unit_evolution_chain: use exact tier names — Simple Cannon, Double Cannon, Triple Cannon, Tank. Also update upgrade_triggers to match.
-- Be conservative — if unsure whether a sub-field should change, leave it as-is.
-- Return ONLY valid JSON. No explanation. No markdown.`;
+STRICT RULES:
+- Return a JSON object containing ONLY the fields listed: ${fieldNames.join(", ")}
+${subFieldHints && subFieldHints.length > 0 ? `- Within visual_identity, change ONLY these sub-fields: ${subFieldHints.join(", ")}. Leave all other sub-fields (lighting, player_mob_color, enemy_mob_color, mood_notes, cannon_type, gate_values) EXACTLY as they are.` : ""}
+- Do NOT change any sub-field that the user did not mention.
+- Do NOT infer related changes (e.g. if user says "change biome to Desert", do NOT change lighting or mood — only change environment and biome_visual_notes).
+- For unit_evolution_chain: use ONLY exact tier names — Simple Cannon, Double Cannon, Triple Cannon, Tank.
+- Be maximally conservative — change the minimum necessary to satisfy the request.
+- Return ONLY valid JSON matching the exact field names above. No explanation. No markdown.`;
 
 const reanalysisSystem = (entry: DNAEntry) =>
   `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate type confusion (+ gates = cannon firing count, x gates = mob multiplier) 4.unit_evolution_chain — count only UPGRADE CONTAINERS (with cannon icon on top) that were destroyed. REMOVE any tier beyond what upgrade containers justify. Most ads: 1-2 upgrades. Only add Tank/Golden Jet if 3rd/4th upgrade container was explicitly seen. Trust extracted frames to count upgrades. 5.frame_emotions — one emotion per timestamp 6.giant_kills — add any missed boss/giant deaths as [{timestamp_seconds, giant_name, note}] 7.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${MOC_EVENTS_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
@@ -526,7 +550,7 @@ ${seg==="Whale"?"Whale: Age 45-59 (68%), male, USA. Completionist mindset — #1
 
 MOC MECHANICS TO UNDERSTAND BEFORE GENERATING:
 MOC MECHANICS — READ CAREFULLY, THESE ARE EXACT RULES:
-- CANNON EVOLUTION: Destroying a breakable obstacle on the road upgrades the cannon tier. Exact chain: Simple Cannon → Double Cannon → Triple Cannon → Tank. STOP AT TANK — Golden Jet is NOT used in ads as a cannon evolution step. Do NOT include Golden Jet in unit_evolution_chain.
+- CANNON EVOLUTION: Destroying a breakable obstacle on the road upgrades the cannon tier. Exact chain: Simple Cannon → Double Cannon → Triple Cannon → Tank. Obstacle appearance varies by biome: Forest/Foggy=blue wooden crate, Desert=sandstone block, Bunker=metal ammo box, Volcanic=obsidian rock, Snow=ice block, Cyber-City=tech console. Each upgrade container has a CANNON ICON drawn on its face. STOP AT TANK.
 - +N GATES (Investment path): Multiply the NUMBER OF CANNONS firing. +3 means 3 more cannons added. This is the ONLY way cannon count grows. cannon_count_progression must only show +gate changes. Example: "1 → 3 (via +2 gate) → 8 (via +5 gate) → 14 (via +6 gate)"
 - xN GATES (Danger zone): Multiply the NUMBER OF MOBS already flowing in the lane. x3 triples the mobs currently passing through. Cannon count is UNAFFECTED by xN gates. NEVER write "cannons multiply via x gate". xN gates are dangerous because enemy mobs also surge in.
 - LANE ARCHITECTURE: Every MOC ad has 3 structural elements arranged spatially on the road so ALL are visible simultaneously from the top-down camera: (1) INVESTMENT PATH — +N gate panels that grow cannon count; (2) UPGRADE PATH — breakable obstacles (red block, barrel, crate, turret cluster) that trigger cannon tier upgrade when destroyed; (3) DANGER ZONE — xN gates + enemy mobs that multiply mob count with risk. DEFAULT spatial arrangement: +N gates on LEFT sub-lane, xN danger zone in CENTER main lane, upgrade obstacle on RIGHT. Lanes CAN swap — specify the exact arrangement in lane_design if different. The lane_design field must describe: (a) which element is on which side, (b) what obstacle or mechanic blocks access to each element, (c) what tension this creates for the player. This description will be used directly to generate scene renders.
@@ -595,9 +619,10 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
 - Single ${unitAtScene} cannon at BOTTOM CENTER. Cannon looks EXACTLY like the reference images: small rounded barrel body on 4 small black wheels. Cartoon 3D. Blue/grey color. NOT a military tank, NOT a truck, NOT a realistic vehicle.
 - 6-10 ${vi.player_mob_color} round blob mobs near the cannon — very sparse
 - CRITICAL — THE ROAD HAS 3 PARALLEL SUB-PATHS SIDE BY SIDE (same road width, divided into 3 lanes):
-  * LEFT LANE: 4-6 identical Bright BLUE "+N" flat rectangular gate panels ALL showing the SAME value — they fill the ENTIRE left third of the road
+  * LEFT LANE: 4-6 identical Bright BLUE "+N" gate panels ALL showing the SAME "+1" value (or use the +N values from gate_values if specified: ${(vi.gate_values||[]).filter(g=>g.startsWith("+")).join(", ")||"+1"}) — they fill the ENTIRE left third of the road
   * CENTER LANE: Main driving path — purple/pink xN gate panel + red enemy mob cluster ahead
-  * RIGHT LANE: 3-4 breakable upgrade obstacles in FIXED order weakest→strongest: Simple Cannon icon, then Double Cannon, then Triple Cannon — player sees the full upgrade path
+  * RIGHT LANE: ${upgradeTriggers.length > 0 ? `Breakable upgrade obstacles as described: ${upgradeTriggers[0]}` : `3-4 breakable upgrade containers stacked in order. Container style: ${{"Foggy Forest":"blue wooden crate","Desert":"sandstone/clay block","Bunker":"metal ammo crate","Volcanic":"obsidian rock block","Snow":"ice block","Cyber-City":"glowing tech console","Meadow":"hay bale/wooden box"}[vi.environment||"Foggy Forest"]||"blue wooden crate"}. Each container has a CANNON UPGRADE ICON on top.`}
+  * If the user specified a custom obstacle type (e.g. "egyptian sculptures", "stone pillars", "crystal formations"): draw that object in MOC cartoon 3D art style matching the game's visual language — same polygon count, same lighting, same color saturation as other game objects. It does NOT need to be a real MOC asset
   * [If lane_design specifies a different arrangement: "${laneDesign ? laneDesign.split(".")[0] : "use default described above"}"]
   * ALL THREE sub-paths are visible simultaneously in this top-down view — player can see all options
 - Enemy tower at very TOP of lane: health bar 100% full
@@ -606,10 +631,10 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
     middle: `MID-BATTLE SCENE — 3/4 top-down view, peak tension:
 - ${unitAtScene} cannon — SAME cartoon style as reference images. Small wheeled barrel. NOT a tank or vehicle. ${cannonCountAtScene}
 - Large ${vi.player_mob_color} swarm fills 40-55% of lane
-- LANE STRUCTURE still present on road:
-  * LEFT: +N blue gate (investment already partially used — cannon count grew)  
-  * CENTER: purple xN gate (${(vi.gate_values||["x3"]).find(g => g.startsWith("x")) || "x3"}) — danger zone active, red enemy mobs surging
-  * RIGHT: ${upgradeTriggers[0] ? `upgrade triggered — "${upgradeTriggers[0]}" — debris visible` : "upgrade obstacle just destroyed — rubble on road, cannon visually upgraded"}
+- LANE STRUCTURE still present on road (follow this lane design: ${laneDesign ? laneDesign.split(".")[0] : "default 3-lane"}):
+  * LEFT: +N blue gate (cannon count grew from investment)
+  * CENTER: purple xN gate (${(vi.gate_values||["x3"]).find((g:string) => g.startsWith("x")) || "x3"}) — red enemy mobs surging
+  * RIGHT: ${upgradeTriggers[0] ? `"${upgradeTriggers[0]}" — partially destroyed, debris visible` : "upgrade container just destroyed — rubble on road"}
 - ALMOST-FAIL: ${tensionMoments[0] || "mob stream thin and critical near enemy — near wipeout moment"}
 - Enemy base: 50% health bar
 - NO TEXT OVERLAYS`,
@@ -659,7 +684,7 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
     chainNote,
     "", sceneDesc, "", biomeRule, "",
     cannonNote,
-    scene !== "hook" ? `ENEMY BOSS: ${vi.enemy_champion||"generic boss tower"} at top of lane.` : "",
+    scene !== "hook" ? `ENEMY BOSS: ${vi.enemy_champion||"generic boss tower"} at top of lane.${vi.enemy_champion==="Yellow Normie"?" Yellow Normie is a LARGE HUMANOID figure with bright yellow skin, bald round cartoon head, chunky upright body, red HP bar above. NOT a blob or sphere — a standing yellow humanoid giant.":vi.enemy_champion==="White Giant"?" White Giant is a large pale humanoid with a round bald head, white skin, simple blocky body, standing upright.":""}` : "",
     scene !== "hook" ? `PLAYER MOBS: ${vi.player_mob_color} small round blob creatures, cartoonish 3D style.` : "",
     scene !== "hook" ? `ENEMY MOBS: ${vi.enemy_mob_color} round blob creatures near the top of the lane.` : "",
     gateNote,
@@ -1285,22 +1310,22 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
               try {
                 const vi = d.visual_identity||{};
                 const frames = (d.auto_frames||[]).filter((f:any)=>f.image_data);
-                const frameImgs = frames.map((f:any)=>`<div style="text-align:center;flex:1 1 80px"><div style="font-size:9px;color:#8b949e;margin-bottom:3px">${f.timestamp_seconds}s</div><img src="data:image/jpeg;base64,${f.image_data}" style="width:100%;border-radius:4px"/><div style="font-size:9px;color:#8b949e;margin-top:3px">${f.description||""}</div></div>`).join("");
-                const timeline = (d.auto_frames||[]).map((f:any)=>`<tr><td style="padding:4px 8px;color:#58a6ff;white-space:nowrap;font-size:11px;vertical-align:top">${f.timestamp_seconds}s</td><td style="padding:4px 8px;font-size:11px;color:#e6edf3">${f.description||""}</td><td style="padding:4px 8px;font-size:10px;color:#8b949e">${f.significance||""}</td></tr>`).join("");
-                const html = `<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d1117;color:#e6edf3;padding:24px;max-width:960px;margin:0 auto">
-<div style="border-bottom:1px solid #21262d;padding-bottom:14px;margin-bottom:20px">
-  <div style="font-size:11px;color:#8b949e;margin-bottom:3px">${d.creative_id||"#"+d.id} · ${d.tier} · ${d.biome||""}</div>
-  <div style="font-size:22px;font-weight:700">${d.title||""}</div>
+                const frameImgs = frames.map((f:any)=>`<div style="text-align:center;flex:1 1 80px"><div style="font-size:9px;color:#666666;margin-bottom:3px">${f.timestamp_seconds}s</div><img src="data:image/jpeg;base64,${f.image_data}" style="width:100%;border-radius:4px"/><div style="font-size:9px;color:#444444;margin-top:3px">${f.description||""}</div></div>`).join("");
+                const timeline = (d.auto_frames||[]).map((f:any)=>`<tr style="border-bottom:1px solid #eeeeee"><td style="padding:4px 8px;color:#1a56db;white-space:nowrap;font-size:11px;vertical-align:top;font-weight:500">${f.timestamp_seconds}s</td><td style="padding:4px 8px;font-size:11px;color:#111111">${f.description||""}</td><td style="padding:4px 8px;font-size:10px;color:#666666">${f.significance||""}</td></tr>`).join("");
+                const html = `<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#ffffff;color:#111111;padding:24px;max-width:960px;margin:0 auto">
+<div style="border-bottom:1px solid #e0e0e0;padding-bottom:14px;margin-bottom:20px">
+  <div style="font-size:11px;color:#666666;margin-bottom:3px">${d.creative_id||"#"+d.id} · ${d.tier} · ${d.biome||""}</div>
+  <div style="font-size:22px;font-weight:700;color:#111111">${d.title||""}</div>
 </div>
 <div style="display:grid;grid-template-columns:auto auto auto auto auto auto;gap:12px;margin-bottom:20px">
-  ${[["Hook type",d.hook_type],["Hook at",(d.hook_timing_seconds!=null?d.hook_timing_seconds+"s":"—")],["Biome",d.biome],["Pacing",d.pacing],["Loss event",d.loss_event_type],["Swarm peak",(d.swarm_peak_moment_seconds!=null?d.swarm_peak_moment_seconds+"s":"—")]].map(([l,v])=>`<div><div style="font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px">${l}</div><div style="font-size:12px;font-weight:500">${v||"—"}</div></div>`).join("")}
+  ${[["Hook type",d.hook_type],["Hook at",(d.hook_timing_seconds!=null?d.hook_timing_seconds+"s":"—")],["Biome",d.biome],["Pacing",d.pacing],["Loss event",d.loss_event_type],["Swarm peak",(d.swarm_peak_moment_seconds!=null?d.swarm_peak_moment_seconds+"s":"—")]].map(([l,v])=>`<div><div style="font-size:9px;color:#666666;text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px">${l}</div><div style="font-size:12px;font-weight:500;color:#111111">${v||"—"}</div></div>`).join("")}
 </div>
-${(d.unit_evolution_chain||[]).length?`<div style="margin-bottom:16px"><div style="font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Unit evolution chain</div><div>${(d.unit_evolution_chain||[]).map((s:string)=>`<span style="display:inline-block;font-size:11px;padding:3px 10px;border-radius:4px;background:#1d2d3f;color:#58a6ff;border:0.5px solid #1f6feb;margin-right:6px">${s}</span>`).join("→")}</div></div>`:""}
+${(d.unit_evolution_chain||[]).length?`<div style="margin-bottom:16px"><div style="font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Unit evolution chain</div><div>${(d.unit_evolution_chain||[]).map((s:string)=>`<span style="display:inline-block;font-size:11px;padding:3px 10px;border-radius:4px;background:#eff6ff;color:#1a56db;border:0.5px solid #93c5fd;margin-right:6px">${s}</span>`).join("→")}</div></div>`:""}
 ${frames.length?`<div style="margin-bottom:16px"><div style="font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Extracted frames</div><div style="display:flex;gap:8px;flex-wrap:wrap">${frameImgs}</div></div>`:""}
 ${timeline?`<div style="margin-bottom:16px"><div style="font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Timeline</div><table style="width:100%;border-collapse:collapse;border:0.5px solid #21262d"><tbody>${timeline}</tbody></table></div>`:""}
-${d.why_it_works?`<div style="margin-bottom:12px"><div style="font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Why it works</div><div style="font-size:12px;color:#8b949e;line-height:1.6">${d.why_it_works}</div></div>`:""}
-${d.creative_gaps?`<div style="margin-bottom:12px"><div style="font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Creative gaps</div><div style="font-size:12px;color:#8b949e;line-height:1.6">${d.creative_gaps}</div></div>`:""}
-<div style="margin-top:16px;padding-top:10px;border-top:1px solid #21262d;font-size:10px;color:#484f58">Levelly — MOC Creative Intelligence</div>
+${d.why_it_works?`<div style="margin-bottom:12px"><div style="font-size:9px;color:#666666;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Why it works</div><div style="font-size:12px;color:#333333;line-height:1.6">${d.why_it_works}</div></div>`:""}
+${d.creative_gaps?`<div style="margin-bottom:12px"><div style="font-size:9px;color:#666666;text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Creative gaps</div><div style="font-size:12px;color:#333333;line-height:1.6">${d.creative_gaps}</div></div>`:""}
+<div style="margin-top:16px;padding-top:10px;border-top:1px solid #e0e0e0;font-size:10px;color:#888888">Levelly — MOC Creative Intelligence</div>
 </body></html>`;
                 await navigator.clipboard.write([new ClipboardItem({"text/html":new Blob([html],{type:"text/html"}),"text/plain":new Blob([d.title||""],{type:"text/plain"})})]);
                 setCopied(true); setTimeout(()=>setCopied(false),2500);
@@ -1828,9 +1853,9 @@ Return ONLY: {"production_script": [{time, action, visual_cue, audio_cue}]}`;
     const seg = (c as any).target_segment||"Whale + Dolphin";
 
     const section = (title: string, body: string) =>
-      `<div style="margin:0 0 18px"><div style="font-size:10px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px">${title}</div><div style="font-size:13px;color:#e6edf3;line-height:1.6">${body}</div></div>`;
+      `<div style="margin:0 0 18px"><div style="font-size:10px;font-weight:700;color:#666666;text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px">${title}</div><div style="font-size:13px;color:#111111;line-height:1.6">${body}</div></div>`;
 
-    const pill = (t: string) => `<span style="display:inline-block;font-size:10px;padding:2px 8px;border-radius:4px;background:#1d2d3f;color:#58a6ff;border:0.5px solid #1f6feb;margin:2px 2px 2px 0">${t}</span>`;
+    const pill = (t: string) => `<span style="display:inline-block;font-size:10px;padding:2px 8px;border-radius:4px;background:#eff6ff;color:#1a56db;border:0.5px solid #93c5fd;margin:2px 2px 2px 0">${t}</span>`;
 
     const renders = (["start","middle","end","hook"] as const)
       .map(scene => {
@@ -1841,19 +1866,19 @@ Return ONLY: {"production_script": [{time, action, visual_cue, audio_cue}]}`;
       });
 
     const scriptRows = Array.isArray(c.production_script) ? c.production_script.map((s:any,i:number) =>
-      `<tr style="background:${i%2===0?"#161b22":"#0d1117"}"><td style="padding:6px 10px;color:#58a6ff;white-space:nowrap;vertical-align:top;font-size:11px">${s.time||""}</td><td style="padding:6px 10px;font-size:11px;color:#e6edf3">${s.action||""}</td><td style="padding:6px 10px;font-size:11px;color:#8b949e;font-style:italic">${s.visual_cue||""}</td><td style="padding:6px 10px;font-size:11px;color:#6e7681">${s.audio_cue||""}</td></tr>`
+      `<tr style="background:${i%2===0?"#ffffff":"#f9f9f9"}"><td style="padding:6px 10px;color:#1a56db;white-space:nowrap;vertical-align:top;font-size:11px;font-weight:500">${s.time||""}</td><td style="padding:6px 10px;font-size:11px;color:#111111">${s.action||""}</td><td style="padding:6px 10px;font-size:11px;color:#444444;font-style:italic">${s.visual_cue||""}</td><td style="padding:6px 10px;font-size:11px;color:#666666">${s.audio_cue||""}</td></tr>`
     ).join("") : "";
 
     const netAdapt = c.network_adaptations ? (["AppLovin","Facebook","Google","TikTok"] as const)
       .filter(n => c.network_adaptations?.[n])
-      .map(n => `<div style="margin-bottom:6px"><span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:3px;background:#1d2d3f;color:#58a6ff;margin-right:6px">${n}</span><span style="font-size:12px;color:#8b949e">${c.network_adaptations![n]}</span></div>`)
+      .map(n => `<div style="margin-bottom:6px"><span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:3px;background:#eff6ff;color:#1a56db;margin-right:6px">${n}</span><span style="font-size:12px;color:#444444">${c.network_adaptations![n]}</span></div>`)
       .join("") : "";
 
-    return `<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d1117;color:#e6edf3;padding:24px;max-width:900px;margin:0 auto">
-<div style="border-bottom:1px solid #21262d;padding-bottom:16px;margin-bottom:24px">
-  <div style="font-size:11px;color:#8b949e;margin-bottom:4px">LEVELLY CREATIVE BRIEF · CONCEPT ${ci+1} · ${seg}</div>
-  <div style="font-size:22px;font-weight:700;color:#e6edf3;margin-bottom:6px">${c.title||""}</div>
-  <div style="font-size:13px;color:#8b949e">${c.objective||""}</div>
+    return `<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#ffffff;color:#111111;padding:24px;max-width:900px;margin:0 auto">
+<div style="border-bottom:1px solid #e0e0e0;padding-bottom:16px;margin-bottom:24px">
+  <div style="font-size:11px;color:#666666;margin-bottom:4px">LEVELLY CREATIVE BRIEF · CONCEPT ${ci+1} · ${seg}</div>
+  <div style="font-size:22px;font-weight:700;color:#111111;margin-bottom:6px">${c.title||""}</div>
+  <div style="font-size:13px;color:#444444">${c.objective||""}</div>
 </div>
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
@@ -1880,9 +1905,9 @@ ${netAdapt ? section("Network adaptations", netAdapt) : ""}
 </div>
 </div>
 
-${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Production script</div><table style="width:100%;border-collapse:collapse;border:0.5px solid #21262d;border-radius:8px;overflow:hidden"><thead><tr style="background:#161b22"><th style="padding:6px 10px;text-align:left;font-size:9px;color:#8b949e;font-weight:600;text-transform:uppercase">Time</th><th style="padding:6px 10px;text-align:left;font-size:9px;color:#8b949e;font-weight:600;text-transform:uppercase">Action</th><th style="padding:6px 10px;text-align:left;font-size:9px;color:#8b949e;font-weight:600;text-transform:uppercase">Visual cue</th><th style="padding:6px 10px;text-align:left;font-size:9px;color:#8b949e;font-weight:600;text-transform:uppercase">Audio cue</th></tr></thead><tbody>${scriptRows}</tbody></table></div>` : ""}
+${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Production script</div><table style="width:100%;border-collapse:collapse;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden"><thead><tr style="background:#f5f5f5"><th style="padding:6px 10px;text-align:left;font-size:9px;color:#666666;font-weight:600;text-transform:uppercase">Time</th><th style="padding:6px 10px;text-align:left;font-size:9px;color:#666666;font-weight:600;text-transform:uppercase">Action</th><th style="padding:6px 10px;text-align:left;font-size:9px;color:#666666;font-weight:600;text-transform:uppercase">Visual cue</th><th style="padding:6px 10px;text-align:left;font-size:9px;color:#666666;font-weight:600;text-transform:uppercase">Audio cue</th></tr></thead><tbody>${scriptRows}</tbody></table></div>` : ""}
 
-<div style="margin-top:20px;padding-top:12px;border-top:1px solid #21262d;font-size:10px;color:#484f58">Generated by Levelly — MOC Creative Intelligence</div>
+<div style="margin-top:20px;padding-top:12px;border-top:1px solid #e0e0e0;font-size:10px;color:#888888">Generated by Levelly — MOC Creative Intelligence</div>
 </body></html>`;
   };
 
@@ -1904,9 +1929,20 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
       // Build the subset of fields to send
       const fieldsToSend: Partial<Concept> = {};
       const fieldNames: string[] = [];
+      const subFieldHints: string[] = [];
       if (wantsVisual || (!wantsEvolution && !wantsHook && !wantsLane && !wantsTension)) {
         (fieldsToSend as any).visual_identity = current.visual_identity;
         fieldNames.push("visual_identity");
+        // Detect exactly which sub-field of visual_identity to change
+        if (/biome|environment|forest|desert|snow|bunker|volcano|cyber|meadow|toxic/.test(lp)) subFieldHints.push("environment", "biome_visual_notes");
+        if (/lighting|light|shadow|glow|bright|dark/.test(lp)) subFieldHints.push("lighting");
+        if (/player mob|blue mob|mob color/.test(lp)) subFieldHints.push("player_mob_color");
+        if (/enemy mob|red mob/.test(lp)) subFieldHints.push("enemy_mob_color");
+        if (/mood|atmosphere|vibe/.test(lp)) subFieldHints.push("mood_notes");
+        if (/gate value|gate number|x gate|plus gate/.test(lp)) subFieldHints.push("gate_values");
+        if (subFieldHints.length === 0) subFieldHints.push("environment"); // default: just environment
+        (fieldsToSend as any).biome_visual_notes = current.biome_visual_notes;
+        fieldNames.push("biome_visual_notes");
       }
       if (wantsEvolution) {
         (fieldsToSend as any).unit_evolution_chain = current.unit_evolution_chain;
@@ -1931,7 +1967,7 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
 
       // Send only the relevant fields to Gemini
       const result = await callGeminiDirect(
-        refinementSystem(fieldsToSend, prompt, fieldNames),
+        refinementSystem(fieldsToSend, prompt, fieldNames, subFieldHints),
         [{ text: "Return only the modified fields as JSON." }]
       );
 
@@ -1939,8 +1975,11 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
       const merged: Concept = { ...current };
       for (const key of fieldNames) { if (key in result) (merged as any)[key] = (result as any)[key]; }
 
-      // Always clear renders after any refinement — brief changed means renders are stale
-      const updated: Concept = { ...merged, visual_hook: undefined, visual_start: undefined, visual_middle: undefined, visual_end: undefined };
+      // Clear renders when visual or structural fields changed — not for text-only fields like engagement_hooks
+      const renderAffecting = wantsVisual || wantsEvolution || wantsLane;
+      const updated: Concept = renderAffecting
+        ? { ...merged, visual_hook: undefined, visual_start: undefined, visual_middle: undefined, visual_end: undefined }
+        : merged;
 
       setConcepts(p => p.map((c, i) => i === ci ? updated : c));
       setRefineTexts(p => ({ ...p, [ci]: "" }));
