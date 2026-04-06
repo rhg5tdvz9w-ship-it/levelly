@@ -531,7 +531,7 @@ These facts are from the person who made or knows this creative. Trust them comp
 ` : ""}World-Class Creative Intelligence Analyst for Mob Control ads. NEVER guess.
 ANALYSIS APPROACH:
 Your PRIMARY source of truth is the EXTRACTED FRAME IMAGES provided above. These are actual screenshots at specific timestamps. For every event you report, you must be able to point to which frame shows it.
-DO NOT use temporal reasoning to invent events between frames. If something happened but is not visible in any extracted frame, report it only if it is explicitly mentioned in the CONTEXT field above.
+DO NOT use temporal reasoning. You are NOT watching a video — you are analyzing a set of still frame images at specific timestamps. Each frame is independent evidence. If an event is not visible in at least one frame image, it did not happen as far as you are concerned. The only exception: events explicitly stated in the GROUND TRUTH context above.
 DISCIPLINE: When in doubt about an upgrade, gate value, or giant kill — omit it rather than guess. Under-reporting is better than hallucinating.
 AD TYPE:${config.ad_type} TIER:${config.tier}
 DURATION:${duration}s
@@ -1699,7 +1699,7 @@ export default function App() {
       const frameParts=Array.isArray(extractedFrameParts)&&extractedFrameParts.length>0?[{text:"### EXTRACTED FRAMES:"},...extractedFrameParts]:[];
       const hasManual=manualParts.length>0;
       const cfg={tier:entry.tier,ad_type:entry.ad_type,context:newContext||entry.upload_context||"",manual_frames:[]};
-      const rawDna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(hasManual?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
+      const rawDna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(hasManual?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"INSTRUCTION: Analyze only the extracted frame images above. DO NOT infer events between frames. Base every finding on visible frame evidence only."}]);
       const dna=sanitizeDNA(rawDna);
       setAnalyzeStep("saving");
       const frameImageMap: Record<number,string>={};
@@ -1769,7 +1769,7 @@ export default function App() {
         const frameParts = Array.isArray(extractedFrameParts)&&extractedFrameParts.length > 0
           ? [{text:"### EXTRACTED FRAMES — key moments at exact timestamps:"},...extractedFrameParts]
           : [];
-        const rawDna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"### AD VIDEO:"},videoPart,{text:"Extract Creative DNA."}]);
+        const rawDna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"INSTRUCTION: Analyze only the extracted frame images above. DO NOT infer events between frames. Base every finding on visible frame evidence only."}]);
         const dna=sanitizeDNA(rawDna);
         setAnalyzeStep("saving");
         // Build a lookup: timestamp → base64 image from extractedFrameParts
