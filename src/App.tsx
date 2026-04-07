@@ -463,14 +463,14 @@ function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string, lib?: any[],
 
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 const BIOME_GUIDE = `BIOMES: Foggy Forest(grey/white atmospheric fog,dark pines,grey road—NOT snow), Desert(tan sand,blue sky), Water(grey bridge over blue water), Bunker(grey concrete tunnel,pipes,industrial), Cyber-City(grey metal,orange/blue neon), Volcanic(red/orange lava,black rocks), Snow(white snow ground), Toxic(purple paths,green slime), Meadow(green hills,grey brick bridge)`;
-const CHAMPION_GUIDE = `CHAMPIONS (ONLY these exist in Mob Control): Captain Kaboom(blue round mob, green hat with yellow brim, fires 3 golden streams), Gold Golem(LARGE golden muscular humanoid), Caveman(blue-skin muscular humanoid, blonde hair, club), Mobzilla(green dinosaur/T-Rex, pink spines, red mouth, cartoonish), Nexus(blue/white/orange mech, orange sword), Red Hulk(large red humanoid), Kraken(red octopus), Femme Zombie(crawling female zombie boss), Yellow Normie(LARGE HUMANOID giant, bright yellow skin, bald round head, simple chunky body like a cartoon yellow man/golem, stands upright on 2 legs, arms raised in attack pose, RED HP bar above head, approximately 3x height of lane width — NOT a blob, NOT a sphere, IS a humanoid figure), Unknown(generic enemy tower). Enemy tower = red/grey fortified block structure with HP number. NEVER invent champion appearances. If a champion name is not on this list, draw Unknown/generic tower.`;
+const CHAMPION_GUIDE = `CHAMPIONS (ONLY these exist in Mob Control): Captain Kaboom(blue round mob, green hat with yellow brim, fires 3 golden streams), Gold Golem(LARGE golden muscular humanoid), Caveman(blue-skin muscular humanoid, blonde hair, club), Mobzilla(green dinosaur/T-Rex, pink spines, red mouth, cartoonish), Nexus(blue/white/orange mech, orange sword), Red Hulk(large red humanoid), Kraken(red octopus), Femme Zombie(crawling female zombie boss), Yellow Normie(LARGE HUMANOID giant, bright yellow skin, bald round head, simple chunky body like a cartoon yellow man/golem, stands upright on 2 legs, arms raised in attack pose, RED HP bar above head — NOT a blob, NOT a sphere, IS a humanoid figure. IMPORTANT: Yellow Normie temporarily flashes white or blue when hit by mobs — this is a HIT EFFECT VFX, NOT a new boss. Do not report a "White Giant" or "Blue Giant" — it is always Yellow Normie with hit flash effects. There is NO White Giant, Blue Giant, or colour-variant giant in Mob Control.), Unknown(generic enemy tower). Enemy tower = red/grey fortified block structure with HP number. NEVER invent champion appearances. NEVER invent a new giant based on colour changes — hit VFX change giant colour temporarily. If a champion name is not on this list, use Unknown.`;
 const MOC_EVENTS_GUIDE = `MOC-SPECIFIC EVENTS TO HUNT FOR (timestamp ALL of these if present):
 - CONTAINER DESTRUCTION: The MOB SWARM destroys a breakable container/obstacle. Report it with HP number visible. CRITICAL — containers have two types:
   * UPGRADE CONTAINER: Has a cannon/unit icon visible ON TOP of the container. Destroying this one upgrades the cannon tier. Use: "Upgrade container (HP:20, cannon icon) destroyed — cannon upgrades from Simple to Double Cannon"
   * EMPTY CONTAINER: Has NO icon on top — just a health number. Destroying this does NOT upgrade the cannon. Use: "Empty container (HP:184) destroyed — no upgrade"
   * If you cannot see whether there is an icon, look at what happens to the cannon IMMEDIATELY after destruction. If the cannon visually changes shape/size, it was an upgrade container. If the cannon looks the same, it was empty.
   * NEVER assume every container = upgrade. Most containers in a video are empty health obstacles.
-- GIANT/BOSS DEATH: Large enemy giant or boss character defeated. ALWAYS timestamp — key emotional payoff. REQUIRED: every boss death MUST appear in the giant_kills array with timestamp, name (e.g. "Yellow Normie", "Red Giant"), and a note on how it died (e.g. "overwhelmed by mob swarm at swarm peak").
+- GIANT/BOSS DEATH: Large enemy giant or boss character defeated. ALWAYS timestamp — key emotional payoff. REQUIRED: every boss death MUST appear in the giant_kills array with timestamp, name (e.g. "Yellow Normie"), and a note on how it died. ALSO REQUIRED: the auto_frames description for that timestamp MUST start with "GIANT KILL:" followed by the giant name and HP reaching zero. Example: "GIANT KILL: Yellow Normie (HP:0) defeated — overwhelmed by mob swarm". If a giant disappears from screen or its HP bar vanishes, it is dead — timestamp and document it even if the defeat animation is brief.
 - X GATE PASS: The MOB SWARM passes through a multiplication gate (xN). Report gate value and timestamp for EACH pass.
 - + GATE PASS: The MOB SWARM passes through an addition gate (+N), which adds more cannons to the firing lineup (not more mobs). Report gate value and timestamp.
 - ALMOST-FAIL MOMENT: Player mob count drops to dangerously low level (near wipeout) but survives.
@@ -480,15 +480,16 @@ const MOC_EVENTS_GUIDE = `MOC-SPECIFIC EVENTS TO HUNT FOR (timestamp ALL of thes
 - RED BLOCK: Red pushable/breakable obstacle that physically blocks access to valuable elements (gates, upgrades). Player must smash through it.
 - CHAMPION RELEASE: Sniper cannon charging bar fills up and releases a champion unit onto the field.
 
-CANNON UPGRADE TIERS (exact names):
+CANNON UPGRADE TIERS — ONLY THESE 4 NAMES ARE VALID:
 1. Simple Cannon — single blue barrel, 4 black wheels, compact round body
 2. Double Cannon — two blue barrels side-by-side, slightly wider
 3. Triple Cannon — three blue barrels, wider body, brown/orange roller wheels
 4. Tank — blue military tank, rotating turret/radar dish, tracked treads, yellow-green accent
-5. Golden Jet — gold aircraft (airplane), used as aspirational eye-catcher only, shown on platform
-6. (Other evolutions may exist — describe what you see)
+FORBIDDEN NAMES: "Dual Barrel Tank", "Advanced Tank", "Multi-Cannon", "Level 2 Cannon", "Enhanced Cannon", or ANY other invented name. Use ONLY the 4 exact names above.
+NOTE: In-game UI shows "LV+1" popup on upgrades — this is a level indicator, NOT a cannon name. Ignore it for naming.
+Golden Jet is an aspirational asset shown on a platform — it is NOT part of the upgrade chain in ads.
 
-When you see an upgrade: "Cannon upgrades from [previous tier] to [new tier]" using exact names above.
+When you see an upgrade: "Cannon upgrades from [previous tier] to [new tier]" using ONLY the 4 exact names above.
 CRITICAL: Hunt for EVERY container/obstacle on screen — missing one means a wrong evolution chain.
 CANNON MULTIPLICATION IS NOT AN UPGRADE: +N gates increase cannon COUNT (how many fire) — the cannon MODEL stays the same. Only container destruction changes Simple→Double→Triple→Tank.
 EVIDENCE RULE: For each unit_evolution_chain step, report what triggered it in the description field (e.g. "Blue container HP:20 destroyed" or "red barrel destroyed" or "unknown trigger at 7s — cannon visually changed"). If you can see a container HP number, always include it. If you cannot identify the trigger, describe what you observe visually rather than inventing one.
@@ -502,7 +503,7 @@ const GATE_GUIDE = `GATES — CRITICAL: passing through ANY gate NEVER upgrades 
 
 CANNON UPGRADE RULE — ABSOLUTE: The cannon model (Simple/Double/Triple/Tank) ONLY changes when the MOB SWARM physically DESTROYS a breakable obstacle/container on the road. This is a separate event from any gate pass. NEVER write "cannon upgrades after passing a gate". If you see a cannon change and a gate in the same second, the upgrade came from a container that was also destroyed at that moment, NOT from the gate.
 Report EVERY gate with its exact value. If unclear: "x?" or "+?".
-cannon_count_log: track cannon count as a running string showing only +N gate changes: "1 cannon start → +2 gate at 3s: 3 cannons → +3 gate at 8s: 6 cannons". x-gates do NOT appear here (they affect mobs, not cannons).`;
+cannon_count_log: track cannon count as a running string showing only +N gate changes: "1 cannon start → +1 gate at 3s: 2 cannons → +1 gate at 9s: 3 cannons". x-gates do NOT appear here (they affect mobs, not cannons). IMPORTANT: Even single +1 gates must be tracked — each +1 gate adds exactly 1 more cannon to the firing lineup. If you see multiple +1 gates in a row, each one increases the count by 1.`;
 const HOOK_GUIDE = `HOOK: EXACT SECOND thumb stops scrolling. NEVER 0 unless frame-0 drama. hook_timing_seconds=REAL SECOND (2,4,8) NEVER fraction.`;
 const TIMESTAMP_RULES = `TIMESTAMPS: Real seconds only (0,2,5,8,14,22). NEVER fractions (0.03,0.28). 30s video midpoint=15.`;
 
@@ -579,7 +580,7 @@ function parseContextFacts(context: string): { chain?: string[]; giantNames?: st
   }
 
   // Parse giant names — "Yellow Normie", "White Normie", etc.
-  const giantPattern = /(yellow normie|white normie|red giant|skeleton|knight)/gi;
+  const giantPattern = /(yellow normie|red giant|skeleton|knight|captain kaboom|gold golem|mobzilla|hulk)/gi;
   const giants = [...context.matchAll(giantPattern)].map(m => m[0].split(" ").map((w:string) => w[0].toUpperCase() + w.slice(1)).join(" "));
   if (giants.length) result.giantNames = [...new Set(giants)];
 
