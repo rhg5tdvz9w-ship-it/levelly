@@ -471,6 +471,7 @@ const MOC_EVENTS_GUIDE = `MOC-SPECIFIC EVENTS TO HUNT FOR (timestamp ALL of thes
   * If you cannot see whether there is an icon, look at what happens to the cannon IMMEDIATELY after destruction. If the cannon visually changes shape/size, it was an upgrade container. If the cannon looks the same, it was empty.
   * NEVER assume every container = upgrade. Most containers in a video are empty health obstacles.
 - GIANT/BOSS DEATH: Large enemy giant or boss character defeated. ALWAYS timestamp — key emotional payoff. REQUIRED: every boss death MUST appear in the giant_kills array with timestamp, name (e.g. "Yellow Normie"), and a note on how it died. ALSO REQUIRED: the auto_frames description for that timestamp MUST start with "GIANT KILL:" followed by the giant name and HP reaching zero. Example: "GIANT KILL: Yellow Normie (HP:0) defeated — overwhelmed by mob swarm". If a giant disappears from screen or its HP bar vanishes, it is dead — timestamp and document it even if the defeat animation is brief.
+  HP FLUCTUATION RULE: A giant's HP bar changing between frames (e.g. 7122 → 6513 → 5889) is normal damage progression — it does NOT indicate a new giant or a new phase. Only report a new giant if the GROUND TRUTH context explicitly says there are multiple giants. A sudden HP increase (e.g. 3184 → 4450) is likely a misread of the HP number, not a phase reset — note the HP as visible but do NOT invent a "new phase" or "second giant".
 - X GATE PASS: The MOB SWARM passes through a multiplication gate (xN). Report gate value and timestamp for EACH pass.
 - + GATE PASS: The MOB SWARM passes through an addition gate (+N), which adds more cannons to the firing lineup (not more mobs). Report gate value and timestamp.
 - ALMOST-FAIL MOMENT: Player mob count drops to dangerously low level (near wipeout) but survives.
@@ -480,21 +481,17 @@ const MOC_EVENTS_GUIDE = `MOC-SPECIFIC EVENTS TO HUNT FOR (timestamp ALL of thes
 - RED BLOCK: Red pushable/breakable obstacle that physically blocks access to valuable elements (gates, upgrades). Player must smash through it.
 - CHAMPION RELEASE: Sniper cannon charging bar fills up and releases a champion unit onto the field.
 
-CANNON UPGRADE TIERS — ONLY THESE 4 NAMES ARE VALID:
-1. Simple Cannon — single blue barrel, 4 black wheels, compact round body
-2. Double Cannon — two blue barrels side-by-side, slightly wider
-3. Triple Cannon — three blue barrels, wider body, brown/orange roller wheels
-4. Tank — blue military tank, rotating turret/radar dish, tracked treads, yellow-green accent
-FORBIDDEN NAMES: "Dual Barrel Tank", "Advanced Tank", "Multi-Cannon", "Level 2 Cannon", "Enhanced Cannon", or ANY other invented name. Use ONLY the 4 exact names above.
-NOTE: In-game UI shows "LV+1" popup on upgrades — this is a level indicator, NOT a cannon name. Ignore it for naming.
-Golden Jet is an aspirational asset shown on a platform — it is NOT part of the upgrade chain in ads.
+CANNON UPGRADE TIERS — exactly 4 valid names:
+1. Simple Cannon — single barrel, compact
+2. Double Cannon — two barrels side-by-side
+3. Triple Cannon — three barrels, wider
+4. Tank — military tank with turret
+No other names are valid. "LV+1" popup = level indicator, not a tier name.
 
-When you see an upgrade: "Cannon upgrades from [previous tier] to [new tier]" using ONLY the 4 exact names above.
-CRITICAL: Hunt for EVERY container/obstacle on screen — missing one means a wrong evolution chain.
-CANNON MULTIPLICATION IS NOT AN UPGRADE: +N gates increase cannon COUNT (how many fire) — the cannon MODEL stays the same. Only container destruction changes Simple→Double→Triple→Tank.
-EVIDENCE RULE: For each unit_evolution_chain step, report what triggered it in the description field (e.g. "Blue container HP:20 destroyed" or "red barrel destroyed" or "unknown trigger at 7s — cannon visually changed"). If you can see a container HP number, always include it. If you cannot identify the trigger, describe what you observe visually rather than inventing one.
-TIER COUNT RULE: Count the number of UPGRADE CONTAINERS (those with a cannon icon) you saw destroyed. That count equals the number of entries to add to unit_evolution_chain AFTER the starting cannon. Example: started as Simple Cannon, saw 1 upgrade container destroyed → chain is [Simple Cannon, Double Cannon]. Saw 2 upgrade containers → [Simple Cannon, Double Cannon, Triple Cannon]. Do NOT add tiers you did not see upgrade containers for. Trust your container icon count over logical sequence.
-IMPORTANT: If PRE-LOCKED unit_evolution_chain is provided in the GROUND TRUTH above, use that chain exactly — do NOT override it based on what you think you see. The chain length tells you how many upgrades happened. If chain has 3 entries (e.g. Simple → Double → Triple), there were exactly 2 upgrade events. Find both in the frames — they both happened even if one is hard to see.`;
+UPGRADE RULE: Cannon tier changes ONLY when mobs destroy an UPGRADE CONTAINER (one with a cannon icon on top). Count how many upgrade containers with icons are destroyed — that is your chain length minus 1. Empty containers (no icon) do NOT trigger upgrades.
+If PRE-LOCKED unit_evolution_chain is in GROUND TRUTH: use it exactly. The chain tells you how many upgrades happened.
+
+CANNON COUNT vs CANNON TIER: +N gates add more cannons FIRING (count goes up). The cannon MODEL does not change. "Cannon count +1" is not an upgrade.`;
 
 const GATE_GUIDE = `GATES — CRITICAL: passing through ANY gate NEVER upgrades the cannon model. Gates only affect mob COUNT.
 - Multiplication gate (x value, e.g. x3): multiplies the NUMBER OF MOBS in the lane. x3 = triple the mobs. ONLY this changes mob count.
@@ -504,7 +501,8 @@ const GATE_GUIDE = `GATES — CRITICAL: passing through ANY gate NEVER upgrades 
 
 CANNON UPGRADE RULE — ABSOLUTE: The cannon model (Simple/Double/Triple/Tank) ONLY changes when the MOB SWARM physically DESTROYS a breakable obstacle/container on the road. This is a separate event from any gate pass. NEVER write "cannon upgrades after passing a gate". If you see a cannon change and a gate in the same second, the upgrade came from a container that was also destroyed at that moment, NOT from the gate.
 Report EVERY gate with its exact value. If unclear: "x?" or "+?".
-cannon_count_log: track cannon count as a running string showing only +N gate changes: "1 cannon start → +1 gate at 3s: 2 cannons → +1 gate at 9s: 3 cannons". x-gates do NOT appear here (they affect mobs, not cannons). IMPORTANT: Even single +1 gates must be tracked — each +1 gate adds exactly 1 more cannon to the firing lineup. If you see multiple +1 gates in a row, each one increases the count by 1.`;
+cannon_count_log: track cannon count as a running string showing only +N gate changes: "1 cannon start → +1 gate at 3s: 2 cannons → +1 gate at 9s: 3 cannons". x-gates do NOT appear here (they affect mobs, not cannons). IMPORTANT: Even single +1 gates must be tracked — each +1 gate adds exactly 1 more cannon to the firing lineup. If you see multiple +1 gates in a row, each one increases the count by 1.
++N GATE FRAME DESCRIPTION RULE: Every auto_frames entry where a blue +N gate is passed MUST include "Cannon count increases: [before]→[after] cannons" in the description. This is mandatory — do not just say "mob passes through gate".`;
 const HOOK_GUIDE = `HOOK: EXACT SECOND thumb stops scrolling. NEVER 0 unless frame-0 drama. hook_timing_seconds=REAL SECOND (2,4,8) NEVER fraction.`;
 const TIMESTAMP_RULES = `TIMESTAMPS: Real seconds only (0,2,5,8,14,22). NEVER fractions (0.03,0.28). 30s video midpoint=15.`;
 
@@ -513,7 +511,7 @@ const frameExtractionSystem = () => `Precise video timestamp analyst for Mob Con
 RULES:
 1. MUST timestamp these MOC events if present: container destructions, unit evolutions, giant/boss deaths (MANDATORY — if a giant dies, timestamp it), every gate pass (BOTH +N gates AND xN gates, with value), almost-fail moments, swarm peak, final defeat
    - GIANT DEATH is the highest-priority event. If a frame shows a giant HP bar empty or a giant disappearing, timestamp it with significance "boss_death"
-   - +N GATE PASS: always timestamp — these show cannon count increasing. Use significance "gate". Description must say "+[N] gate: cannon count increases"
+   - +N GATE PASS: always timestamp — these show cannon count increasing. Use significance "gate". Description must say "+[N] gate: cannon count +[N]". If an xN gate occurs at the same second, use ONE timestamp but mention BOTH in the description: "xN gate (mob multiply) AND +1 gate (cannon count +1)"
 2. VERIFICATION RULE: For each event you report, confirm you can see it in the frame image. Trust the extracted frame images above all else.
    - If you see a giant HP bar visible but not at zero, still timestamp it with significance "boss_damage" and note the remaining HP
    - If you see a giant HP bar at zero or gone, timestamp with "boss_death" — NEVER skip this
@@ -533,8 +531,8 @@ const hookDetectionSystem = () => `Expert mobile ad hook analyst.\n${HOOK_GUIDE}
 // Parse user context text to extract structured facts that should be locked
 // e.g. "2 upgrades: Simple→Double→Triple" → unit_evolution_chain locked
 // e.g. "giants: Yellow Normie at 7s, White Normie at 12s" → giant_kills locked
-function parseContextFacts(context: string): { chain?: string[]; giantNames?: string[]; hookSeconds?: number } {
-  const result: { chain?: string[]; giantNames?: string[]; hookSeconds?: number } = {};
+function parseContextFacts(context: string): { chain?: string[]; giantNames?: string[]; hookSeconds?: number; giantSurvives?: string[] } {
+  const result: { chain?: string[]; giantNames?: string[]; hookSeconds?: number; giantSurvives?: string[]; hookSeconds?: number } = {};
   if (!context) return result;
   const lc = context.toLowerCase();
 
@@ -589,6 +587,13 @@ function parseContextFacts(context: string): { chain?: string[]; giantNames?: st
   const hookMatch = lc.match(/hook\s+(?:at\s+)?(\d+)\s*s/);
   if (hookMatch) result.hookSeconds = parseInt(hookMatch[1]);
 
+  // Parse giant survival — "Yellow Normie survives", "giant survives", "no kill", "doesn't die"
+  const survivalPattern = /\b(?:yellow normie|giant|boss|normie)\s+(?:survives?|does(?:n.t| not) die|is not killed|stays alive)/i;
+  const noKillPattern = /\bno\s+(?:giant|boss)\s+(?:kill|death|dying)/i;
+  if (survivalPattern.test(context) || noKillPattern.test(context)) {
+    result.giantSurvives = true;
+  }
+
   return result;
 }
 
@@ -596,9 +601,17 @@ const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtra
   `${(() => {
     const facts = parseContextFacts(config.context || "");
     const lockedFields: string[] = [];
-    if (facts.chain) lockedFields.push(`LOCKED unit_evolution_chain: ${JSON.stringify(facts.chain)} — this is ground truth, do not change it`);
-    if (facts.giantNames) lockedFields.push(`LOCKED champions_visible: ${JSON.stringify(facts.giantNames)} — only these giants/champions appear`);
+    if (facts.chain) {
+      lockedFields.push(`LOCKED unit_evolution_chain: ${JSON.stringify(facts.chain)} — use these exact tier names. There are ${facts.chain.length - 1} upgrade event(s) in this video.`);
+    }
+    if (facts.giantNames) {
+      lockedFields.push(`LOCKED champions_visible: ${JSON.stringify(facts.giantNames)} — ONLY these giants appear in the entire ad. There are exactly ${facts.giantNames.length} giant(s). Do NOT invent additional giants based on HP changes or visual assumptions.`);
+      if (facts.giantNames.length === 1) {
+        lockedFields.push(`SINGLE GIANT RULE: Only 1 giant exists (${facts.giantNames[0]}). Any HP bar changes (increases, resets, jumps) belong to this same giant — do NOT report a second giant or a "new phase" boss.`);
+      }
+    }
     if (facts.hookSeconds != null) lockedFields.push(`LOCKED hook_timing_seconds: ${facts.hookSeconds}`);
+    if (facts.giantSurvives) lockedFields.push(`LOCKED: The giant/boss SURVIVES to the end of the ad and is NOT defeated. Do NOT add any entry to giant_kills array. Do NOT report a GIANT KILL event.`);
     if (config.context || lockedFields.length) {
       return `GROUND TRUTH — USER-PROVIDED FACTS (ABSOLUTE PRIORITY — these override everything you see in the frames):
 ${config.context ? config.context + "\n" : ""}${lockedFields.length ? "\nPRE-LOCKED FIELDS (copy these values exactly into your JSON output — do not modify):\n" + lockedFields.join("\n") : ""}
@@ -618,24 +631,19 @@ LIBRARY:${lib.length>0?JSON.stringify(lib.map(d=>({title:d.title,tier:d.tier,hoo
 ${hasRefs?buildReferenceContext():""}
 ${!hasFrameImages?`TIMESTAMP MAP (Gemini frame observations — use only if no frame images above):
 ${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] ${f.description} (${f.significance})`).join("\n"):"none"}`:"EXTRACTED FRAME IMAGES provided above — use these as your primary visual evidence. Do NOT copy their sequence as emotional beats."}
-CRITICAL DOCUMENTATION REQUIREMENTS — these MUST appear in your auto_frames descriptions if visible:
-1. GIANT KILL: If a frame shows a giant/boss HP bar at zero or a boss disappearing, describe it as GIANT KILL then the name and defeated. Also add to giant_kills array.
-2. CANNON COUNT CHANGE via +N gate: If mobs pass through a blue +N gate, describe it as Cannon count increases by +N cannons. Update cannon_count_log.
-3. DO NOT skip these events.
+FRAME DESCRIPTION RULES — apply to every frame:
+1. GIANT KILL: HP bar at zero or giant disappears → start description with "GIANT KILL: [name] defeated". Add to giant_kills. Skip if GROUND TRUTH says giant survives.
+2. +N GATE: Blue addition gate visible → include "Cannon count +[N]" in description.
+3. GIANT HP: Changing HP = normal damage. Write "HP: [X]" not "new phase" or "health reset".
+4. ONE GIANT: Unless GROUND TRUTH says multiple giants, assume all HP bars belong to the same giant throughout.
 ${TIMESTAMP_RULES}
 ${HOOK_GUIDE}
 ${GATE_GUIDE}
 ${MOC_EVENTS_GUIDE}
 ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}
-UNIT EVOLUTION CHAIN: Look through the extracted frame images and count how many frames show a cannon WITH A UNIT ICON on a container (= upgrade container). That count = number of upgrades. Add one tier to the chain per upgrade. NEVER add Tank or Golden Jet unless you see a 4th/5th upgrade container icon in the frames. Most ads: 1-2 upgrades. Default to fewer if unsure. CROSS-CHECK: the cannon in later frames should visually look different (more barrels) than earlier frames — use this to validate your upgrade count. Exact tier names: Simple Cannon → Double Cannon → Triple Cannon → Tank.
-CANNON NAMING IN DESCRIPTIONS: If a PRE-LOCKED unit_evolution_chain is provided above, use it to name the cannon correctly at each timestamp:
-- Before the first upgrade container is destroyed: cannon is chain[0]
-- After the first upgrade container destroyed: cannon is chain[1]
-- After the second upgrade container destroyed: cannon is chain[2]
-- And so on.
-Do NOT identify the cannon tier from visual appearance alone — derive it from the chain and the upgrade events you find in the frames. This prevents confusing Simple Cannon with Tank or vice versa when visual details are ambiguous.
-If NO locked chain is provided: identify the cannon visually from the frame, using the 4 valid names only.
+UNIT EVOLUTION CHAIN: Count upgrade containers WITH A CANNON ICON destroyed in the frames. That count = number of upgrades. Chain = starting tier + one tier per upgrade. Most ads: 1-2 upgrades. If PRE-LOCKED chain provided above, use it — do not override.
+CANNON NAMING: When writing frame descriptions, name the cannon based on which upgrades have occurred so far in the timeline — not from visual appearance alone. Before upgrade 1: use chain[0]. After upgrade 1: use chain[1]. After upgrade 2: use chain[2]. If no locked chain: use the 4 valid visual names only.
 FRAME EMOTIONS: For each extracted frame timestamp shown above, assign one emotion word (Anticipation, Excitement, Satisfaction, Empowerment, Tension, Almost Fail, Dread, Defeat, Triumph). Return as frame_emotions array. Include ALL timestamps you received frames for — not just key moments.
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
 Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"frame_emotions":[{"timestamp_seconds":number,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
