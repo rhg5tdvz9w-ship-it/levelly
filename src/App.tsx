@@ -97,6 +97,7 @@ const ANALYSIS_STEPS = [
   { key: "extracting", label: "Extracting frames" },
   { key: "hook",       label: "Detecting hook" },
   { key: "analyzing",  label: "Analysing DNA" },
+  { key: "validating", label: "Validating consistency" },
   { key: "saving",     label: "Saving to library" },
 ];
 
@@ -522,13 +523,85 @@ ${MOC_EVENTS_GUIDE}
 
 Return ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":number,"description":string,"significance":"hook|gate|upgrade|boss_death|container|swarm|almost_fail|loss|win|fail|transition|filler"}]}`;
 const hookDetectionSystem = () => `Expert mobile ad hook analyst.\n${HOOK_GUIDE}\n${TIMESTAMP_RULES}\nReturn ONLY JSON: {"hook_timing_seconds":number,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_description":string}`;
+
+// Parse user context text to extract structured facts that should be locked
+// e.g. "2 upgrades: Simple→Double→Triple" → unit_evolution_chain locked
+// e.g. "giants: Yellow Normie at 7s, White Normie at 12s" → giant_kills locked
+function parseContextFacts(context: string): { chain?: string[]; giantNames?: string[]; hookSeconds?: number } {
+  const result: { chain?: string[]; giantNames?: string[]; hookSeconds?: number } = {};
+  if (!context) return result;
+  const lc = context.toLowerCase();
+
+  // Parse evolution chain — look for cannon tier names in sequence
+  const tierNames = ["simple cannon", "double cannon", "triple cannon", "tank", "golden jet"];
+  const foundTiers: string[] = [];
+  // Find all tier mentions in order
+  let searchPos = 0;
+  while (searchPos < lc.length) {
+    let nextTier = -1, nextTierName = "";
+    for (const tier of tierNames) {
+      const pos = lc.indexOf(tier, searchPos);
+      if (pos !== -1 && (nextTier === -1 || pos < nextTier)) {
+        nextTier = pos;
+        nextTierName = tier;
+      }
+    }
+    if (nextTier === -1) break;
+    const canonical = nextTierName.split(" ").map(w => w[0].toUpperCase() + w.slice(1)).join(" ");
+    // Skip if tier name is negated ("no Tank", "not Tank", "never reaches Tank")
+    const preceding = lc.slice(Math.max(0, nextTier - 8), nextTier);
+    const negated = /\bno\s+$|\bnot\s+$|\bnever\s+/.test(preceding);
+    if (!negated && !foundTiers.includes(canonical)) foundTiers.push(canonical);
+    searchPos = nextTier + nextTierName.length;
+  }
+  // Also handle abbreviated "Simple → Double → Triple" notation
+  if (foundTiers.length < 2) {
+    const arrowChain = context.match(/\b(simple|double|triple|tank|golden jet)(?:\s*[→->]+\s*(simple|double|triple|tank|golden jet))+/gi);
+    if (arrowChain) {
+      const abbrevMap: Record<string,string> = {simple:"Simple Cannon",double:"Double Cannon",triple:"Triple Cannon",tank:"Tank","golden jet":"Golden Jet"};
+      const parts = arrowChain[0].split(/\s*[→->]+\s*/);
+      const chain = parts.map(p => abbrevMap[p.trim().toLowerCase()]).filter(Boolean);
+      if (chain.length >= 2) foundTiers.push(...chain.filter(t => !foundTiers.includes(t)));
+    }
+  }
+  if (foundTiers.length >= 2) result.chain = foundTiers;
+
+  // Parse number of upgrades — "2 upgrades", "one upgrade", "3 cannon upgrades"
+  const upgradeMatch = lc.match(/(\d+|one|two|three|four)\s+(?:cannon\s+)?upgrades?/);
+  if (upgradeMatch && !result.chain) {
+    const n = {"one":1,"two":2,"three":3,"four":4}[upgradeMatch[1]] ?? parseInt(upgradeMatch[1]);
+    const defaultChain = ["Simple Cannon","Double Cannon","Triple Cannon","Tank","Golden Jet"];
+    if (n >= 1 && n <= 4) result.chain = defaultChain.slice(0, n + 1);
+  }
+
+  // Parse giant names — "Yellow Normie", "White Normie", etc.
+  const giantPattern = /(yellow normie|white normie|red giant|skeleton|knight)/gi;
+  const giants = [...context.matchAll(giantPattern)].map(m => m[0].split(" ").map((w:string) => w[0].toUpperCase() + w.slice(1)).join(" "));
+  if (giants.length) result.giantNames = [...new Set(giants)];
+
+  // Parse hook timing — "hook at 8s", "hook: 8 seconds"
+  const hookMatch = lc.match(/hook\s+(?:at\s+)?(\d+)\s*s/);
+  if (hookMatch) result.hookSeconds = parseInt(hookMatch[1]);
+
+  return result;
+}
+
 const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtraction[], duration: number, hasFrameImages: boolean, hasRefs: boolean) =>
-  `${config.context ? `GROUND TRUTH — USER-PROVIDED FACTS (HIGHEST PRIORITY — override anything you think you see in the video if it contradicts this):
-${config.context}
-These facts are from the person who made or knows this creative. Trust them completely. Match your unit_evolution_chain, giant_kills, and gate_sequence to what is described here.
+  `${(() => {
+    const facts = parseContextFacts(config.context || "");
+    const lockedFields: string[] = [];
+    if (facts.chain) lockedFields.push(`LOCKED unit_evolution_chain: ${JSON.stringify(facts.chain)} — this is ground truth, do not change it`);
+    if (facts.giantNames) lockedFields.push(`LOCKED champions_visible: ${JSON.stringify(facts.giantNames)} — only these giants/champions appear`);
+    if (facts.hookSeconds != null) lockedFields.push(`LOCKED hook_timing_seconds: ${facts.hookSeconds}`);
+    if (config.context || lockedFields.length) {
+      return `GROUND TRUTH — USER-PROVIDED FACTS (ABSOLUTE PRIORITY — these override everything you see in the frames):
+${config.context ? config.context + "\n" : ""}${lockedFields.length ? "\nPRE-LOCKED FIELDS (copy these values exactly into your JSON output — do not modify):\n" + lockedFields.join("\n") : ""}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-` : ""}World-Class Creative Intelligence Analyst for Mob Control ads. NEVER guess.
+`;
+    }
+    return "";
+  })()}World-Class Creative Intelligence Analyst for Mob Control ads. NEVER guess.
 ANALYSIS APPROACH:
 Your PRIMARY source of truth is the EXTRACTED FRAME IMAGES provided above. These are actual screenshots at specific timestamps. For every event you report, you must be able to point to which frame shows it.
 DO NOT use temporal reasoning. You are NOT watching a video — you are analyzing a set of still frame images at specific timestamps. Each frame is independent evidence. If an event is not visible in at least one frame image, it did not happen as far as you are concerned. The only exception: events explicitly stated in the GROUND TRUTH context above.
@@ -1672,6 +1745,55 @@ export default function App() {
   };
 
   // Re-upload: keep existing metadata (tier/spend/creative_id/parent_id), re-run full analysis pipeline on new video
+
+// Quick consistency check — fixes contradictions between evolution chain and frame descriptions
+async function enforceConsistency(dna: any, frameParts: any[]): Promise<any> {
+  if (!dna || !Array.isArray(dna.unit_evolution_chain) || dna.unit_evolution_chain.length < 2) return dna;
+  if (!Array.isArray(dna.auto_frames) || dna.auto_frames.length === 0) return dna;
+
+  // Check if any frame descriptions contradict the evolution chain
+  const chain = dna.unit_evolution_chain as string[];
+  const validTiers = new Set(chain.map((t: string) => t.toLowerCase()));
+  const allTiers = ["simple cannon","double cannon","triple cannon","tank","golden jet"];
+  const invalidTiers = allTiers.filter(t => !validTiers.has(t));
+
+  // Find frames with contradicting tier names
+  const contradictions = (dna.auto_frames as any[]).filter((f: any) => {
+    const desc = (f.description || "").toLowerCase();
+    return invalidTiers.some(t => desc.includes(t));
+  });
+
+  if (contradictions.length === 0) return dna; // no contradictions, skip extra call
+
+  try {
+    const prompt = `You are correcting cannon tier name errors in frame descriptions.
+
+CORRECT unit_evolution_chain: ${JSON.stringify(chain)}
+This means ONLY these cannon tiers exist: ${chain.join(" → ")}
+
+FRAME DESCRIPTIONS TO FIX (${contradictions.length} have wrong cannon tier names):
+${contradictions.map((f: any) => `[${f.timestamp_seconds}s]: ${f.description}`).join("\n")}
+
+For each description above:
+- Replace any cannon tier name that is NOT in the evolution chain with the correct tier for that point in the video
+- If description says "upgrades to Tank" but Tank is not in the chain, use the last tier in the chain instead
+- Keep all other description text identical
+- Return ONLY a JSON array: [{"timestamp_seconds": number, "description": "corrected text"}]`;
+
+    const corrected = await callGeminiDirect(prompt, [{text: "Fix the descriptions."}]);
+    if (!Array.isArray(corrected)) return dna;
+
+    // Apply corrections back to auto_frames
+    const corrections = new Map(corrected.map((c: any) => [c.timestamp_seconds, c.description]));
+    const fixedFrames = (dna.auto_frames as any[]).map((f: any) =>
+      corrections.has(f.timestamp_seconds) ? {...f, description: corrections.get(f.timestamp_seconds)} : f
+    );
+    return {...dna, auto_frames: fixedFrames};
+  } catch {
+    return dna; // if consistency check fails, return original — never block analysis
+  }
+}
+
   const handleReupload=useCallback(async(entry: DNAEntry, file: File, manualFrameFiles?: File[], newContext?: string)=>{
     setReanalyzingIds(p=>new Set(p).add(entry.id));
     setReanalyzingEntry(entry.id);
@@ -1707,7 +1829,9 @@ export default function App() {
       const hasManual=manualParts.length>0;
       const cfg={tier:entry.tier,ad_type:entry.ad_type,context:newContext||entry.upload_context||"",manual_frames:[]};
       const rawDna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(hasManual?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"INSTRUCTION: Analyze only the extracted frame images above. DO NOT infer events between frames. Base every finding on visible frame evidence only."}]);
-      const dna=sanitizeDNA(rawDna);
+      setAnalyzeStep("validating");
+      const consistentDna = await enforceConsistency(rawDna, frameParts);
+      const dna=sanitizeDNA(consistentDna);
       setAnalyzeStep("saving");
       const frameImageMap: Record<number,string>={};
       for(let pi=0;pi<extractedFrameParts.length-1;pi+=2){ const label=extractedFrameParts[pi]?.text??""; const match=label.match(/\[FRAME at ([\d.]+)s\]/); const imgData=extractedFrameParts[pi+1]?.inlineData?.data; if(match&&imgData) frameImageMap[parseFloat(match[1])]=imgData; }
@@ -1783,7 +1907,9 @@ export default function App() {
           ? [{text:"### EXTRACTED FRAMES — key moments at exact timestamps:"},...extractedFrameParts]
           : [];
         const rawDna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"INSTRUCTION: Analyze only the extracted frame images above. DO NOT infer events between frames. Base every finding on visible frame evidence only."}]);
-        const dna=sanitizeDNA(rawDna);
+        setAnalyzeStep("validating");
+        const consistentDna = await enforceConsistency(rawDna, frameParts);
+        const dna=sanitizeDNA(consistentDna);
         setAnalyzeStep("saving");
         // Build a lookup: timestamp → base64 image from extractedFrameParts
         // extractedFrameParts alternates: [{text:"[FRAME at Xs]"}, {inlineData:{...}}, ...]
