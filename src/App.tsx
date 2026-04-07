@@ -556,10 +556,10 @@ function parseContextFacts(context: string): { chain?: string[]; giantNames?: st
   }
   // Also handle abbreviated "Simple → Double → Triple" notation
   if (foundTiers.length < 2) {
-    const arrowChain = context.match(/\b(simple|double|triple|tank|golden jet)(?:\s*[→->]+\s*(simple|double|triple|tank|golden jet))+/gi);
+    const arrowChain = context.match(/\b(simple|double|triple|tank|golden jet)(?:\s*(?:→|->|>)\s*(simple|double|triple|tank|golden jet))+/gi);
     if (arrowChain) {
       const abbrevMap: Record<string,string> = {simple:"Simple Cannon",double:"Double Cannon",triple:"Triple Cannon",tank:"Tank","golden jet":"Golden Jet"};
-      const parts = arrowChain[0].split(/\s*[→->]+\s*/);
+      const parts = arrowChain[0].split(/\s*(?:→|->|>)\s*/);
       const chain = parts.map(p => abbrevMap[p.trim().toLowerCase()]).filter(Boolean);
       if (chain.length >= 2) foundTiers.push(...chain.filter(t => !foundTiers.includes(t)));
     }
