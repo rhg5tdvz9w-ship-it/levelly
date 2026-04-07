@@ -509,8 +509,12 @@ const TIMESTAMP_RULES = `TIMESTAMPS: Real seconds only (0,2,5,8,14,22). NEVER fr
 const frameExtractionSystem = () => `Precise video timestamp analyst for Mob Control ads. Extract key moments.
 
 RULES:
-1. MUST timestamp these MOC events if present: container destructions, unit evolutions, giant/boss deaths, every x-gate pass (with value), almost-fail moments, swarm peak, final defeat
+1. MUST timestamp these MOC events if present: container destructions, unit evolutions, giant/boss deaths (MANDATORY — if a giant dies, timestamp it), every gate pass (BOTH +N gates AND xN gates, with value), almost-fail moments, swarm peak, final defeat
+   - GIANT DEATH is the highest-priority event. If a frame shows a giant HP bar empty or a giant disappearing, timestamp it with significance "boss_death"
+   - +N GATE PASS: always timestamp — these show cannon count increasing. Use significance "gate". Description must say "+[N] gate: cannon count increases"
 2. VERIFICATION RULE: For each event you report, confirm you can see it in the frame image. Trust the extracted frame images above all else.
+   - If you see a giant HP bar visible but not at zero, still timestamp it with significance "boss_damage" and note the remaining HP
+   - If you see a giant HP bar at zero or gone, timestamp with "boss_death" — NEVER skip this
    - For cannon upgrades specifically: look for a frame where the cannon VISUALLY CHANGES shape. If no frame shows a cannon shape change, do not add that tier to unit_evolution_chain.
    - For container destructions: look for a cannon/unit icon ON TOP of the container before it's destroyed. No icon = empty container = no upgrade.
 2. Fill gaps larger than 8 seconds with a filler timestamp
@@ -521,7 +525,7 @@ RULES:
 
 ${MOC_EVENTS_GUIDE}
 
-Return ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":number,"description":string,"significance":"hook|gate|upgrade|boss_death|container|swarm|almost_fail|loss|win|fail|transition|filler"}]}`;
+Return ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":number,"description":string,"significance":"hook|gate|upgrade|boss_death|boss_damage|container|swarm|almost_fail|loss|win|fail|transition|filler"}]}`;
 const hookDetectionSystem = () => `Expert mobile ad hook analyst.\n${HOOK_GUIDE}\n${TIMESTAMP_RULES}\nReturn ONLY JSON: {"hook_timing_seconds":number,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_description":string}`;
 
 // Parse user context text to extract structured facts that should be locked
@@ -611,7 +615,12 @@ DURATION:${duration}s
 LIBRARY:${lib.length>0?JSON.stringify(lib.map(d=>({title:d.title,tier:d.tier,hook_type:d.hook_type,hook_timing_seconds:d.hook_timing_seconds}))):"empty"}
 ${hasRefs?buildReferenceContext():""}
 ${!hasFrameImages?`TIMESTAMP MAP (Gemini frame observations — use only if no frame images above):
-${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] ${f.description} (${f.significance})`).join("\n"):"none"}`:"EXTRACTED FRAME IMAGES provided above — use these as your primary visual evidence. Do NOT copy their sequence as emotional beats."}
+${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] ${f.description} (${f.significance})`).join("\n"):"none"}`:"EXTRACTED FRAME IMAGES provided above — use these as your primary visual evidence. Do NOT copy their sequence as emotional beats.
+
+CRITICAL DOCUMENTATION REQUIREMENTS — these MUST appear in your auto_frames descriptions if visible:
+1. GIANT KILL: If a frame shows a giant/boss HP bar at zero, defeated animation, or disappearing — write "GIANT KILL: [name] defeated" in that frame description. Also add to giant_kills array.
+2. CANNON COUNT CHANGE via +N gate: If a frame shows mobs passing through a blue +N gate — write "Cannon count increases: +[N] cannons added via +[N] gate" in that frame description. Update cannon_count_log.
+3. DO NOT skip these events — they are the most important moments for understanding ad structure."}
 ${TIMESTAMP_RULES}
 ${HOOK_GUIDE}
 ${GATE_GUIDE}
