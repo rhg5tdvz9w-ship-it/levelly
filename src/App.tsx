@@ -1815,7 +1815,11 @@ For each description above:
           const nearbyFrame=baseTs.some(t=>Math.abs(t-s)<1.5);
           if(!nearbyFrame&&filledTs.size<25) filledTs.add(s);
         }
-        const timestamps=Array.from(filledTs).sort((a,b)=>a-b);
+        const allTimestamps=Array.from(filledTs).sort((a,b)=>a-b);
+        // Extend autoFrames to include gap-fill entries (description will be populated by analysis)
+        const autoFrameMap=new Map(autoFrames.map(f=>[Math.round(f.timestamp_seconds),f]));
+        autoFrames=allTimestamps.map(t=>autoFrameMap.get(t)??{timestamp_seconds:t,description:"",significance:"filler" as const});
+        const timestamps=allTimestamps;
         if(timestamps.length>0){ setAnalyzeStep("extracting"); extractedFrameParts=await extractFramesFromVideo(file,timestamps,duration); }
       } catch(canvasErr: any){ console.warn("Canvas extraction failed:",canvasErr?.message); }
       setAnalyzeStep("hook");
@@ -1834,8 +1838,8 @@ For each description above:
       const dna=sanitizeDNA(consistentDna);
       setAnalyzeStep("saving");
       const frameImageMap: Record<number,string>={};
-      for(let pi=0;pi<extractedFrameParts.length-1;pi+=2){ const label=extractedFrameParts[pi]?.text??""; const match=label.match(/\[FRAME at ([\d.]+)s\]/); const imgData=extractedFrameParts[pi+1]?.inlineData?.data; if(match&&imgData) frameImageMap[parseFloat(match[1])]=imgData; }
-      const autoFramesWithImages: FrameExtraction[]=Array.isArray(autoFrames)?autoFrames.map(f=>frameImageMap[f.timestamp_seconds]?{...f,image_data:frameImageMap[f.timestamp_seconds]}:f):[];
+      for(let pi=0;pi<extractedFrameParts.length-1;pi+=2){ const label=extractedFrameParts[pi]?.text??""; const match=label.match(/\[FRAME at ([\d.]+)s\]/); const imgData=extractedFrameParts[pi+1]?.inlineData?.data; if(match&&imgData){ const ts=parseFloat(match[1]); frameImageMap[ts]=imgData; frameImageMap[Math.round(ts)]=imgData; } }
+      const autoFramesWithImages: FrameExtraction[]=Array.isArray(autoFrames)?autoFrames.map(f=>frameImageMap[f.timestamp_seconds]??frameImageMap[Math.round(f.timestamp_seconds)]?{...f,image_data:frameImageMap[f.timestamp_seconds]??frameImageMap[Math.round(f.timestamp_seconds)]}:f):[];
       // Preserve ALL existing metadata — dna spread last so analysis fields update, then re-apply identity fields
       const updated: DNAEntry={
         ...entry,
@@ -1889,7 +1893,10 @@ For each description above:
             const nearbyFrame=baseTs2.some(t=>Math.abs(t-s)<1.5);
             if(!nearbyFrame&&filledTs2.size<25) filledTs2.add(s);
           }
-          const timestamps=Array.from(filledTs2).sort((a,b)=>a-b);
+          const allTimestamps2=Array.from(filledTs2).sort((a,b)=>a-b);
+          const autoFrameMap2=new Map(autoFrames.map(f=>[Math.round(f.timestamp_seconds),f]));
+          autoFrames=allTimestamps2.map(t=>autoFrameMap2.get(t)??{timestamp_seconds:t,description:"",significance:"filler" as const});
+          const timestamps=allTimestamps2;
           if (timestamps.length > 0) {
             setAnalyzeStep("extracting");
             extractedFrameParts = await extractFramesFromVideo(file, timestamps, duration);
@@ -1918,11 +1925,11 @@ For each description above:
           const label = extractedFrameParts[pi]?.text ?? "";
           const match = label.match(/\[FRAME at ([\d.]+)s\]/);
           const imgData = extractedFrameParts[pi + 1]?.inlineData?.data;
-          if (match && imgData) frameImageMap[parseFloat(match[1])] = imgData;
+          if (match && imgData){ const ts=parseFloat(match[1]); frameImageMap[ts]=imgData; frameImageMap[Math.round(ts)]=imgData; }
         }
         const autoFramesWithImages: FrameExtraction[] = autoFrames.map(f =>
-          frameImageMap[f.timestamp_seconds]
-            ? { ...f, image_data: frameImageMap[f.timestamp_seconds] }
+          (frameImageMap[f.timestamp_seconds] ?? frameImageMap[Math.round(f.timestamp_seconds)])
+            ? { ...f, image_data: frameImageMap[f.timestamp_seconds] ?? frameImageMap[Math.round(f.timestamp_seconds)] }
             : f
         );
         const newId = Date.now() + Math.random();
