@@ -615,12 +615,11 @@ DURATION:${duration}s
 LIBRARY:${lib.length>0?JSON.stringify(lib.map(d=>({title:d.title,tier:d.tier,hook_type:d.hook_type,hook_timing_seconds:d.hook_timing_seconds}))):"empty"}
 ${hasRefs?buildReferenceContext():""}
 ${!hasFrameImages?`TIMESTAMP MAP (Gemini frame observations — use only if no frame images above):
-${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] ${f.description} (${f.significance})`).join("\n"):"none"}`:"EXTRACTED FRAME IMAGES provided above — use these as your primary visual evidence. Do NOT copy their sequence as emotional beats.
-
+${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] ${f.description} (${f.significance})`).join("\n"):"none"}`:"EXTRACTED FRAME IMAGES provided above — use these as your primary visual evidence. Do NOT copy their sequence as emotional beats."}
 CRITICAL DOCUMENTATION REQUIREMENTS — these MUST appear in your auto_frames descriptions if visible:
-1. GIANT KILL: If a frame shows a giant/boss HP bar at zero, defeated animation, or disappearing — write "GIANT KILL: [name] defeated" in that frame description. Also add to giant_kills array.
-2. CANNON COUNT CHANGE via +N gate: If a frame shows mobs passing through a blue +N gate — write "Cannon count increases: +[N] cannons added via +[N] gate" in that frame description. Update cannon_count_log.
-3. DO NOT skip these events — they are the most important moments for understanding ad structure."}
+1. GIANT KILL: If a frame shows a giant/boss HP bar at zero or a boss disappearing, describe it as GIANT KILL then the name and defeated. Also add to giant_kills array.
+2. CANNON COUNT CHANGE via +N gate: If mobs pass through a blue +N gate, describe it as Cannon count increases by +N cannons. Update cannon_count_log.
+3. DO NOT skip these events.
 ${TIMESTAMP_RULES}
 ${HOOK_GUIDE}
 ${GATE_GUIDE}
