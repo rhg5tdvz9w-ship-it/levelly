@@ -470,8 +470,9 @@ const MOC_EVENTS_GUIDE = `MOC-SPECIFIC EVENTS TO HUNT FOR (timestamp ALL of thes
   * EMPTY CONTAINER: Has NO icon on top — just a health number. Destroying this does NOT upgrade the cannon. Use: "Empty container (HP:184) destroyed — no upgrade"
   * If you cannot see whether there is an icon, look at what happens to the cannon IMMEDIATELY after destruction. If the cannon visually changes shape/size, it was an upgrade container. If the cannon looks the same, it was empty.
   * NEVER assume every container = upgrade. Most containers in a video are empty health obstacles.
+  * CONSISTENCY RULE: If you write that cannon upgraded from tier A to tier B at timestamp T, there MUST be an upgrade container destruction at or just before T. If you cannot find it, add a frame entry: "Upgrade container destroyed (icon not clearly visible) — cannon upgrades from [A] to [B]".
 - GIANT/BOSS DEATH: Large enemy giant or boss character defeated. ALWAYS timestamp — key emotional payoff. REQUIRED: every boss death MUST appear in the giant_kills array with timestamp, name (e.g. "Yellow Normie"), and a note on how it died. ALSO REQUIRED: the auto_frames description for that timestamp MUST start with "GIANT KILL:" followed by the giant name and HP reaching zero. Example: "GIANT KILL: Yellow Normie (HP:0) defeated — overwhelmed by mob swarm". If a giant disappears from screen or its HP bar vanishes, it is dead — timestamp and document it even if the defeat animation is brief.
-  HP FLUCTUATION RULE: A giant's HP bar changing between frames (e.g. 7122 → 6513 → 5889) is normal damage progression — it does NOT indicate a new giant or a new phase. Only report a new giant if the GROUND TRUTH context explicitly says there are multiple giants. A sudden HP increase (e.g. 3184 → 4450) is likely a misread of the HP number, not a phase reset — note the HP as visible but do NOT invent a "new phase" or "second giant".
+  HP FLUCTUATION RULE: A giant's HP changing between frames is normal damage. NEVER report a "new giant" or "new phase" based on HP changes alone — even dramatic jumps (e.g. HP:86 → HP:7122) are misreads or game resets of the SAME giant. Only report a second giant if GROUND TRUTH explicitly names two different giants.
 - X GATE PASS: The MOB SWARM passes through a multiplication gate (xN). Report gate value and timestamp for EACH pass.
 - + GATE PASS: The MOB SWARM passes through an addition gate (+N), which adds more cannons to the firing lineup (not more mobs). Report gate value and timestamp.
 - ALMOST-FAIL MOMENT: Player mob count drops to dangerously low level (near wipeout) but survives.
@@ -501,8 +502,9 @@ const GATE_GUIDE = `GATES — CRITICAL: passing through ANY gate NEVER upgrades 
 
 CANNON UPGRADE RULE — ABSOLUTE: The cannon model (Simple/Double/Triple/Tank) ONLY changes when the MOB SWARM physically DESTROYS a breakable obstacle/container on the road. This is a separate event from any gate pass. NEVER write "cannon upgrades after passing a gate". If you see a cannon change and a gate in the same second, the upgrade came from a container that was also destroyed at that moment, NOT from the gate.
 Report EVERY gate with its exact value. If unclear: "x?" or "+?".
-cannon_count_log: track cannon count as a running string showing only +N gate changes: "1 cannon start → +1 gate at 3s: 2 cannons → +1 gate at 9s: 3 cannons". x-gates do NOT appear here (they affect mobs, not cannons). IMPORTANT: Even single +1 gates must be tracked — each +1 gate adds exactly 1 more cannon to the firing lineup. If you see multiple +1 gates in a row, each one increases the count by 1.
-+N GATE FRAME DESCRIPTION RULE: Every auto_frames entry where a blue +N gate is passed MUST include "Cannon count increases: [before]→[after] cannons" in the description. This is mandatory — do not just say "mob passes through gate".`;
+cannon_count_log: track cannon count as a running string showing only +N gate changes: "1 cannon start → +1 gate at 3s: 2 cannons → +1 gate at 9s: 3 cannons". x-gates do NOT appear here (they affect mobs, not cannons). IMPORTANT: Even single +1 gates must be tracked — each +1 gate adds exactly 1 more cannon to the firing lineup.
+gate_sequence FIELD: Include ALL gate passes — both xN gates AND +N gates. Format each as "x3 at 2s", "+1 at 3s", "x4 at 8s" etc. Do NOT omit +N gates from gate_sequence just because they are tracked in cannon_count_log. They must appear in BOTH.
++N GATE FRAME DESCRIPTION RULE: Every auto_frames entry where a blue +N gate is passed MUST include "Cannon count +[N]" in the description.`;
 const HOOK_GUIDE = `HOOK: EXACT SECOND thumb stops scrolling. NEVER 0 unless frame-0 drama. hook_timing_seconds=REAL SECOND (2,4,8) NEVER fraction.`;
 const TIMESTAMP_RULES = `TIMESTAMPS: Real seconds only (0,2,5,8,14,22). NEVER fractions (0.03,0.28). 30s video midpoint=15.`;
 
@@ -635,7 +637,7 @@ FRAME DESCRIPTION RULES — apply to every frame:
 1. GIANT KILL: HP bar at zero or giant disappears → start description with "GIANT KILL: [name] defeated". Add to giant_kills. Skip if GROUND TRUTH says giant survives.
 2. +N GATE: Blue addition gate visible → include "Cannon count +[N]" in description.
 3. GIANT HP: Changing HP = normal damage. Write "HP: [X]" not "new phase" or "health reset".
-4. ONE GIANT: Unless GROUND TRUTH says multiple giants, assume all HP bars belong to the same giant throughout.
+4. ONE GIANT: Unless GROUND TRUTH explicitly names multiple giants, assume only 1 giant exists throughout. HP fluctuations and even HP jumps after a kill event mean the SAME giant continues (or the HP number was misread). Do NOT write "a new [name] appears" — write "Yellow Normie HP: [X]" instead. The only exception: GROUND TRUTH explicitly names 2+ different giants.
 ${TIMESTAMP_RULES}
 ${HOOK_GUIDE}
 ${GATE_GUIDE}
