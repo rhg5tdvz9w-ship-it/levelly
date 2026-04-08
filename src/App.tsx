@@ -1710,12 +1710,29 @@ export default function App() {
   const fileRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
 
+  // Track whether an upload happened during this session — prevents stale cloud data from overwriting fresh local data
+  const uploadCompletedRef = React.useRef(false);
+
   useEffect(()=>{
     const sanitizeLib = (entries: any[]): DNAEntry[] => entries.map(e => sanitizeDNA(e) as DNAEntry);
+
+    // Always load from localStorage first for instant display
+    try {
+      const local = localStorage.getItem("levelly_dna_library");
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setLib(sanitizeLib(parsed));
+        }
+      }
+    } catch {}
 
     fetch("/api/load-library")
       .then(r=>{ if(!r.ok) throw new Error(); return r.json(); })
       .then((data: DNAEntry[])=>{
+      // If an upload completed while we were fetching cloud data, skip the overwrite
+      // localStorage already has the freshest data and cloud is stale
+      if(uploadCompletedRef.current) { setLibraryLoaded(true); return; }
       if(Array.isArray(data)&&data.length>0){
         // Restore image_data from localStorage — Blobs strips frames to stay under size limit
         try {
@@ -1729,7 +1746,6 @@ export default function App() {
               if(loc?.auto_frames?.length && loc.auto_frames.some(f=>f.description)) {
                 return{...e,auto_frames:loc.auto_frames};
               }
-              // Local has no frames or no descriptions — use cloud frames as-is
               return e;
             });
             setLib(sanitizeLib(merged));
@@ -1892,6 +1908,7 @@ For each description above:
         added_at: entry.added_at,
       };
       saveLib(lib.map(x=>x.id===entry.id?updated:x));
+      uploadCompletedRef.current = true;
       setLastAnalyzedId(entry.id);
       setAnalyzeStep("");
     } catch(err: any){ setAnalyzeErr((err as Error).message||String(err)); }
@@ -1965,6 +1982,7 @@ For each description above:
         );
         const newId = Date.now() + Math.random();
         saveLib([...lib,{...dna,id:newId,tier:cfg.tier,ad_type:cfg.ad_type,upload_context:cfg.context,file_name:file.name,added_at:new Date().toISOString(),creative_id:cfg.creative_id,parent_id:cfg.parent_id,auto_frames:autoFramesWithImages,manual_frames:cfg.manual_frames.map(f=>f.name)}]);
+        uploadCompletedRef.current = true;
         setLastAnalyzedId(newId);
         setAnalyzeStep("");
       }
