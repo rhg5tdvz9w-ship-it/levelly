@@ -1,15 +1,16 @@
 import type { Handler } from "@netlify/functions";
-import { getStore } from "@netlify/blobs";
+import { connectLambda, getStore } from "@netlify/blobs";
 
 export const handler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method not allowed" };
   }
+  connectLambda(event);
   try {
-    const body = event.body ?? "[]";
-    JSON.parse(body); // validate JSON
+    const library = event.body ?? "[]";
+    JSON.parse(library); // validate
     const store = getStore("levelly");
-    await store.set("library", body);
+    await store.set("library", library);
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },
