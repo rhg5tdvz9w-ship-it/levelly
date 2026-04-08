@@ -6,11 +6,15 @@ export const handler: Handler = async (event) => {
     return { statusCode: 405, body: "Method not allowed" };
   }
   try {
-    const library = event.body ?? "[]";
-    JSON.parse(library); // validate
+    const body = event.body ?? "[]";
+    JSON.parse(body); // validate JSON
     const store = getStore("levelly");
-    await store.set("library", library);
-    return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ success: true }) };
+    await store.set("library", body);
+    return {
+      statusCode: 200,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ success: true }),
+    };
   } catch (err: any) {
     console.error("save-library error:", err);
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
