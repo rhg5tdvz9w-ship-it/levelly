@@ -463,7 +463,7 @@ function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string, lib?: any[],
 
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 const BIOME_GUIDE = `BIOMES: Foggy Forest(grey/white atmospheric fog,dark pines,grey road—NOT snow), Desert(tan sand,blue sky), Water(grey bridge over blue water), Bunker(grey concrete tunnel,pipes,industrial), Cyber-City(grey metal,orange/blue neon), Volcanic(red/orange lava,black rocks), Snow(white snow ground), Toxic(purple paths,green slime), Meadow(green hills,grey brick bridge)`;
-const CHAMPION_GUIDE = `CHAMPIONS (ONLY these exist in Mob Control): Captain Kaboom(blue round mob, green hat with yellow brim, fires 3 golden streams), Gold Golem(LARGE golden muscular humanoid), Caveman(blue-skin muscular humanoid, blonde hair, club), Mobzilla(green dinosaur/T-Rex, pink spines, red mouth, cartoonish), Nexus(blue/white/orange mech, orange sword), Red Hulk(large red humanoid), Kraken(red octopus), Femme Zombie(crawling female zombie boss), Yellow Normie(LARGE HUMANOID giant, bright yellow skin, bald round head, simple chunky body like a cartoon yellow man/golem, stands upright on 2 legs, arms raised in attack pose, RED HP bar above head — NOT a blob, NOT a sphere, IS a humanoid figure. IMPORTANT: Yellow Normie temporarily flashes white or blue when hit by mobs — this is a HIT EFFECT VFX, NOT a new boss. Do not report a "White Giant" or "Blue Giant" — it is always Yellow Normie with hit flash effects. There is NO White Giant, Blue Giant, or colour-variant giant in Mob Control.), Unknown(generic enemy tower). Enemy tower = red/grey fortified block structure with HP number. NEVER invent champion appearances. NEVER invent a new giant based on colour changes — hit VFX change giant colour temporarily. If a champion name is not on this list, use Unknown.`;
+const CHAMPION_GUIDE = `CHAMPIONS (ONLY these exist in Mob Control): Captain Kaboom(blue round mob, green hat with yellow brim, fires 3 golden streams), Gold Golem(LARGE golden muscular humanoid), Caveman(blue-skin muscular humanoid, blonde hair, club), Mobzilla(green dinosaur/T-Rex, pink spines, red mouth, cartoonish), Nexus(blue/white/orange mech, orange sword), Red Hulk(large red humanoid), Kraken(red octopus), Femme Zombie(crawling female zombie boss), Yellow Normie(LARGE HUMANOID giant, bright yellow skin, bald round head, simple chunky body like a cartoon yellow man/golem, stands upright on 2 legs, arms raised in attack pose, RED HP bar above head — NOT a blob, NOT a sphere, IS a humanoid figure. IMPORTANT: Yellow Normie temporarily flashes white or blue when hit by mobs — this is a HIT EFFECT VFX, NOT a new boss. Do not report a "White Giant" or "Blue Giant" — it is always Yellow Normie with hit flash effects. There is NO White Giant, Blue Giant, or colour-variant giant in Mob Control.), Unknown(generic enemy tower). Enemy tower = red/grey fortified block structure with HP number. NEVER invent champion appearances. NAMING RULE: Match what you see to the list above by APPEARANCE, not by colour variation. If you see a large humanoid giant — check if it has YELLOW SKIN. If yes → Yellow Normie. If skin is any other colour (red, white, grey, blue) → still check: is it just a VFX flash on Yellow Normie? Yellow Normie flashes white/red/blue when hit. If in doubt → "Unknown". FORBIDDEN NAMES (do not use under any circumstances): "Red Normie", "White Normie", "Blue Normie", "Stone Normie", "Fire Giant", "Shadow Giant" — none of these exist in MOC.`;
 const MOC_EVENTS_GUIDE = `MOC-SPECIFIC EVENTS TO HUNT FOR (timestamp ALL of these if present):
 - CONTAINER DESTRUCTION: The MOB SWARM destroys a breakable container/obstacle. Report it with HP number visible. CRITICAL — containers have two types:
   * UPGRADE CONTAINER: Has a cannon/unit icon visible ON TOP of the container. Destroying this one upgrades the cannon tier. Use: "Upgrade container (HP:20, cannon icon) destroyed — cannon upgrades from Simple to Double Cannon"
@@ -472,7 +472,7 @@ const MOC_EVENTS_GUIDE = `MOC-SPECIFIC EVENTS TO HUNT FOR (timestamp ALL of thes
   * NEVER assume every container = upgrade. Most containers in a video are empty health obstacles.
   * CONSISTENCY RULE: If you write that cannon upgraded from tier A to tier B at timestamp T, there MUST be an upgrade container destruction at or just before T. If you cannot find it, add a frame entry: "Upgrade container destroyed (icon not clearly visible) — cannon upgrades from [A] to [B]".
 - GIANT/BOSS DEATH: Large enemy giant or boss character defeated. ALWAYS timestamp — key emotional payoff. REQUIRED: every boss death MUST appear in the giant_kills array with timestamp, name (e.g. "Yellow Normie"), and a note on how it died. ALSO REQUIRED: the auto_frames description for that timestamp MUST start with "GIANT KILL:" followed by the giant name and HP reaching zero. Example: "GIANT KILL: Yellow Normie (HP:0) defeated — overwhelmed by mob swarm". If a giant disappears from screen or its HP bar vanishes, it is dead — timestamp and document it even if the defeat animation is brief.
-  HP FLUCTUATION RULE: A giant's HP changing between frames is normal damage. NEVER report a "new giant" or "new phase" based on HP changes alone — even dramatic jumps (e.g. HP:86 → HP:7122) are misreads or game resets of the SAME giant. Only report a second giant if GROUND TRUTH explicitly names two different giants.
+  HP CONTINUITY RULE: A giant's HP should generally decrease over time as it takes damage. If you see HP jump dramatically UP (e.g. HP:86 → HP:7777), this is either (a) a second giant spawn explicitly stated in context, or (b) a misread of the HP number. Never interpret an HP jump as "a new giant appears" — write "Giant HP bar visible: [X]" without inventing a new entity. HP going DOWN = normal damage. HP going UP dramatically = misread or second giant from context only.
 - X GATE PASS: The MOB SWARM passes through a multiplication gate (xN). Report gate value and timestamp for EACH pass.
 - + GATE PASS: The MOB SWARM passes through an addition gate (+N), which adds more cannons to the firing lineup (not more mobs). Report gate value and timestamp.
 - ALMOST-FAIL MOMENT: Player mob count drops to dangerously low level (near wipeout) but survives.
@@ -524,11 +524,22 @@ RULES:
 4. ${TIMESTAMP_RULES}
 5. No two timestamps closer than 1 second apart
 6. ONLY report what you can clearly see. If ambiguous, skip — do not guess.
+7. CHAMPION NAMING in descriptions: Only use names from the official list. If you see a large humanoid: check for YELLOW SKIN → "Yellow Normie". Any other colour that might be a VFX flash → still "Yellow Normie (hit flash)". If clearly a different entity entirely → "Unknown giant". NEVER write "Red Normie", "White Normie", "Blue Giant", or any other descriptive invention.
 
 ${MOC_EVENTS_GUIDE}
 
 Return ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":number,"description":string,"significance":"hook|gate|upgrade|boss_death|boss_damage|container|swarm|almost_fail|loss|win|fail|transition|filler"}]}`;
-const hookDetectionSystem = () => `Expert mobile ad hook analyst.\n${HOOK_GUIDE}\n${TIMESTAMP_RULES}\nReturn ONLY JSON: {"hook_timing_seconds":number,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_description":string}`;
+const hookDetectionSystem = () => `Expert mobile ad hook analyst for Mob Control mobile game ads.
+You will receive a set of extracted frame images and their timestamps. Your job: identify the HOOK — the exact second when a thumb would stop scrolling.
+
+HOOK RULES:
+- The hook is the first moment of visual drama, tension, or curiosity. Usually: a giant boss visible, a dangerous gate choice, an almost-fail moment, or an impressive swarm.
+- hook_timing_seconds MUST be one of the timestamp values from the provided frames. Do NOT invent a timestamp not in the list.
+- NEVER return 0 unless the very first frame (0s) contains clear dramatic action (boss on screen, danger, intense moment). A cannon sitting idle at 0s is NOT a hook.
+- The hook is almost always between 1s and 8s. If you cannot identify a clear hook moment, return the earliest frame that shows something interesting (boss visible, gates, action).
+- ${HOOK_GUIDE}
+- ${TIMESTAMP_RULES}
+Return ONLY JSON: {"hook_timing_seconds":number,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_description":string}`;
 
 // Parse user context text to extract structured facts that should be locked
 // e.g. "2 upgrades: Simple→Double→Triple" → unit_evolution_chain locked
@@ -609,7 +620,7 @@ const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtra
     if (facts.giantNames) {
       lockedFields.push(`LOCKED champions_visible: ${JSON.stringify(facts.giantNames)} — ONLY these giants appear in the entire ad. There are exactly ${facts.giantNames.length} giant(s). Do NOT invent additional giants based on HP changes or visual assumptions.`);
       if (facts.giantNames.length === 1) {
-        lockedFields.push(`SINGLE GIANT RULE: Only 1 giant exists (${facts.giantNames[0]}). Any HP bar changes (increases, resets, jumps) belong to this same giant — do NOT report a second giant or a "new phase" boss.`);
+        lockedFields.push(`GIANT NAMES LOCKED: The only named giant in this video is ${facts.giantNames[0]}. If a second large HP bar appears after ${facts.giantNames[0]} is killed, call it "Unknown" — do NOT use colour-based names like "Red Normie" or "White Normie". ${facts.giantNames[0]} is the ONLY giant with a real name in this video.`);
       }
     }
     if (facts.hookSeconds != null) lockedFields.push(`LOCKED hook_timing_seconds: ${facts.hookSeconds}`);
@@ -621,7 +632,13 @@ ${config.context ? config.context + "\n" : ""}${lockedFields.length ? "\nPRE-LOC
 
 `;
     }
-    return "";
+    return `DEFAULT ASSUMPTIONS (no user context provided — apply when analyzing):
+- Assume 1 giant/boss exists unless frames clearly show a second distinct giant appearing AFTER first is confirmed dead at HP:0
+- All HP bars showing the same giant model = same giant throughout the video
+- Under-report rather than hallucinate — if genuinely unsure about an event, omit it
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+`;
   })()}World-Class Creative Intelligence Analyst for Mob Control ads. NEVER guess.
 ANALYSIS APPROACH:
 Your PRIMARY source of truth is the EXTRACTED FRAME IMAGES provided above. These are actual screenshots at specific timestamps. For every event you report, you must be able to point to which frame shows it.
@@ -631,13 +648,14 @@ AD TYPE:${config.ad_type} TIER:${config.tier}
 DURATION:${duration}s
 LIBRARY:${lib.length>0?JSON.stringify(lib.map(d=>({title:d.title,tier:d.tier,hook_type:d.hook_type,hook_timing_seconds:d.hook_timing_seconds}))):"empty"}
 ${hasRefs?buildReferenceContext():""}
-${!hasFrameImages?`TIMESTAMP MAP (Gemini frame observations — use only if no frame images above):
-${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] ${f.description} (${f.significance})`).join("\n"):"none"}`:"EXTRACTED FRAME IMAGES provided above — use these as your primary visual evidence. Do NOT copy their sequence as emotional beats."}
+${!hasFrameImages?`TIMESTAMP MAP — significance tags only (no descriptions to avoid bias):
+${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] (${f.significance})`).join("\n"):"none"}
+Note: descriptions stripped intentionally — derive all event details from frame images only`:"EXTRACTED FRAME IMAGES provided above — use these as your primary visual evidence. These are the ground truth. If a frame image contradicts the timestamp map description, TRUST THE IMAGE."}
 FRAME DESCRIPTION RULES — apply to every frame:
-1. GIANT KILL: HP bar at zero or giant disappears → start description with "GIANT KILL: [name] defeated". Add to giant_kills. Skip if GROUND TRUTH says giant survives.
+1. GIANT KILL: HP bar reaches exactly zero AND/OR giant fully disappears from screen → start description with "GIANT KILL: [name] defeated". Add to giant_kills array. Do NOT write GIANT KILL if HP is still visible above zero — that is boss_damage not boss_death. Skip entirely if GROUND TRUTH says giant survives.
 2. +N GATE: Blue addition gate visible → include "Cannon count +[N]" in description.
 3. GIANT HP: Changing HP = normal damage. Write "HP: [X]" not "new phase" or "health reset".
-4. ONE GIANT: Unless GROUND TRUTH explicitly names multiple giants, assume only 1 giant exists throughout. HP fluctuations and even HP jumps after a kill event mean the SAME giant continues (or the HP number was misread). Do NOT write "a new [name] appears" — write "Yellow Normie HP: [X]" instead. The only exception: GROUND TRUTH explicitly names 2+ different giants.
+4. GIANT COUNT RULE: Assume exactly 1 giant unless GROUND TRUTH explicitly names 2+. HOWEVER: if you have already confirmed a GIANT KILL (HP reached zero) and then see a NEW large HP bar at a substantially higher value — that IS a second giant spawn. Name it "Unknown" unless GROUND TRUTH names it. Do NOT reuse the previous giant's name with a colour prefix (e.g. never "Red Normie", "White Normie"). Use exactly: "Unknown giant (HP:[X]) appears" for any second giant not named in context. The first giant's name does not transfer to the second.
 ${TIMESTAMP_RULES}
 ${HOOK_GUIDE}
 ${GATE_GUIDE}
@@ -1869,7 +1887,12 @@ For each description above:
       } catch(canvasErr: any){ console.warn("Canvas extraction failed:",canvasErr?.message); }
       setAnalyzeStep("hook");
       let hookData: any={};
-      try { hookData=await callGeminiDirect(hookDetectionSystem(),[{text:`Frames:${JSON.stringify(autoFrames)}.Context:${newContext||entry.upload_context||""}.Find hook:`},videoPart]); } catch {}
+      try {
+        const hookFrameParts = extractedFrameParts.length > 0
+          ? [{text:`Extracted frames below. Timestamps: ${autoFrames.map(f=>f.timestamp_seconds).join(",")}s. Context:${newContext||entry.upload_context||""}. Find the hook:`},...extractedFrameParts]
+          : [{text:`Frames:${JSON.stringify(autoFrames)}.Context:${newContext||entry.upload_context||""}.Find hook:`}];
+        hookData=await callGeminiDirect(hookDetectionSystem(),hookFrameParts);
+      } catch {}
       const manualParts: any[]=[];
       if(manualFrameFiles&&manualFrameFiles.length>0){ for(const mf of manualFrameFiles){ manualParts.push({text:`Manual:${mf.name}`}); manualParts.push({inlineData:{mimeType:mf.type,data:await fileToBase64(mf)}}); } }
       setAnalyzeStep("analyzing");
@@ -1951,7 +1974,12 @@ For each description above:
 
         setAnalyzeStep("hook");
         let hookData: any={};
-        try { hookData=await callGeminiDirect(hookDetectionSystem(),[{text:`Frames:${JSON.stringify(autoFrames)}.Context:${cfg.context}.Find hook:`},videoPart]); } catch {}
+        try {
+          const hookFrameParts = extractedFrameParts.length > 0
+            ? [{text:`Extracted frames below. Timestamps: ${autoFrames.map(f=>f.timestamp_seconds).join(",")}s. Context:${cfg.context}. Find the hook:`},...extractedFrameParts]
+            : [{text:`Frames:${JSON.stringify(autoFrames)}.Context:${cfg.context}.Find hook:`}];
+          hookData=await callGeminiDirect(hookDetectionSystem(),hookFrameParts);
+        } catch {}
         const manualParts: any[]=[];
         if(cfg.manual_frames.length>0){ for(const mf of cfg.manual_frames){ manualParts.push({text:`Manual:${mf.name}`}); manualParts.push({inlineData:{mimeType:mf.type,data:await fileToBase64(mf)}}); } }
         setAnalyzeStep("analyzing");
