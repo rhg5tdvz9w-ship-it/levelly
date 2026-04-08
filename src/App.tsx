@@ -466,11 +466,11 @@ const BIOME_GUIDE = `BIOMES: Foggy Forest(grey/white atmospheric fog,dark pines,
 const CHAMPION_GUIDE = `CHAMPIONS (ONLY these exist in Mob Control): Captain Kaboom(blue round mob, green hat with yellow brim, fires 3 golden streams), Gold Golem(LARGE golden muscular humanoid), Caveman(blue-skin muscular humanoid, blonde hair, club), Mobzilla(green dinosaur/T-Rex, pink spines, red mouth, cartoonish), Nexus(blue/white/orange mech, orange sword), Red Hulk(large red humanoid), Kraken(red octopus), Femme Zombie(crawling female zombie boss), Yellow Normie(LARGE HUMANOID giant, bright yellow skin, bald round head, simple chunky body like a cartoon yellow man/golem, stands upright on 2 legs, arms raised in attack pose, RED HP bar above head — NOT a blob, NOT a sphere, IS a humanoid figure. IMPORTANT: Yellow Normie temporarily flashes white or blue when hit by mobs — this is a HIT EFFECT VFX, NOT a new boss. Do not report a "White Giant" or "Blue Giant" — it is always Yellow Normie with hit flash effects. There is NO White Giant, Blue Giant, or colour-variant giant in Mob Control.), Unknown(generic enemy tower). Enemy tower = red/grey fortified block structure with HP number. NEVER invent champion appearances. NAMING RULE: Match what you see to the list above by APPEARANCE, not by colour variation. If you see a large humanoid giant — check if it has YELLOW SKIN. If yes → Yellow Normie. If skin is any other colour (red, white, grey, blue) → still check: is it just a VFX flash on Yellow Normie? Yellow Normie flashes white/red/blue when hit. If in doubt → "Unknown". FORBIDDEN NAMES (do not use under any circumstances): "Red Normie", "White Normie", "Blue Normie", "Stone Normie", "Fire Giant", "Shadow Giant" — none of these exist in MOC.`;
 const MOC_EVENTS_GUIDE = `MOC-SPECIFIC EVENTS TO HUNT FOR (timestamp ALL of these if present):
 - CONTAINER DESTRUCTION: The MOB SWARM destroys a breakable container/obstacle. Report it with HP number visible. CRITICAL — containers have two types:
-  * UPGRADE CONTAINER: Has a cannon/unit icon visible ON TOP of the container. Destroying this one upgrades the cannon tier. Use: "Upgrade container (HP:20, cannon icon) destroyed — cannon upgrades from Simple to Double Cannon"
+  * UPGRADE CONTAINER: Has a cannon/unit icon visible ON TOP of the container. Destroying this one upgrades the cannon tier. Use: "Upgrade container (HP:20, cannon icon) destroyed — cannon upgrades to next tier". Do NOT name the specific tier (Simple/Double/Triple/Tank) in this description — the correct tier names are determined from the full unit_evolution_chain in the final analysis.
   * EMPTY CONTAINER: Has NO icon on top — just a health number. Destroying this does NOT upgrade the cannon. Use: "Empty container (HP:184) destroyed — no upgrade"
   * If you cannot see whether there is an icon, look at what happens to the cannon IMMEDIATELY after destruction. If the cannon visually changes shape/size, it was an upgrade container. If the cannon looks the same, it was empty.
   * NEVER assume every container = upgrade. Most containers in a video are empty health obstacles.
-  * CONSISTENCY RULE: If you write that cannon upgraded from tier A to tier B at timestamp T, there MUST be an upgrade container destruction at or just before T. If you cannot find it, add a frame entry: "Upgrade container destroyed (icon not clearly visible) — cannon upgrades from [A] to [B]".
+  * CONSISTENCY RULE: Every upgrade event MUST have an upgrade container destruction visible at or just before that timestamp. If you see the cannon visually change shape but missed the container, add: "Upgrade container destroyed (icon not clearly visible) — cannon tier advanced".
   * LV+1 IS NOT AN UPGRADE: The "LV+1" text popup that appears on screen when a +N gate is passed is the cannon COUNT increasing — not the cannon MODEL/TIER changing. Simple Cannon stays Simple Cannon after a +1 gate. ONLY a container destruction changes Simple→Double→Triple→Tank.
 - GIANT/BOSS DEATH: Large enemy giant or boss character defeated. ALWAYS timestamp — key emotional payoff. REQUIRED: every boss death MUST appear in the giant_kills array with timestamp, name (e.g. "Yellow Normie"), and a note on how it died. ALSO REQUIRED: the auto_frames description for that timestamp MUST start with "GIANT KILL:" followed by the giant name and HP reaching zero. Example: "GIANT KILL: Yellow Normie (HP:0) defeated — overwhelmed by mob swarm". If a giant disappears from screen or its HP bar vanishes, it is dead — timestamp and document it even if the defeat animation is brief.
   HP CONTINUITY RULE: A giant's HP should generally decrease over time as it takes damage. If you see HP jump dramatically UP (e.g. HP:86 → HP:7777), this is either (a) a second giant spawn explicitly stated in context, or (b) a misread of the HP number. Never interpret an HP jump as "a new giant appears" — write "Giant HP bar visible: [X]" without inventing a new entity. HP going DOWN = normal damage. HP going UP dramatically = misread or second giant from context only.
@@ -617,7 +617,14 @@ const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtra
     const facts = parseContextFacts(config.context || "");
     const lockedFields: string[] = [];
     if (facts.chain) {
-      lockedFields.push(`LOCKED unit_evolution_chain: ${JSON.stringify(facts.chain)} — use these exact tier names. There are ${facts.chain.length - 1} upgrade event(s) in this video.`);
+      const chain = facts.chain;
+      const phaseMap = chain.map((tier, i) => {
+        if (i === 0) return `Before 1st upgrade container: cannon = "${tier}"`;
+        if (i === 1) return `After 1st upgrade container destroyed: cannon = "${tier}"`;
+        if (i === 2) return `After 2nd upgrade container destroyed: cannon = "${tier}"`;
+        return `After ${i}th upgrade container destroyed: cannon = "${tier}"`;
+      }).join('; ');
+      lockedFields.push(`LOCKED unit_evolution_chain: ${JSON.stringify(chain)} — ${chain.length - 1} upgrade event(s). CANNON NAME PER PHASE: ${phaseMap}. Use these exact names in ALL frame descriptions — IGNORE any tier names in the timestamp map hints.`);
     }
     if (facts.giantNames) {
       lockedFields.push(`LOCKED champions_visible: ${JSON.stringify(facts.giantNames)} — ONLY these giants appear in the entire ad. There are exactly ${facts.giantNames.length} giant(s). Do NOT invent additional giants based on HP changes or visual assumptions.`);
@@ -664,8 +671,12 @@ ${GATE_GUIDE}
 ${MOC_EVENTS_GUIDE}
 ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}
-UNIT EVOLUTION CHAIN: Count upgrade containers WITH A CANNON ICON destroyed in the frames. That count = number of upgrades. Chain = starting tier + one tier per upgrade. Most ads: 1-2 upgrades. If PRE-LOCKED chain provided above, use it — do not override.
-CANNON NAMING: When writing frame descriptions, name the cannon based on which upgrades have occurred so far in the timeline — not from visual appearance alone. Before upgrade 1: use chain[0]. After upgrade 1: use chain[1]. After upgrade 2: use chain[2]. If no locked chain: use the 4 valid visual names only.
+UNIT EVOLUTION CHAIN: Count upgrade containers WITH A CANNON ICON destroyed in the frames. That count = number of upgrades. Chain = starting tier + one tier per upgrade sequentially (Simple→Double→Triple→Tank — NEVER skip tiers). Most ads: 1-2 upgrades. If PRE-LOCKED chain provided above, use it exactly — do not override. NEVER jump from Simple to Tank or Simple to Triple in one step unless the chain explicitly shows this.
+CANNON NAMING — STRICT RULE: Name the cannon tier using ONLY the unit_evolution_chain positions:
+- Before any upgrade container is destroyed: cannon = chain[0] (e.g. "Simple Cannon")
+- After 1st upgrade container destroyed: cannon = chain[1] (e.g. "Double Cannon")  
+- After 2nd upgrade container destroyed: cannon = chain[2] (e.g. "Triple Cannon")
+IGNORE any tier names written in the TIMESTAMP MAP descriptions — those are preliminary guesses and are often wrong. The chain defines the truth. A 3-entry chain [Simple, Double, Triple] means: start=Simple, after 1st upgrade=Double, after 2nd upgrade=Triple. Never jump from Simple to Tank in a 3-entry chain.
 FRAME EMOTIONS: For each extracted frame timestamp shown above, assign one emotion word (Anticipation, Excitement, Satisfaction, Empowerment, Tension, Almost Fail, Dread, Defeat, Triumph). Return as frame_emotions array. Include ALL timestamps you received frames for — not just key moments.
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
 Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"frame_emotions":[{"timestamp_seconds":number,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
@@ -730,11 +741,13 @@ PLAYER UNIT TERMINOLOGY — CRITICAL:
 - CORRECT language: "Mob swarm passes through x4 gate, multiplying from 6 to 24 mobs" / "Swarm passes through +1 gate, adding 1 more firing cannon (now 2 cannons)"
 - The "player_mob_color" field = the colour of the small blob mobs (e.g. blue). The cannon is always blue/grey.
 BIOME SELECTION: If user specifies a biome in their prompt, use EXACTLY that biome for data-backed concepts. Do NOT substitute. Desert+Facebook = CZ65 ($7K/d top-1) + CT43 as primary DNA. Foggy Forest+Facebook = CB57+CR17. Water = CZ94+CV73. Biome directly determines network fit — match the user's stated target.
-9-STEP CURVE: Pressure→Investment→Validate→Investment2→Payoff→FalseSafety→Pressure++→AlmostWin→Fail
+9-STEP CURVE (required for every concept — map each beat to a specific timestamp/mechanic):
+Pressure(0-2s: threat visible) → Investment(2-6s: +N gates, cannon count grows) → Validate(6-8s: first upgrade, swarm power up) → Investment2(8-12s: more +N gates, mob multiply) → Payoff(12-15s: giant defeated or upgrade complete) → FalseSafety(15-18s: second threat appears) → Pressure++(18-22s: almost-fail, mobs depleted) → AlmostWin(22-24s: final push, last few mobs) → Fail(24-26s: BATTLE FAILED screen)
+Each concept MUST fill the nine_step_curve JSON field with a 1-sentence description of what happens at that beat for that specific concept.
 BIOMES (concepts 1-2): Desert, Foggy Forest, Water, Bunker, Meadow ONLY. Concept 3: experimental biome (is_experimental:true).
 
 Return ONLY valid JSON — be concise, no padding or elaboration:
-{"analysis":{"patterns_used":string,"dna_sources":[string],"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"is_experimental":boolean,"experimental_note":string|null,"objective":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"hook_timing_seconds":number,"hook_description":string,"unit_evolution_chain":[string],"cannon_count_progression":string,"lane_design":string,"upgrade_triggers":[string],"tension_moments":[string],"network_adaptations":{"AppLovin":string,"Facebook":string,"Google":string},"engagement_hooks":string,"production_script":[{"time":string,"action":string,"visual_cue":string,"audio_cue":string}],"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}]}`;
+{"analysis":{"patterns_used":string,"dna_sources":[string],"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"is_experimental":boolean,"experimental_note":string|null,"objective":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"hook_timing_seconds":number,"hook_description":string,"unit_evolution_chain":[string],"cannon_count_progression":string,"lane_design":string,"upgrade_triggers":[string],"tension_moments":[string],"network_adaptations":{"AppLovin":string,"Facebook":string,"Google":string},"engagement_hooks":string,"production_script":[{"time":string,"action":string,"visual_cue":string,"audio_cue":string}],"nine_step_curve":{"Pressure":string,"Investment":string,"Validate":string,"Investment2":string,"Payoff":string,"FalseSafety":string,"PressurePlus":string,"AlmostWin":string,"Fail":string},"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}]}`;
 };
 
 const CANNON_VISUALS: Record<string, string> = {
@@ -757,8 +770,8 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
   const unitAtScene = {
     hook:   chain[0] || "Simple Cannon",
     start:  chain[0] || "Simple Cannon",
-    middle: chain[Math.floor(chain.length / 2)] || chain[0] || "Triple Cannon",
-    end:    chain[chain.length - 1] || chain[0] || "Tank",
+    middle: chain.length >= 2 ? chain[Math.floor(chain.length / 2)] : (chain[0] || "Simple Cannon"),
+    end:    chain[chain.length - 1] || chain[0] || "Simple Cannon",
   }[scene];
 
   const cannonVisual = CANNON_VISUALS[unitAtScene] || `${unitAtScene}: a ground-mounted cannon on a wheeled base, NOT a vehicle`;
@@ -2032,10 +2045,13 @@ For each description above:
           hook_type: d.hook_type,
           hook_timing_seconds: d.hook_timing_seconds,
           unit_evolution_chain: d.unit_evolution_chain,
+          gate_sequence: d.gate_sequence||[],
           key_mechanic: d.key_mechanic,
+          why_it_works: d.why_it_works||null,
           loss_event_type: d.loss_event_type,
           spend_tier: d.spend_tier||null,
           spend_networks: d.spend_networks||[],
+          cannon_count_log: d.cannon_count_log||null,
         }));
       const systemPrompt = briefSystem(trimmedLib, briefCtx, "Whale+Dolphin", iterateFrom.trim()||undefined, refNote);
       const jobId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -2773,6 +2789,19 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                     <div style={{ marginBottom:14 }}>
                       <span style={labelStyle}>Lane design</span>
                       <p style={{ margin:0,fontSize:11,color:D.textMuted,lineHeight:1.6 }}>{c.lane_design}</p>
+                    </div>
+                  )}
+                  {(c as any).nine_step_curve && (
+                    <div style={{ marginBottom: 12 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: D.textDim, textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 6 }}>9-Step Curve</div>
+                      <div style={{ display: "flex", flexDirection: "column" as const, gap: 3 }}>
+                        {Object.entries((c as any).nine_step_curve).map(([beat, desc]: [string, any]) => (
+                          <div key={beat} style={{ display: "flex", gap: 8, fontSize: 11, padding: "3px 0", borderBottom: `0.5px solid ${D.border}` }}>
+                            <span style={{ fontWeight: 600, color: D.gold, minWidth: 90, flexShrink: 0 }}>{beat}</span>
+                            <span style={{ color: D.text }}>{String(desc)}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                   {c.upgrade_triggers && c.upgrade_triggers.length > 0 && (
