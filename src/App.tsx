@@ -1724,18 +1724,13 @@ export default function App() {
             const localMap=new Map(JSON.parse(local).map((e: DNAEntry)=>[e.id,e]));
             const merged=data.map((e: DNAEntry)=>{
               const loc=localMap.get(e.id) as DNAEntry|undefined;
-              if(!loc?.auto_frames?.length) return e;
-              // Build image map with both exact and rounded timestamp keys
-              const imgMap=new Map<number,string>();
-              loc.auto_frames.forEach(f=>{ if(f.image_data){ imgMap.set(f.timestamp_seconds,f.image_data); imgMap.set(Math.round(f.timestamp_seconds),f.image_data); }});
-              // If cloud entry has no descriptions (blank from gap-fill), use local frames entirely
-              const cloudFrames = e.auto_frames??[];
-              const hasDescriptions = cloudFrames.some(f=>f.description);
-              if(!hasDescriptions && loc.auto_frames.some(f=>f.description)) {
-                // Cloud has no descriptions but local does — use local frames + restore images
-                return{...e,auto_frames:loc.auto_frames.map(f=>({...f,image_data:f.image_data||imgMap.get(f.timestamp_seconds)||imgMap.get(Math.round(f.timestamp_seconds))}))};
+              // If local has frames with descriptions, always prefer local frames
+              // Local is always more complete — cloud strips image_data and may have stale structure
+              if(loc?.auto_frames?.length && loc.auto_frames.some(f=>f.description)) {
+                return{...e,auto_frames:loc.auto_frames};
               }
-              return{...e,auto_frames:cloudFrames.map(f=>({...f,image_data:imgMap.get(f.timestamp_seconds)??imgMap.get(Math.round(f.timestamp_seconds))??f.image_data}))};
+              // Local has no frames or no descriptions — use cloud frames as-is
+              return e;
             });
             setLib(sanitizeLib(merged));
           } else setLib(sanitizeLib(data));
