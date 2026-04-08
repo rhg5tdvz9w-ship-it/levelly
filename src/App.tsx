@@ -1710,13 +1710,13 @@ export default function App() {
   const fileRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
 
-  // Track whether an upload happened during this session — prevents stale cloud data from overwriting fresh local data
+  // Ref to prevent stale cloud data from overwriting fresh upload results
   const uploadCompletedRef = React.useRef(false);
 
   useEffect(()=>{
     const sanitizeLib = (entries: any[]): DNAEntry[] => entries.map(e => sanitizeDNA(e) as DNAEntry);
 
-    // Always load from localStorage first for instant display
+    // Load localStorage immediately — no waiting for cloud
     try {
       const local = localStorage.getItem("levelly_dna_library");
       if (local) {
@@ -1730,23 +1730,21 @@ export default function App() {
     fetch("/api/load-library")
       .then(r=>{ if(!r.ok) throw new Error(); return r.json(); })
       .then((data: DNAEntry[])=>{
-      // If an upload completed while we were fetching cloud data, skip the overwrite
-      // localStorage already has the freshest data and cloud is stale
+      // Skip cloud overwrite if upload already completed — localStorage is fresher
       if(uploadCompletedRef.current) { setLibraryLoaded(true); return; }
       if(Array.isArray(data)&&data.length>0){
-        // Restore image_data from localStorage — Blobs strips frames to stay under size limit
         try {
           const local=localStorage.getItem("levelly_dna_library");
           if(local){
             const localMap=new Map(JSON.parse(local).map((e: DNAEntry)=>[e.id,e]));
             const merged=data.map((e: DNAEntry)=>{
               const loc=localMap.get(e.id) as DNAEntry|undefined;
-              // If local has frames with descriptions, always prefer local frames
-              // Local is always more complete — cloud strips image_data and may have stale structure
-              if(loc?.auto_frames?.length && loc.auto_frames.some(f=>f.description)) {
-                return{...e,auto_frames:loc.auto_frames};
-              }
-              return e;
+              if(!loc?.auto_frames?.length) return e;
+              // Restore image_data — cloud strips it, localStorage keeps it
+              const imgMap=new Map<number,string>();
+              loc.auto_frames.forEach(f=>{ if(f.image_data){ imgMap.set(f.timestamp_seconds,f.image_data); imgMap.set(Math.round(f.timestamp_seconds),f.image_data); }});
+              // Prefer local frames entirely — they have image_data AND descriptions
+              return{...e,auto_frames:loc.auto_frames};
             });
             setLib(sanitizeLib(merged));
           } else setLib(sanitizeLib(data));
