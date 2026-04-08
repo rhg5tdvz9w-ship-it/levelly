@@ -633,6 +633,7 @@ ${config.context ? config.context + "\n" : ""}${lockedFields.length ? "\nPRE-LOC
 `;
     }
     return `DEFAULT ASSUMPTIONS (no user context provided — apply when analyzing):
+- STARTING CANNON: The cannon at the very beginning of the ad is almost always Simple Cannon (single barrel). Do NOT identify it as Double, Triple, or Tank unless the first frame unmistakably shows multiple barrels. When in doubt: Simple Cannon.
 - Assume 1 giant/boss exists unless frames clearly show a second distinct giant appearing AFTER first is confirmed dead at HP:0
 - All HP bars showing the same giant model = same giant throughout the video
 - Under-report rather than hallucinate — if genuinely unsure about an event, omit it
@@ -648,12 +649,10 @@ AD TYPE:${config.ad_type} TIER:${config.tier}
 DURATION:${duration}s
 LIBRARY:${lib.length>0?JSON.stringify(lib.map(d=>({title:d.title,tier:d.tier,hook_type:d.hook_type,hook_timing_seconds:d.hook_timing_seconds}))):"empty"}
 ${hasRefs?buildReferenceContext():""}
-${!hasFrameImages?`TIMESTAMP MAP — significance tags only (no descriptions to avoid bias):
-${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] (${f.significance})`).join("\n"):"none"}
-Note: descriptions stripped intentionally — derive all event details from frame images only`:"EXTRACTED FRAME IMAGES provided above — use these as your primary visual evidence. These are the ground truth. If a frame image contradicts the timestamp map description, TRUST THE IMAGE."}
+${!hasFrameImages?`TIMESTAMP MAP (frame observations — use as hints, frame images are ground truth):\n${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] ${f.description} (${f.significance})`).join("\\n"):"none"}`:"EXTRACTED FRAME IMAGES provided above — use these as your primary visual evidence. These are the ground truth. If a frame image contradicts the timestamp map description, TRUST THE IMAGE."}
 FRAME DESCRIPTION RULES — apply to every frame:
 1. GIANT KILL: HP bar reaches exactly zero AND/OR giant fully disappears from screen → start description with "GIANT KILL: [name] defeated". Add to giant_kills array. Do NOT write GIANT KILL if HP is still visible above zero — that is boss_damage not boss_death. Skip entirely if GROUND TRUTH says giant survives.
-2. +N GATE: Blue addition gate visible → include "Cannon count +[N]" in description.
+2. +N GATE: Blue addition gate visible → description MUST say "Cannon count +[N]" (e.g. "Cannon count +1: now 2 cannons firing"). NEVER say "mob swarm passes through +1 gate" — mobs flow through the gate visually but the EFFECT is cannon count increase, not mob multiplication. The mob swarm physically passes through xN gates (mob multiply) and +N gates (cannon count up) — but describe the EFFECT correctly for each type.
 3. GIANT HP: Changing HP = normal damage. Write "HP: [X]" not "new phase" or "health reset".
 4. GIANT COUNT RULE: Assume exactly 1 giant unless GROUND TRUTH explicitly names 2+. HOWEVER: if you have already confirmed a GIANT KILL (HP reached zero) and then see a NEW large HP bar at a substantially higher value — that IS a second giant spawn. Name it "Unknown" unless GROUND TRUTH names it. Do NOT reuse the previous giant's name with a colour prefix (e.g. never "Red Normie", "White Normie"). Use exactly: "Unknown giant (HP:[X]) appears" for any second giant not named in context. The first giant's name does not transfer to the second.
 ${TIMESTAMP_RULES}
