@@ -661,7 +661,7 @@ const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtra
         if (i === 2) return `After 2nd upgrade container destroyed: cannon = "${tier}"`;
         return `After ${i}th upgrade container destroyed: cannon = "${tier}"`;
       }).join('; ');
-      lockedFields.push(`LOCKED unit_evolution_chain: ${JSON.stringify(chain)} — ${chain.length - 1} upgrade event(s). CANNON NAME PER PHASE: ${phaseMap}. These phase names OVERRIDE any tier name in the timestamp map. Use chain[0] before first upgrade, chain[1] after first, chain[2] after second — in every frame description.`);
+      lockedFields.push(`LOCKED unit_evolution_chain: ${JSON.stringify(chain)} — use exactly these tier names in this exact order. There ${chain.length - 1 === 1 ? 'is 1 upgrade' : `are ${chain.length - 1} upgrades`} in this video. The chain goes from ${chain[0]} to ${chain[chain.length-1]} — never the reverse. Do NOT add extra tiers beyond what is listed here.`);
     }
     if (facts.giantNames) {
       lockedFields.push(`LOCKED champions_visible: ${JSON.stringify(facts.giantNames)} — ONLY these giants appear in the entire ad. There are exactly ${facts.giantNames.length} giant(s). Do NOT invent additional giants based on HP changes or visual assumptions.`);
@@ -677,12 +677,12 @@ const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtra
       lockedFields.push(`LOCKED giant kill timing: The giant/boss is killed at approximately ${facts.giantKillSeconds}s. Do NOT report a GIANT KILL event at any other timestamp. The GIANT KILL description must appear at or within 1-2 seconds of ${facts.giantKillSeconds}s.`);
     }
     if (facts.giantKillCount != null) {
-      lockedFields.push(`LOCKED total giant kills: EXACTLY ${facts.giantKillCount} giant(s) are killed in this entire ad. Do not add more giant_kills entries than this number. Any HP that reaches zero beyond this count is a misread.`);
+      lockedFields.push(`LOCKED total giant kills: EXACTLY ${facts.giantKillCount} giant(s) ${facts.giantKillCount === 1 ? 'is' : 'are'} killed in this entire ad. The giant_kills array must have EXACTLY ${facts.giantKillCount} ${facts.giantKillCount === 1 ? 'entry' : 'entries'}. After the ${facts.giantKillCount === 1 ? 'first' : `${facts.giantKillCount}th`} GIANT KILL is written, NO further GIANT KILL events are permitted — even if you see HP reach zero. Any subsequent HP:0 is a misread or the giant respawning. Do NOT write a second GIANT KILL.`);
     }
     if (facts.giantSurvives === true) {
       lockedFields.push(`LOCKED: ALL giants/bosses SURVIVE to the end — do NOT add any entry to giant_kills array.`);
     } else if (Array.isArray(facts.giantSurvives)) {
-      lockedFields.push(`LOCKED: The FINAL/LAST giant in this ad is NOT killed — it outlasts the player's mobs. Earlier giants MAY be killed and should be reported normally in giant_kills. Only suppress the kill event for the last giant that appears.`);
+      lockedFields.push(`LOCKED: The FINAL giant (the last one visible before the player loses) survives — its HP does NOT reach zero. Even if you see its HP very low, it does not die. Do NOT add this giant to giant_kills. Do NOT write "GIANT KILL" for the final giant. The player loses to this giant, not the other way around.`);
     }
     if (config.context || lockedFields.length) {
       return `GROUND TRUTH — USER-PROVIDED FACTS (ABSOLUTE PRIORITY — these override everything you see in the frames):
@@ -721,7 +721,7 @@ ${MOC_EVENTS_GUIDE}
 ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}
 UNIT EVOLUTION CHAIN: If PRE-LOCKED chain is provided above, use it exactly — it defines both the tier names and how many upgrades occurred. Do not override. If no locked chain: count upgrade containers WITH A CANNON ICON destroyed in the frames — that count = number of upgrades. Chain = starting tier + one tier per upgrade. Most ads: 1-2 upgrades.
-CANNON NAMING: Name the cannon using the unit_evolution_chain positions. chain[0] before first upgrade, chain[1] after first upgrade, chain[2] after second upgrade. If frame images contradict the timestamp map descriptions on cannon tier, trust the chain and the frame images — not the text descriptions.
+CANNON NAMING: Use the exact tier names from unit_evolution_chain. If the chain is locked above, those are the only valid tier names for this creative.
 FRAME EMOTIONS: For each extracted frame timestamp shown above, assign one emotion word (Anticipation, Excitement, Satisfaction, Empowerment, Tension, Almost Fail, Dread, Defeat, Triumph). Return as frame_emotions array. Include ALL timestamps you received frames for — not just key moments.
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
 creative_gaps_structured fields: hook_strength = quality of first 3s hook (Excellent/Good/Moderate/Weak + why); mechanic_clarity = how clearly gates/upgrades/giants communicate the game; emotional_payoff = does the ad deliver satisfying tension or resolution; tension_arc = does the almost-fail moment create genuine suspense (Excellent/Good/Moderate/Weak + why); rewatch_factor = would a viewer watch again or share it (High/Medium/Low + why).
