@@ -30,7 +30,7 @@ interface DNAEntry {
   biome_visual_notes: string; champions_visible: string[]; pacing: string;
   key_mechanic: string; why_it_works: string; why_it_fails: string | null;
   creative_gaps: string | null;
-  creative_gaps_structured?: { hook_strength: string; mechanic_clarity: string; emotional_payoff: string; };
+  creative_gaps_structured?: { hook_strength: string; mechanic_clarity: string; emotional_payoff: string; tension_arc?: string; rewatch_factor?: string; };
   frame_extraction_gaps: string | null; replication_instructions: string;
   auto_frames?: FrameExtraction[]; manual_frames?: string[];
   is_compound?: boolean; segments?: DNASegment[]; transition_type?: string;
@@ -549,8 +549,8 @@ Return ONLY JSON: {"hook_timing_seconds":number,"hook_type":"Challenge|Satisfyin
 // Parse user context text to extract structured facts that should be locked
 // e.g. "2 upgrades: Simple→Double→Triple" → unit_evolution_chain locked
 // e.g. "giants: Yellow Normie at 7s, White Normie at 12s" → giant_kills locked
-function parseContextFacts(context: string): { chain?: string[]; giantNames?: string[]; hookSeconds?: number; giantSurvives?: true | string[]; giantKillSeconds?: number; giantKillCount?: number } {
-  const result: { chain?: string[]; giantNames?: string[]; hookSeconds?: number; giantSurvives?: true | string[]; giantKillSeconds?: number; giantKillCount?: number } = {};
+function parseContextFacts(context: string): { chain?: string[]; giantNames?: string[]; hookSeconds?: number; giantSurvives?: true | string[]; giantKillSeconds?: number; giantKillCount?: number; upgradeSeconds?: number } {
+  const result: { chain?: string[]; giantNames?: string[]; hookSeconds?: number; giantSurvives?: true | string[]; giantKillSeconds?: number; giantKillCount?: number; upgradeSeconds?: number } = {};
   if (!context) return result;
   const lc = context.toLowerCase();
 
@@ -614,6 +614,11 @@ function parseContextFacts(context: string): { chain?: string[]; giantNames?: st
   const hookMatch = lc.match(/hook\s+(?:at\s+)?(\d+)\s*s/);
   if (hookMatch) result.hookSeconds = parseInt(hookMatch[1]);
 
+  // Parse upgrade timing — "upgrade at 7s", "upgrade at 7th sec", "upgrade happens at 7th sec"
+  const upgradeTimingMatch = context.match(/upgrade(?:s|\s+happens?)?\s+at\s+(?:the\s+)?(\d+)(?:th|st|nd|rd)?\s*s(?:ec)?/i)
+    || context.match(/(\d+)(?:th|st|nd|rd)?\s*s(?:ec)?[^.]*upgrade/i);
+  if (upgradeTimingMatch) result.upgradeSeconds = parseInt(upgradeTimingMatch[1]);
+
   // Parse giant kill timing — "1 giant killed at 10th sec", "giant dies at 7s"
   const giantKillTimingMatch = context.match(/(?:giant|boss|normie)\s+(?:is\s+)?killed\s+at\s+(?:the\s+)?(\d+)(?:th|st|nd|rd)?\s*s(?:ec)?/i)
     || context.match(/(?:killed|dies?|defeated)\s+at\s+(?:the\s+)?(\d+)(?:th|st|nd|rd)?\s*s(?:ec)?/i);
@@ -665,6 +670,9 @@ const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtra
       }
     }
     if (facts.hookSeconds != null) lockedFields.push(`LOCKED hook_timing_seconds: ${facts.hookSeconds}`);
+    if (facts.upgradeSeconds != null) {
+      lockedFields.push(`LOCKED cannon upgrade timing: The cannon upgrade happens at approximately ${facts.upgradeSeconds}s. The upgrade event (container destroyed + cannon changes shape) MUST appear within 1-2 seconds of ${facts.upgradeSeconds}s in the frame descriptions. Do not place it at any other timestamp.`);
+    }
     if (facts.giantKillSeconds != null) {
       lockedFields.push(`LOCKED giant kill timing: The giant/boss is killed at approximately ${facts.giantKillSeconds}s. Do NOT report a GIANT KILL event at any other timestamp. The GIANT KILL description must appear at or within 1-2 seconds of ${facts.giantKillSeconds}s.`);
     }
@@ -716,7 +724,8 @@ UNIT EVOLUTION CHAIN: If PRE-LOCKED chain is provided above, use it exactly — 
 CANNON NAMING: Name the cannon using the unit_evolution_chain positions. chain[0] before first upgrade, chain[1] after first upgrade, chain[2] after second upgrade. If frame images contradict the timestamp map descriptions on cannon tier, trust the chain and the frame images — not the text descriptions.
 FRAME EMOTIONS: For each extracted frame timestamp shown above, assign one emotion word (Anticipation, Excitement, Satisfaction, Empowerment, Tension, Almost Fail, Dread, Defeat, Triumph). Return as frame_emotions array. Include ALL timestamps you received frames for — not just key moments.
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
-Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"frame_emotions":[{"timestamp_seconds":number,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
+creative_gaps_structured fields: hook_strength = quality of first 3s hook (Excellent/Good/Moderate/Weak + why); mechanic_clarity = how clearly gates/upgrades/giants communicate the game; emotional_payoff = does the ad deliver satisfying tension or resolution; tension_arc = does the almost-fail moment create genuine suspense (Excellent/Good/Moderate/Weak + why); rewatch_factor = would a viewer watch again or share it (High/Medium/Low + why).
+Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"frame_emotions":[{"timestamp_seconds":number,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string,"tension_arc":string,"rewatch_factor":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
 // Field groups for surgical refinement — each group maps to specific concept fields
 const REFINE_FIELD_GROUPS = {
   visual: ["visual_identity","biome_visual_notes"],
@@ -1130,6 +1139,7 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
   const [chainInput, setChainInput] = useState<string[]>([]);
   const [giantKillCount, setGiantKillCount] = useState("");
   const [giantKillSec, setGiantKillSec] = useState("");
+  const [upgradeSec, setUpgradeSec] = useState("");
   const [finalGiantSurvives, setFinalGiantSurvives] = useState("");
   const [manualFrames, setManualFrames] = useState<File[]>([]);
   const [creativeId, setCreativeId] = useState("");
@@ -1200,7 +1210,11 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
               </div>
             </div>
             {/* Giant kills */}
-            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8 }}>
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8 }}>
+              <div>
+                <span style={{ fontSize:10,color:D.textMuted,display:"block",marginBottom:4 }}>Upgrade at (sec)</span>
+                <input type="number" min="0" max="60" style={{ width:"100%",boxSizing:"border-box" as const,background:D.bg,border:`0.5px solid ${D.border2}`,borderRadius:6,color:D.text,fontSize:11,padding:"4px 8px",fontFamily:"inherit" }} placeholder="e.g. 7" value={upgradeSec} onChange={e=>setUpgradeSec(e.target.value)} />
+              </div>
               <div>
                 <span style={{ fontSize:10,color:D.textMuted,display:"block",marginBottom:4 }}>Giants killed</span>
                 <select style={{ ...inputStyle,fontSize:11,padding:"4px 8px" }} value={giantKillCount} onChange={e=>setGiantKillCount(e.target.value)}>
@@ -1246,6 +1260,7 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
           <button style={btnPri} onClick={()=>{
                   const parts: string[] = [];
                   if(chainInput.length>=2) parts.push(`${chainInput.map(t=>t.replace(" Cannon","").toLowerCase()).join(" to ")} cannon chain`);
+                  if(upgradeSec) parts.push(`upgrade at ${upgradeSec}s`);
                   if(giantKillCount) parts.push(`${giantKillCount} giant${parseInt(giantKillCount)!==1?"s":""} killed`);
                   if(giantKillSec) parts.push(`giant killed at ${giantKillSec}s`);
                   if(finalGiantSurvives==="yes") parts.push("final giant is not killed");
@@ -1343,6 +1358,7 @@ function ReuploadModal({ entry, onConfirm, onCancel }: {
   const [chainInput, setChainInput] = React.useState<string[]>(entry.unit_evolution_chain||[]);
   const [giantKillCount, setGiantKillCount] = React.useState("");
   const [giantKillSec, setGiantKillSec] = React.useState("");
+  const [upgradeSec, setUpgradeSec] = React.useState("");
   const [finalGiantSurvives, setFinalGiantSurvives] = React.useState("");
   const displayId = entry.creative_id || `#${entry.id}`;
 
@@ -1398,7 +1414,11 @@ function ReuploadModal({ entry, onConfirm, onCancel }: {
                 {chainInput.length>0&&<button onClick={()=>setChainInput([])} style={{fontSize:9,color:D.textMuted,background:"none",border:"none",cursor:"pointer",padding:"2px 6px"}}>✕</button>}
               </div>
             </div>
-            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8 }}>
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8 }}>
+              <div>
+                <span style={{ fontSize:10,color:D.textMuted,display:"block",marginBottom:4 }}>Upgrade at (sec)</span>
+                <input type="number" min="0" max="60" style={{ width:"100%",boxSizing:"border-box" as const,background:D.bg,border:`0.5px solid ${D.border2}`,borderRadius:6,color:D.text,fontSize:11,padding:"4px 8px",fontFamily:"inherit" }} placeholder="e.g. 7" value={upgradeSec} onChange={e=>setUpgradeSec(e.target.value)} />
+              </div>
               <div>
                 <span style={{ fontSize:10,color:D.textMuted,display:"block",marginBottom:4 }}>Giants killed</span>
                 <select style={{ width:"100%",background:D.bg,border:`0.5px solid ${D.border2}`,borderRadius:6,color:D.text,fontSize:11,padding:"4px 8px",fontFamily:"inherit" }} value={giantKillCount} onChange={e=>setGiantKillCount(e.target.value)}>
@@ -1435,6 +1455,7 @@ function ReuploadModal({ entry, onConfirm, onCancel }: {
           <button onClick={()=>{ if(videoFile){
                   const parts: string[] = [];
                   if(chainInput.length>=2) parts.push(`${chainInput[0].replace(" Cannon","").toLowerCase()} to ${chainInput[chainInput.length-1].replace(" Cannon","").toLowerCase()} cannon chain`);
+                  if(upgradeSec) parts.push(`upgrade at ${upgradeSec}s`);
                   if(giantKillCount) parts.push(`${giantKillCount} giant${parseInt(giantKillCount)!==1?"s":""} killed`);
                   if(giantKillSec) parts.push(`giant killed at ${giantKillSec}s`);
                   if(finalGiantSurvives==="yes") parts.push("final giant is not killed");
@@ -1804,6 +1825,8 @@ ${d.creative_gaps?`<div style="margin-bottom:12px"><div style="font-size:9px;col
                   { l: "Hook strength", v: d.creative_gaps_structured.hook_strength },
                   { l: "Mechanic clarity", v: d.creative_gaps_structured.mechanic_clarity },
                   { l: "Emotional payoff", v: d.creative_gaps_structured.emotional_payoff },
+                  { l: "Tension arc", v: (d.creative_gaps_structured as any).tension_arc },
+                  { l: "Rewatch factor", v: (d.creative_gaps_structured as any).rewatch_factor },
                 ].map(({ l, v }) => (
                   <div key={l} style={{ padding: "7px 9px", background: D.goldBg, borderRadius: 7, border: `0.5px solid ${D.goldBdr}` }}>
                     <div style={{ fontSize: 9, fontWeight: 600, color: D.gold, textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 2 }}>{l}</div>
@@ -1936,19 +1959,12 @@ export default function App() {
         try {
           const local=localStorage.getItem("levelly_dna_library");
           if(local){
-            const localMap=new Map(JSON.parse(local).map((e: DNAEntry)=>[e.id,e]));
-            const merged=data.map((e: DNAEntry)=>{
-              const loc=localMap.get(e.id) as DNAEntry|undefined;
-              if(!loc?.auto_frames?.length) return e;
-              const localHasImages = loc.auto_frames.some(f=>f.image_data);
-              const localHasDescriptions = loc.auto_frames.some(f=>f.description);
-              if(localHasImages || localHasDescriptions) {
-                // Local has real content — use it (cloud strips image_data and may be stale)
-                return{...e,auto_frames:loc.auto_frames};
-              }
-              // Local frames are empty shells — use cloud data
-              return e;
-            });
+            const localParsed: DNAEntry[] = JSON.parse(local);
+            const localMap=new Map(localParsed.map((e: DNAEntry)=>[e.id,e]));
+            // localStorage is authoritative for entries it has — cloud only adds NEW entries
+            // This prevents cloud (which strips image_data) from overwriting fresh local data
+            const cloudOnlyNew = data.filter((e: DNAEntry)=>!localMap.has(e.id));
+            const merged = [...localParsed, ...cloudOnlyNew];
             setLib(sanitizeLib(merged));
           } else setLib(sanitizeLib(data));
         } catch { setLib(sanitizeLib(data)); }
@@ -2057,7 +2073,8 @@ For each description above:
         const facts=parseContextFacts(newContext||entry.upload_context||"");
         const chainHint = facts.chain ? `CONTEXT: Starting cannon is "${facts.chain[0]}" — DO NOT identify it as a different tier from visual appearance. Chain: ${facts.chain.join(" → ")}.\n` : "";
         const giantKillHint = facts.giantKillSeconds != null ? `CONTEXT: Giant is killed at approximately ${facts.giantKillSeconds}s.\n` : "";
-        const fr=await callGeminiDirect(frameExtractionSystem(),[{text:`${chainHint}${giantKillHint}Extract 20-24 key frames — prioritise every second with a visible change, fill gaps between events:`},videoPart]);
+        const upgradeHint = facts.upgradeSeconds != null ? `CONTEXT: Cannon upgrade happens at approximately ${facts.upgradeSeconds}s.\n` : "";
+        const fr=await callGeminiDirect(frameExtractionSystem(),[{text:`${chainHint}${giantKillHint}${upgradeHint}Extract 20-24 key frames — prioritise every second with a visible change, fill gaps between events:`},videoPart]);
         autoFrames=Array.isArray(fr?.frames)?fr.frames:[]; duration=typeof fr?.duration_seconds==="number"?fr.duration_seconds:30;
       } catch(frameErr: any){ console.warn("Frame extraction failed:",frameErr?.message); }
       let extractedFrameParts: any[]=[];
@@ -2146,7 +2163,8 @@ For each description above:
           const uploadFacts=parseContextFacts(cfg.context||"");
           const uploadChainHint = uploadFacts.chain ? `CONTEXT: Starting cannon is "${uploadFacts.chain[0]}" — do NOT name it differently based on visual appearance. Chain: ${uploadFacts.chain.join(" → ")}.\n` : "";
           const uploadGiantHint = uploadFacts.giantKillSeconds != null ? `CONTEXT: Giant is killed at approximately ${uploadFacts.giantKillSeconds}s.\n` : "";
-          const fr=await callGeminiDirect(frameExtractionSystem(),[{text:`${uploadChainHint}${uploadGiantHint}Extract 20-24 key frames:`},videoPart]);
+          const uploadUpgradeHint = uploadFacts.upgradeSeconds != null ? `CONTEXT: Cannon upgrade happens at approximately ${uploadFacts.upgradeSeconds}s.\n` : "";
+          const fr=await callGeminiDirect(frameExtractionSystem(),[{text:`${uploadChainHint}${uploadGiantHint}${uploadUpgradeHint}Extract 20-24 key frames:`},videoPart]);
           autoFrames=Array.isArray(fr?.frames)?fr.frames:[]; duration=typeof fr?.duration_seconds==="number"?fr.duration_seconds:30;
         } catch(frameErr: any){ console.warn("Frame extraction failed:",frameErr?.message); }
 
@@ -2733,7 +2751,7 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                     <div style={{ marginBottom: 14 }}>
                       <span style={labelStyle}>Creative gaps</span>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-                        {[{l:"Hook strength",v:entry.creative_gaps_structured.hook_strength},{l:"Mechanic clarity",v:entry.creative_gaps_structured.mechanic_clarity},{l:"Emotional payoff",v:entry.creative_gaps_structured.emotional_payoff}].map(({l,v})=>(
+                        {[{l:"Hook strength",v:entry.creative_gaps_structured.hook_strength},{l:"Mechanic clarity",v:entry.creative_gaps_structured.mechanic_clarity},{l:"Emotional payoff",v:entry.creative_gaps_structured.emotional_payoff},{l:"Tension arc",v:(entry.creative_gaps_structured as any).tension_arc},{l:"Rewatch factor",v:(entry.creative_gaps_structured as any).rewatch_factor}].filter(x=>x.v).map(({l,v})=>(
                           <div key={l} style={{ padding:"7px 9px",background:D.goldBg,borderRadius:7,border:`0.5px solid ${D.goldBdr}` }}>
                             <div style={{ fontSize:9,fontWeight:600,color:D.gold,textTransform:"uppercase" as const,letterSpacing:"0.07em",marginBottom:2 }}>{l}</div>
                             <p style={{ margin:0,fontSize:10,color:"#c9a227" }}>{v}</p>
