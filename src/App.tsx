@@ -580,7 +580,8 @@ function parseContextFacts(context: string): { chain?: string[]; giantNames?: st
   const abbrevMap: Record<string,string> = {simple:"Simple Cannon",double:"Double Cannon",triple:"Triple Cannon",tank:"Tank","golden jet":"Golden Jet"};
   if (foundTiers.length < 2) {
     // Match arrow notation: "simple → double → triple"
-    const arrowChain = context.match(/\b(simple|double|triple|tank|golden jet)(?:\s*(?:→|->|>|to)\s*(simple|double|triple|tank|golden jet))+/gi);
+    const arrowChain = context.match(/\b(simple|double|triple|tank|golden jet)(?:\s*(?:→|->|>|\bto\b)\s*(simple|double|triple|tank|golden jet))+/gi)
+      || context.match(/(simple|double|triple|tank)\s+to\s+(simple|double|triple|tank)\s+cannon\s+chain/gi);
     if (arrowChain) {
       const parts = arrowChain[0].split(/\s*(?:→|->|>|\bto\b)\s*/i);
       const chain = parts.map(p => abbrevMap[p.trim().toLowerCase()]).filter(Boolean);
@@ -698,7 +699,7 @@ AD TYPE:${config.ad_type} TIER:${config.tier}
 DURATION:${duration}s
 LIBRARY:${lib.length>0?JSON.stringify(lib.map(d=>({title:d.title,tier:d.tier,hook_type:d.hook_type,hook_timing_seconds:d.hook_timing_seconds}))):"empty"}
 ${hasRefs?buildReferenceContext():""}
-${!hasFrameImages?`TIMESTAMP MAP (frame observations — use as hints, frame images are ground truth):\n${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] ${f.description} (${f.significance})`).join("\\n"):"none"}`:"EXTRACTED FRAME IMAGES provided above — use these as your primary visual evidence. These are the ground truth. If a frame image contradicts the timestamp map description, TRUST THE IMAGE."}
+${!hasFrameImages?`TIMESTAMP MAP (frame observations — significance tags only, treat as hints):\n${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] (${f.significance})`).join("\\n"):"none"}`:"EXTRACTED FRAME IMAGES provided above — these are your ONLY source of truth for what the cannon looks like at each timestamp. Do NOT use timestamp map descriptions to identify cannon tiers."}
 FRAME DESCRIPTION RULES — apply to every frame:
 1. GIANT KILL: HP bar reaches exactly zero AND/OR giant fully disappears from screen → start description with "GIANT KILL: [name] defeated". Add to giant_kills array. Do NOT write GIANT KILL if HP is still visible above zero — that is boss_damage not boss_death. Skip entirely if GROUND TRUTH says giant survives.
 2. +N GATE: Blue addition gate visible → description MUST say "Cannon count +[N]" (e.g. "Cannon count +1: now 2 cannons firing"). NEVER say "mob swarm passes through +1 gate" — mobs flow through the gate visually but the EFFECT is cannon count increase, not mob multiplication. The mob swarm physically passes through xN gates (mob multiply) and +N gates (cannon count up) — but describe the EFFECT correctly for each type.
@@ -1338,6 +1339,11 @@ function ReuploadModal({ entry, onConfirm, onCancel }: {
   const [videoFile, setVideoFile] = React.useState<File|null>(null);
   const [frameFiles, setFrameFiles] = React.useState<File[]>([]);
   const [reuploadCtx, setReuploadCtx] = React.useState("");
+  // Pre-populate chain from existing entry data
+  const [chainInput, setChainInput] = React.useState<string[]>(entry.unit_evolution_chain||[]);
+  const [giantKillCount, setGiantKillCount] = React.useState("");
+  const [giantKillSec, setGiantKillSec] = React.useState("");
+  const [finalGiantSurvives, setFinalGiantSurvives] = React.useState("");
   const displayId = entry.creative_id || `#${entry.id}`;
 
   return (
@@ -1370,16 +1376,72 @@ function ReuploadModal({ entry, onConfirm, onCancel }: {
           </button>
         </div>
 
-        {/* Context field */}
+        {/* Structured analysis hints */}
         <div style={{ marginBottom:16 }}>
-          <span style={{ fontSize:10,fontWeight:600,color:D.textDim,letterSpacing:"0.08em",textTransform:"uppercase" as const,display:"block",marginBottom:6 }}>Analysis context (optional but recommended)</span>
-          <textarea value={reuploadCtx} onChange={e=>setReuploadCtx(e.target.value)}
-            placeholder="Describe what you know: number of upgrades, giant kills, biome, key mechanics…"
-            style={{ width:"100%",boxSizing:"border-box" as const,fontSize:12,padding:"8px 10px",background:D.surface2,border:`0.5px solid ${D.border2}`,borderRadius:8,color:D.text,resize:"vertical" as const,minHeight:72,fontFamily:"inherit",outline:"none" }} />
+          <span style={{ fontSize:10,fontWeight:600,color:D.textDim,letterSpacing:"0.08em",textTransform:"uppercase" as const,display:"block",marginBottom:6 }}>Analysis hints <span style={{fontWeight:400,color:D.textMuted}}>(helps avoid hallucinations)</span></span>
+          <div style={{ background:D.surface2,borderRadius:8,border:`0.5px solid ${D.border}`,padding:"10px 12px",display:"flex",flexDirection:"column" as const,gap:10 }}>
+            <div>
+              <span style={{ fontSize:10,color:D.textMuted,display:"block",marginBottom:4 }}>Unit evolution chain</span>
+              <div style={{ display:"flex",gap:6,alignItems:"center",flexWrap:"wrap" as const }}>
+                {(["Simple Cannon","Double Cannon","Triple Cannon","Tank"] as const).map((t,i,arr)=>(
+                  <React.Fragment key={t}>
+                    <button onClick={()=>{
+                      if(chainInput.includes(t)){ setChainInput(chainInput.slice(0,chainInput.indexOf(t))); }
+                      else if(i===0){ setChainInput([t]); }
+                      else if(chainInput.includes(arr[i-1])){ setChainInput([...chainInput,t]); }
+                    }} style={{ padding:"3px 10px",fontSize:10,borderRadius:20,border:`1.5px solid ${chainInput.includes(t)?D.blueDark:D.border2}`,background:chainInput.includes(t)?D.blueBg:"transparent",color:chainInput.includes(t)?D.blue:D.textMuted,cursor:"pointer" }}>
+                      {t==="Simple Cannon"?"Simple":t==="Double Cannon"?"Double":t==="Triple Cannon"?"Triple":"Tank"}
+                    </button>
+                    {i<arr.length-1&&chainInput.includes(t)&&chainInput.includes(arr[i+1])&&<span style={{color:D.textDim,fontSize:10}}>→</span>}
+                  </React.Fragment>
+                ))}
+                {chainInput.length>0&&<button onClick={()=>setChainInput([])} style={{fontSize:9,color:D.textMuted,background:"none",border:"none",cursor:"pointer",padding:"2px 6px"}}>✕</button>}
+              </div>
+            </div>
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8 }}>
+              <div>
+                <span style={{ fontSize:10,color:D.textMuted,display:"block",marginBottom:4 }}>Giants killed</span>
+                <select style={{ width:"100%",background:D.bg,border:`0.5px solid ${D.border2}`,borderRadius:6,color:D.text,fontSize:11,padding:"4px 8px",fontFamily:"inherit" }} value={giantKillCount} onChange={e=>setGiantKillCount(e.target.value)}>
+                  <option value="">Unknown</option>
+                  <option value="0">0 — none</option>
+                  <option value="1">1 giant</option>
+                  <option value="2">2 giants</option>
+                  <option value="3">3 giants</option>
+                </select>
+              </div>
+              <div>
+                <span style={{ fontSize:10,color:D.textMuted,display:"block",marginBottom:4 }}>Kill at (seconds)</span>
+                <input type="number" min="0" max="60" style={{ width:"100%",boxSizing:"border-box" as const,background:D.bg,border:`0.5px solid ${D.border2}`,borderRadius:6,color:D.text,fontSize:11,padding:"4px 8px",fontFamily:"inherit" }} placeholder="e.g. 10" value={giantKillSec} onChange={e=>setGiantKillSec(e.target.value)} />
+              </div>
+              <div>
+                <span style={{ fontSize:10,color:D.textMuted,display:"block",marginBottom:4 }}>Final giant</span>
+                <select style={{ width:"100%",background:D.bg,border:`0.5px solid ${D.border2}`,borderRadius:6,color:D.text,fontSize:11,padding:"4px 8px",fontFamily:"inherit" }} value={finalGiantSurvives} onChange={e=>setFinalGiantSurvives(e.target.value)}>
+                  <option value="">Unknown</option>
+                  <option value="yes">Survives</option>
+                  <option value="no">Is killed</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <span style={{ fontSize:10,color:D.textMuted,display:"block",marginBottom:4 }}>Additional notes</span>
+              <textarea value={reuploadCtx} onChange={e=>setReuploadCtx(e.target.value)}
+                placeholder="Biome, gates destroyed by giant, empty containers..."
+                style={{ width:"100%",boxSizing:"border-box" as const,fontSize:11,padding:"6px 10px",background:D.bg,border:`0.5px solid ${D.border2}`,borderRadius:6,color:D.text,resize:"vertical" as const,minHeight:44,fontFamily:"inherit",outline:"none" }} />
+            </div>
+          </div>
         </div>
         <div style={{ display:"flex",gap:8,justifyContent:"flex-end" }}>
           <button onClick={onCancel} style={{ padding:"8px 18px",fontSize:13,background:"none",border:`0.5px solid ${D.border2}`,borderRadius:8,color:D.textMuted,cursor:"pointer",fontFamily:"inherit" }}>Cancel</button>
-          <button onClick={()=>{ if(videoFile) onConfirm(videoFile,frameFiles,reuploadCtx); }} disabled={!videoFile}
+          <button onClick={()=>{ if(videoFile){
+                  const parts: string[] = [];
+                  if(chainInput.length>=2) parts.push(`${chainInput[0].replace(" Cannon","").toLowerCase()} to ${chainInput[chainInput.length-1].replace(" Cannon","").toLowerCase()} cannon chain`);
+                  if(giantKillCount) parts.push(`${giantKillCount} giant${parseInt(giantKillCount)!==1?"s":""} killed`);
+                  if(giantKillSec) parts.push(`giant killed at ${giantKillSec}s`);
+                  if(finalGiantSurvives==="yes") parts.push("final giant is not killed");
+                  if(finalGiantSurvives==="no") parts.push("final giant is killed");
+                  if(reuploadCtx.trim()) parts.push(reuploadCtx.trim());
+                  onConfirm(videoFile,frameFiles,parts.join(", "));
+                }}} disabled={!videoFile}
             style={{ padding:"8px 18px",fontSize:13,background:videoFile?D.blue:"#333",border:"none",borderRadius:8,color:"#fff",cursor:videoFile?"pointer":"not-allowed",fontFamily:"inherit",opacity:videoFile?1:0.5 }}>
             Analyze →
           </button>
@@ -2080,7 +2142,13 @@ For each description above:
         else { videoPart={inlineData:{mimeType:file.type,data:await fileToBase64(file)}}; }
         setAnalyzeStep("frames");
         let autoFrames: FrameExtraction[]=[],duration=30;
-        try { const fr=await callGeminiDirect(frameExtractionSystem(),[{text:"Extract 20-24 key frames — prioritise every second with a visible change, fill gaps between events:"},videoPart]); autoFrames=Array.isArray(fr?.frames)?fr.frames:[]; duration=typeof fr?.duration_seconds==="number"?fr.duration_seconds:30; } catch(frameErr: any){ console.warn("Frame extraction failed:",frameErr?.message); }
+        try {
+          const uploadFacts=parseContextFacts(cfg.context||"");
+          const uploadChainHint = uploadFacts.chain ? `CONTEXT: Starting cannon is "${uploadFacts.chain[0]}" — do NOT name it differently based on visual appearance. Chain: ${uploadFacts.chain.join(" → ")}.\n` : "";
+          const uploadGiantHint = uploadFacts.giantKillSeconds != null ? `CONTEXT: Giant is killed at approximately ${uploadFacts.giantKillSeconds}s.\n` : "";
+          const fr=await callGeminiDirect(frameExtractionSystem(),[{text:`${uploadChainHint}${uploadGiantHint}Extract 20-24 key frames:`},videoPart]);
+          autoFrames=Array.isArray(fr?.frames)?fr.frames:[]; duration=typeof fr?.duration_seconds==="number"?fr.duration_seconds:30;
+        } catch(frameErr: any){ console.warn("Frame extraction failed:",frameErr?.message); }
 
         // Extract actual frame images at Gemini's chosen timestamps (non-blocking fallback)
         let extractedFrameParts: any[] = [];
