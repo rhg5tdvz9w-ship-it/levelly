@@ -476,12 +476,15 @@ const MOC_EVENTS_GUIDE = `MOC-SPECIFIC EVENTS TO HUNT FOR (timestamp ALL of thes
   HP CONTINUITY RULE: A giant's HP should generally decrease over time as it takes damage. If you see HP jump dramatically UP (e.g. HP:86 → HP:7777), this is either (a) a second giant spawn explicitly stated in context, or (b) a misread of the HP number. Never interpret an HP jump as "a new giant appears" — write "Giant HP bar visible: [X]" without inventing a new entity. HP going DOWN = normal damage. HP going UP dramatically = misread or second giant from context only.
 - X GATE PASS: The MOB SWARM passes through a multiplication gate (xN). Report gate value and timestamp for EACH pass.
 - + GATE PASS: The MOB SWARM passes through an addition gate (+N), which adds more cannons to the firing lineup (not more mobs). Report gate value and timestamp.
-- ALMOST-FAIL MOMENT: Player mob count drops to dangerously low level (near wipeout) but survives.
-- SWARM PEAK: Maximum mob count on screen.
+- ALMOST-FAIL MOMENT: Player mob count drops to dangerously low level (near wipeout) but survives. Use significance "almost_fail".
+- ALMOST-WIN MOMENT: Player mobs reach the enemy tower with its HP bar nearly empty (sliver remaining) — player almost wins before being wiped. Use significance "almost_win". Description: "Enemy tower HP critical ([X] remaining) — almost-win moment".
+- ENEMY TOWER HP: When the enemy tower HP bar drops to 25% or less, timestamp it with significance "almost_win". The enemy tower is the red/grey fortified structure at the top of the lane.
+- SWARM PEAK: Maximum mob count on screen. Use significance "swarm".
 - FINAL FAIL/DEFEAT: Last mob destroyed, FAILED screen appears.
 - GREEN PIPE: Shortcut tunnel that sends mobs directly to the enemy tower or boss area — skipping part of the level.
 - RED BLOCK: Red pushable/breakable obstacle that physically blocks access to valuable elements (gates, upgrades). Player must smash through it.
 - CHAMPION RELEASE: Sniper cannon charging bar fills up and releases a champion unit onto the field.
+- MOB/TROOP TYPE CHANGE: If the mob visual type changes mid-video (different shape, size, or sustained colour shift that is not a hit VFX flash), timestamp it with significance "transition". Description: "Mob type changes to [description]". Relevant for market analysis of competitor ads. In MOC ads this is rare — only flag if clearly sustained, not a momentary flash.
 
 CANNON UPGRADE TIERS — exactly 4 valid names:
 1. Simple Cannon — single barrel, compact
@@ -490,8 +493,8 @@ CANNON UPGRADE TIERS — exactly 4 valid names:
 4. Tank — military tank with turret
 No other names are valid. A floating "+1" animation near the cannon = cannon count increase, not a tier upgrade.
 
-UPGRADE RULE: Cannon tier changes ONLY when mobs destroy an UPGRADE CONTAINER (one with a cannon icon on top). Count how many upgrade containers with icons are destroyed — that is your chain length minus 1. Empty containers (no icon) do NOT trigger upgrades.
-If PRE-LOCKED unit_evolution_chain is in GROUND TRUTH: use it exactly. The chain tells you how many upgrades happened.
+UPGRADE RULE: If PRE-LOCKED unit_evolution_chain is in GROUND TRUTH, use it exactly — it defines how many upgrades happened and which tiers. Do not count icons and override the locked chain. Find upgrade events in the frames to match the locked count, even if the container icon is not clearly visible.
+If NO locked chain: count upgrade containers WITH A CANNON ICON destroyed — that count = chain length minus 1. Empty containers (no icon) do NOT trigger upgrades.
 
 CANNON COUNT vs CANNON TIER: +N gates add more cannons FIRING (count goes up). The cannon MODEL does not change. "Cannon count +1" is not an upgrade.`;
 
@@ -521,16 +524,16 @@ RULES:
    - If you see a giant HP bar at zero or gone, timestamp with "boss_death" — NEVER skip this
    - For cannon upgrades specifically: look for a frame where the cannon VISUALLY CHANGES shape. If no frame shows a cannon shape change, do not add that tier to unit_evolution_chain.
    - For container destructions: look for a cannon/unit icon ON TOP of the container before it's destroyed. No icon = empty container = no upgrade.
-2. Fill gaps larger than 8 seconds with a filler timestamp
-3. Total timestamps: between 18 and 24. Never more than 24. Prioritize every second where you see a visual change (cannon shape change, gate pass, container destruction, giant appearance). Fill gaps larger than 3 seconds with intermediate timestamps.
-4. ${TIMESTAMP_RULES}
-5. No two timestamps closer than 1 second apart
-6. ONLY report what you can clearly see. If ambiguous, skip — do not guess.
-7. CHAMPION NAMING in descriptions: Only use names from the official list. If you see a large humanoid: check for YELLOW SKIN → "Yellow Normie". Any other colour that might be a VFX flash → still "Yellow Normie (hit flash)". If clearly a different entity entirely → "Unknown giant". NEVER write "Red Normie", "White Normie", "Blue Giant", or any other descriptive invention.
+3. Fill gaps larger than 8 seconds with a filler timestamp
+4. Total timestamps: between 18 and 24. Never more than 24. Prioritize every second where you see a visual change (cannon shape change, gate pass, container destruction, giant appearance). Fill gaps larger than 3 seconds with intermediate timestamps.
+5. ${TIMESTAMP_RULES}
+6. No two timestamps closer than 1 second apart
+7. ONLY report what you can clearly see. If ambiguous, skip — do not guess.
+8. CHAMPION NAMING in descriptions: Only use names from the official list. If you see a large humanoid: check for YELLOW SKIN → "Yellow Normie". Any other colour that might be a VFX flash → still "Yellow Normie (hit flash)". If clearly a different entity entirely → "Unknown giant". NEVER write "Red Normie", "White Normie", "Blue Giant", or any other descriptive invention.
 
 ${MOC_EVENTS_GUIDE}
 
-Return ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":number,"description":string,"significance":"hook|gate|upgrade|boss_death|boss_damage|container|swarm|almost_fail|loss|win|fail|transition|filler"}]}`;
+Return ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":number,"description":string,"significance":"hook|gate|upgrade|boss_death|boss_damage|container|swarm|almost_fail|almost_win|loss|win|fail|transition|filler"}]}`;
 const hookDetectionSystem = () => `Expert mobile ad hook analyst for Mob Control mobile game ads.
 You will receive a set of extracted frame images and their timestamps. Your job: identify the HOOK — the exact second when a thumb would stop scrolling.
 
@@ -624,7 +627,7 @@ const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtra
         if (i === 2) return `After 2nd upgrade container destroyed: cannon = "${tier}"`;
         return `After ${i}th upgrade container destroyed: cannon = "${tier}"`;
       }).join('; ');
-      lockedFields.push(`LOCKED unit_evolution_chain: ${JSON.stringify(chain)} — ${chain.length - 1} upgrade event(s). CANNON NAME PER PHASE: ${phaseMap}. Use these exact names in ALL frame descriptions — IGNORE any tier names in the timestamp map hints.`);
+      lockedFields.push(`LOCKED unit_evolution_chain: ${JSON.stringify(chain)} — ${chain.length - 1} upgrade event(s). CANNON NAME PER PHASE: ${phaseMap}. These phase names OVERRIDE any tier name in the timestamp map. Use chain[0] before first upgrade, chain[1] after first, chain[2] after second — in every frame description.`);
     }
     if (facts.giantNames) {
       lockedFields.push(`LOCKED champions_visible: ${JSON.stringify(facts.giantNames)} — ONLY these giants appear in the entire ad. There are exactly ${facts.giantNames.length} giant(s). Do NOT invent additional giants based on HP changes or visual assumptions.`);
@@ -652,7 +655,7 @@ ${config.context ? config.context + "\n" : ""}${lockedFields.length ? "\nPRE-LOC
 ANALYSIS APPROACH:
 Your PRIMARY source of truth is the EXTRACTED FRAME IMAGES provided above. These are actual screenshots at specific timestamps. For every event you report, you must be able to point to which frame shows it.
 DO NOT use temporal reasoning. You are NOT watching a video — you are analyzing a set of still frame images at specific timestamps. Each frame is independent evidence. If an event is not visible in at least one frame image, it did not happen as far as you are concerned. The only exception: events explicitly stated in the GROUND TRUTH context above.
-DISCIPLINE: When in doubt about an upgrade, gate value, or giant kill — omit it rather than guess. Under-reporting is better than hallucinating.
+DISCIPLINE: When in doubt — omit rather than guess. Under-reporting is better than hallucinating. EXCEPTION: Giant kills and boss deaths are never omitted — if you see HP reach zero or a giant disappear, always report it. The under-report rule does not apply to boss deaths.
 AD TYPE:${config.ad_type} TIER:${config.tier}
 DURATION:${duration}s
 LIBRARY:${lib.length>0?JSON.stringify(lib.map(d=>({title:d.title,tier:d.tier,hook_type:d.hook_type,hook_timing_seconds:d.hook_timing_seconds}))):"empty"}
@@ -670,7 +673,7 @@ ${GATE_GUIDE}
 ${MOC_EVENTS_GUIDE}
 ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}
-UNIT EVOLUTION CHAIN: Count upgrade containers WITH A CANNON ICON destroyed in the frames. That count = number of upgrades. Chain = starting tier + one tier per upgrade sequentially (Simple→Double→Triple→Tank — NEVER skip tiers). Most ads: 1-2 upgrades. If PRE-LOCKED chain provided above, use it exactly — do not override. NEVER jump from Simple to Tank or Simple to Triple in one step unless the chain explicitly shows this.
+UNIT EVOLUTION CHAIN: If PRE-LOCKED chain is provided above, use it exactly — it defines both the tier names and how many upgrades occurred. Do not override. If no locked chain: count upgrade containers WITH A CANNON ICON destroyed in the frames — that count = number of upgrades. Chain = starting tier + one tier per upgrade. Most ads: 1-2 upgrades.
 CANNON NAMING: Name the cannon using the unit_evolution_chain positions. chain[0] before first upgrade, chain[1] after first upgrade, chain[2] after second upgrade. If frame images contradict the timestamp map descriptions on cannon tier, trust the chain and the frame images — not the text descriptions.
 FRAME EMOTIONS: For each extracted frame timestamp shown above, assign one emotion word (Anticipation, Excitement, Satisfaction, Empowerment, Tension, Almost Fail, Dread, Defeat, Triumph). Return as frame_emotions array. Include ALL timestamps you received frames for — not just key moments.
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
@@ -1573,7 +1576,7 @@ ${d.creative_gaps?`<div style="margin-bottom:12px"><div style="font-size:9px;col
                   const emotionMap: Record<number,string> = {};
                   (d as any).frame_emotions?.forEach((e: any) => { if (typeof e?.timestamp_seconds === "number") emotionMap[e.timestamp_seconds] = e.emotion; });
                   const emotion = emotionMap[f.timestamp_seconds];
-                  const sigColor: Record<string,string> = { hook: D.red, upgrade: D.green, container: D.green, gate: D.blue, swarm: D.gold, almost_fail: "#f472b6", fail: D.red, boss_death: D.gold, battle: "#f472b6" };
+                  const sigColor: Record<string,string> = { hook: D.red, upgrade: D.green, container: D.green, gate: D.blue, swarm: D.gold, almost_fail: "#f472b6", almost_win: "#34d399", fail: D.red, boss_death: D.gold, battle: "#f472b6" };
                   const color = sigColor[f.significance] || D.textDim;
                   return (
                     <div key={i} style={{ fontSize: 11, padding: "4px 8px", background: D.surface, borderRadius: 5, display: "flex", gap: 8, alignItems: "flex-start" }}>
