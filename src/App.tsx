@@ -549,8 +549,8 @@ Return ONLY JSON: {"hook_timing_seconds":number,"hook_type":"Challenge|Satisfyin
 // Parse user context text to extract structured facts that should be locked
 // e.g. "2 upgrades: Simple→Double→Triple" → unit_evolution_chain locked
 // e.g. "giants: Yellow Normie at 7s, White Normie at 12s" → giant_kills locked
-function parseContextFacts(context: string): { chain?: string[]; giantNames?: string[]; hookSeconds?: number; giantSurvives?: true | string[] } {
-  const result: { chain?: string[]; giantNames?: string[]; hookSeconds?: number; giantSurvives?: true | string[] } = {};
+function parseContextFacts(context: string): { chain?: string[]; giantNames?: string[]; hookSeconds?: number; giantSurvives?: true | string[]; giantKillSeconds?: number; giantKillCount?: number } {
+  const result: { chain?: string[]; giantNames?: string[]; hookSeconds?: number; giantSurvives?: true | string[]; giantKillSeconds?: number; giantKillCount?: number } = {};
   if (!context) return result;
   const lc = context.toLowerCase();
 
@@ -613,6 +613,19 @@ function parseContextFacts(context: string): { chain?: string[]; giantNames?: st
   const hookMatch = lc.match(/hook\s+(?:at\s+)?(\d+)\s*s/);
   if (hookMatch) result.hookSeconds = parseInt(hookMatch[1]);
 
+  // Parse giant kill timing — "1 giant killed at 10th sec", "giant dies at 7s"
+  const giantKillTimingMatch = context.match(/(?:giant|boss|normie)\s+(?:is\s+)?killed\s+at\s+(?:the\s+)?(\d+)(?:th|st|nd|rd)?\s*s(?:ec)?/i)
+    || context.match(/(?:killed|dies?|defeated)\s+at\s+(?:the\s+)?(\d+)(?:th|st|nd|rd)?\s*s(?:ec)?/i);
+  if (giantKillTimingMatch) result.giantKillSeconds = parseInt(giantKillTimingMatch[1]);
+
+  // Parse total giant kill count — "only 1 giant is killed", "2 giants killed"
+  const giantKillCountMatch = context.match(/(?:only\s+)?(\d+|one|two|three)\s+giants?\s+(?:is\s+|are\s+)?killed/i)
+    || context.match(/(\d+|one|two|three)\s+(?:boss|giant)\s+(?:kill|death)/i);
+  if (giantKillCountMatch) {
+    const countMap: Record<string,number> = {one:1,two:2,three:3};
+    result.giantKillCount = countMap[giantKillCountMatch[1].toLowerCase()] ?? parseInt(giantKillCountMatch[1]);
+  }
+
   // Parse giant survival — "Yellow Normie survives", "giant survives", "no kill", "doesn't die"
   // IMPORTANT: "final giant is not killed" or "last giant survives" = second/final giant survives
   // but the FIRST giant may still be killed. Only lock full giantSurvives for GENERAL statements.
@@ -651,6 +664,12 @@ const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtra
       }
     }
     if (facts.hookSeconds != null) lockedFields.push(`LOCKED hook_timing_seconds: ${facts.hookSeconds}`);
+    if (facts.giantKillSeconds != null) {
+      lockedFields.push(`LOCKED giant kill timing: The giant/boss is killed at approximately ${facts.giantKillSeconds}s. Do NOT report a GIANT KILL event at any other timestamp. The GIANT KILL description must appear at or within 1-2 seconds of ${facts.giantKillSeconds}s.`);
+    }
+    if (facts.giantKillCount != null) {
+      lockedFields.push(`LOCKED total giant kills: EXACTLY ${facts.giantKillCount} giant(s) are killed in this entire ad. Do not add more giant_kills entries than this number. Any HP that reaches zero beyond this count is a misread.`);
+    }
     if (facts.giantSurvives === true) {
       lockedFields.push(`LOCKED: ALL giants/bosses SURVIVE to the end — do NOT add any entry to giant_kills array.`);
     } else if (Array.isArray(facts.giantSurvives)) {
@@ -1107,6 +1126,10 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
   const [tier, setTier] = useState<UploadConfig["tier"]>("winner");
   const [adType, setAdType] = useState<UploadConfig["ad_type"]>("moc");
   const [context, setContext] = useState("");
+  const [chainInput, setChainInput] = useState<string[]>([]);
+  const [giantKillCount, setGiantKillCount] = useState("");
+  const [giantKillSec, setGiantKillSec] = useState("");
+  const [finalGiantSurvives, setFinalGiantSurvives] = useState("");
   const [manualFrames, setManualFrames] = useState<File[]>([]);
   const [creativeId, setCreativeId] = useState("");
   const [parentId, setParentId] = useState("");
@@ -1146,11 +1169,66 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
           </div>
         </div>
         <div style={{ marginBottom:14 }}>
-          <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6 }}>
-            <span style={labelStyle}>Context for Gemini</span>
-            {context.trim().length>10&&<EnhanceButton text={context} onEnhanced={setContext} mode="upload" />}
+          <span style={labelStyle}>Analysis hints <span style={{ fontWeight:400,color:D.textMuted }}>(helps Gemini avoid hallucinations)</span></span>
+          <div style={{ background:D.surface2,borderRadius:8,border:`0.5px solid ${D.border}`,padding:"10px 12px",display:"flex",flexDirection:"column" as const,gap:10 }}>
+            {/* Cannon evolution chain */}
+            <div>
+              <span style={{ fontSize:10,color:D.textMuted,display:"block",marginBottom:4 }}>Unit evolution chain</span>
+              <div style={{ display:"flex",gap:6,alignItems:"center",flexWrap:"wrap" as const }}>
+                {(["Simple Cannon","Double Cannon","Triple Cannon","Tank"] as const).map((tier,i,arr) => (
+                  <React.Fragment key={tier}>
+                    <button onClick={()=>{
+                      const idx=arr.indexOf(tier);
+                      const current=chainInput;
+                      if(current.includes(tier)){
+                        // Remove this and all after
+                        setChainInput(current.slice(0,current.indexOf(tier)));
+                      } else if(idx>0&&current.includes(arr[idx-1])){
+                        // Add next in sequence
+                        setChainInput([...current,tier]);
+                      } else if(idx===0){
+                        setChainInput([tier]);
+                      }
+                    }} style={{ padding:"3px 10px",fontSize:10,borderRadius:20,border:`1.5px solid ${chainInput.includes(tier)?D.blueDark:D.border2}`,background:chainInput.includes(tier)?D.blueBg:"transparent",color:chainInput.includes(tier)?D.blue:D.textMuted,cursor:"pointer" }}>
+                      {tier==="Simple Cannon"?"Simple":tier==="Double Cannon"?"Double":tier==="Triple Cannon"?"Triple":"Tank"}
+                    </button>
+                    {i<arr.length-1&&chainInput.includes(tier)&&chainInput.includes(arr[i+1])&&<span style={{color:D.textDim,fontSize:10}}>→</span>}
+                  </React.Fragment>
+                ))}
+                {chainInput.length>0&&<button onClick={()=>setChainInput([])} style={{fontSize:9,color:D.textMuted,background:"none",border:"none",cursor:"pointer",padding:"2px 6px"}}>✕ clear</button>}
+              </div>
+            </div>
+            {/* Giant kills */}
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8 }}>
+              <div>
+                <span style={{ fontSize:10,color:D.textMuted,display:"block",marginBottom:4 }}>Giants killed</span>
+                <select style={{ ...inputStyle,fontSize:11,padding:"4px 8px" }} value={giantKillCount} onChange={e=>setGiantKillCount(e.target.value)}>
+                  <option value="">Unknown</option>
+                  <option value="0">0 — none</option>
+                  <option value="1">1 giant</option>
+                  <option value="2">2 giants</option>
+                  <option value="3">3 giants</option>
+                </select>
+              </div>
+              <div>
+                <span style={{ fontSize:10,color:D.textMuted,display:"block",marginBottom:4 }}>Kill at (seconds)</span>
+                <input type="number" min="0" max="60" style={{ ...inputStyle,fontSize:11,padding:"4px 8px" }} placeholder="e.g. 10" value={giantKillSec} onChange={e=>setGiantKillSec(e.target.value)} />
+              </div>
+              <div>
+                <span style={{ fontSize:10,color:D.textMuted,display:"block",marginBottom:4 }}>Final giant</span>
+                <select style={{ ...inputStyle,fontSize:11,padding:"4px 8px" }} value={finalGiantSurvives} onChange={e=>setFinalGiantSurvives(e.target.value)}>
+                  <option value="">Unknown</option>
+                  <option value="yes">Survives</option>
+                  <option value="no">Is killed</option>
+                </select>
+              </div>
+            </div>
+            {/* Free text */}
+            <div>
+              <span style={{ fontSize:10,color:D.textMuted,display:"block",marginBottom:4 }}>Additional context</span>
+              <textarea style={{ ...inputStyle,minHeight:48,resize:"vertical" as const,background:D.bg,fontSize:11 }} placeholder="Biome, hook type, gates destroyed by giant, empty containers…" value={context} onChange={e=>setContext(e.target.value)} />
+            </div>
           </div>
-          <textarea style={{ ...inputStyle,minHeight:72,resize:"vertical",background:D.bg }} placeholder="Describe biome, hook, key mechanics…" value={context} onChange={e=>setContext(e.target.value)} />
         </div>
         <div style={{ marginBottom:16 }}>
           <span style={labelStyle}>Manual storyboard frames (optional)</span>
@@ -1164,7 +1242,17 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
         </div>
         <div style={{ display:"flex",gap:10,justifyContent:"flex-end" }}>
           <button style={btnSec} onClick={onCancel}>Cancel</button>
-          <button style={btnPri} onClick={()=>onConfirm({ tier,ad_type:adType,context,manual_frames:manualFrames,creative_id:creativeId.trim()||undefined,parent_id:parentId.trim()||undefined })}>Choose video →</button>
+          <button style={btnPri} onClick={()=>{
+                  const parts: string[] = [];
+                  if(chainInput.length>=2) parts.push(`${chainInput.map(t=>t.replace(" Cannon","").toLowerCase()).join(" to ")} cannon chain`);
+                  if(giantKillCount) parts.push(`${giantKillCount} giant${parseInt(giantKillCount)!==1?"s":""} killed`);
+                  if(giantKillSec) parts.push(`giant killed at ${giantKillSec}s`);
+                  if(finalGiantSurvives==="yes") parts.push("final giant is not killed");
+                  if(finalGiantSurvives==="no") parts.push("final giant is killed");
+                  if(context.trim()) parts.push(context.trim());
+                  const fullContext = parts.join(", ");
+                  onConfirm({ tier,ad_type:adType,context:fullContext,manual_frames:manualFrames,creative_id:creativeId.trim()||undefined,parent_id:parentId.trim()||undefined });
+                }}>Choose video →</button>
         </div>
       </div>
     </div>
@@ -1790,11 +1878,14 @@ export default function App() {
             const merged=data.map((e: DNAEntry)=>{
               const loc=localMap.get(e.id) as DNAEntry|undefined;
               if(!loc?.auto_frames?.length) return e;
-              // Restore image_data — cloud strips it, localStorage keeps it
-              const imgMap=new Map<number,string>();
-              loc.auto_frames.forEach(f=>{ if(f.image_data){ imgMap.set(f.timestamp_seconds,f.image_data); imgMap.set(Math.round(f.timestamp_seconds),f.image_data); }});
-              // Prefer local frames entirely — they have image_data AND descriptions
-              return{...e,auto_frames:loc.auto_frames};
+              const localHasImages = loc.auto_frames.some(f=>f.image_data);
+              const localHasDescriptions = loc.auto_frames.some(f=>f.description);
+              if(localHasImages || localHasDescriptions) {
+                // Local has real content — use it (cloud strips image_data and may be stale)
+                return{...e,auto_frames:loc.auto_frames};
+              }
+              // Local frames are empty shells — use cloud data
+              return e;
             });
             setLib(sanitizeLib(merged));
           } else setLib(sanitizeLib(data));
@@ -1900,7 +1991,13 @@ For each description above:
       else { videoPart={inlineData:{mimeType:file.type,data:await fileToBase64(file)}}; }
       setAnalyzeStep("frames");
       let autoFrames: FrameExtraction[]=[],duration=30;
-      try { const fr=await callGeminiDirect(frameExtractionSystem(),[{text:"Extract 20-24 key frames — prioritise every second with a visible change, fill gaps between events:"},videoPart]); autoFrames=Array.isArray(fr?.frames)?fr.frames:[]; duration=typeof fr?.duration_seconds==="number"?fr.duration_seconds:30; } catch(frameErr: any){ console.warn("Frame extraction failed:",frameErr?.message); }
+      try {
+        const facts=parseContextFacts(newContext||entry.upload_context||"");
+        const chainHint = facts.chain ? `CONTEXT: Starting cannon is "${facts.chain[0]}" — DO NOT identify it as a different tier from visual appearance. Chain: ${facts.chain.join(" → ")}.\n` : "";
+        const giantKillHint = facts.giantKillSeconds != null ? `CONTEXT: Giant is killed at approximately ${facts.giantKillSeconds}s.\n` : "";
+        const fr=await callGeminiDirect(frameExtractionSystem(),[{text:`${chainHint}${giantKillHint}Extract 20-24 key frames — prioritise every second with a visible change, fill gaps between events:`},videoPart]);
+        autoFrames=Array.isArray(fr?.frames)?fr.frames:[]; duration=typeof fr?.duration_seconds==="number"?fr.duration_seconds:30;
+      } catch(frameErr: any){ console.warn("Frame extraction failed:",frameErr?.message); }
       let extractedFrameParts: any[]=[];
       try {
         const baseTs=autoFrames.map(f=>f.timestamp_seconds).filter(t=>typeof t==="number").sort((a,b)=>a-b);
