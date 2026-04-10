@@ -549,8 +549,8 @@ Return ONLY JSON: {"hook_timing_seconds":number,"hook_type":"Challenge|Satisfyin
 // Parse user context text to extract structured facts that should be locked
 // e.g. "2 upgrades: Simple→Double→Triple" → unit_evolution_chain locked
 // e.g. "giants: Yellow Normie at 7s, White Normie at 12s" → giant_kills locked
-function parseContextFacts(context: string): { chain?: string[]; giantNames?: string[]; hookSeconds?: number; giantSurvives?: string[] } {
-  const result: { chain?: string[]; giantNames?: string[]; hookSeconds?: number; giantSurvives?: string[]; hookSeconds?: number } = {};
+function parseContextFacts(context: string): { chain?: string[]; giantNames?: string[]; hookSeconds?: number; giantSurvives?: true | string[] } {
+  const result: { chain?: string[]; giantNames?: string[]; hookSeconds?: number; giantSurvives?: true | string[] } = {};
   if (!context) return result;
   const lc = context.toLowerCase();
 
@@ -576,24 +576,32 @@ function parseContextFacts(context: string): { chain?: string[]; giantNames?: st
     if (!negated && !foundTiers.includes(canonical)) foundTiers.push(canonical);
     searchPos = nextTier + nextTierName.length;
   }
-  // Also handle abbreviated "Simple → Double → Triple" notation
+  // Also handle abbreviated "simple to triple", "simple → triple" notation
+  const abbrevMap: Record<string,string> = {simple:"Simple Cannon",double:"Double Cannon",triple:"Triple Cannon",tank:"Tank","golden jet":"Golden Jet"};
   if (foundTiers.length < 2) {
-    const arrowChain = context.match(/\b(simple|double|triple|tank|golden jet)(?:\s*(?:→|->|>)\s*(simple|double|triple|tank|golden jet))+/gi);
+    // Match arrow notation: "simple → double → triple"
+    const arrowChain = context.match(/\b(simple|double|triple|tank|golden jet)(?:\s*(?:→|->|>|to)\s*(simple|double|triple|tank|golden jet))+/gi);
     if (arrowChain) {
-      const abbrevMap: Record<string,string> = {simple:"Simple Cannon",double:"Double Cannon",triple:"Triple Cannon",tank:"Tank","golden jet":"Golden Jet"};
-      const parts = arrowChain[0].split(/\s*(?:→|->|>)\s*/);
+      const parts = arrowChain[0].split(/\s*(?:→|->|>|\bto\b)\s*/i);
       const chain = parts.map(p => abbrevMap[p.trim().toLowerCase()]).filter(Boolean);
       if (chain.length >= 2) foundTiers.push(...chain.filter(t => !foundTiers.includes(t)));
     }
   }
   if (foundTiers.length >= 2) result.chain = foundTiers;
 
-  // Parse number of upgrades — "2 upgrades", "one upgrade", "3 cannon upgrades"
+  // Parse number of upgrades — "1 upgrade from simple to triple", "2 upgrades", "one upgrade"
   const upgradeMatch = lc.match(/(\d+|one|two|three|four)\s+(?:cannon\s+)?upgrades?/);
   if (upgradeMatch && !result.chain) {
-    const n = {"one":1,"two":2,"three":3,"four":4}[upgradeMatch[1]] ?? parseInt(upgradeMatch[1]);
+    const n = {"one":1,"two":2,"three":3,"four":4}[upgradeMatch[1] as string] ?? parseInt(upgradeMatch[1]);
     const defaultChain = ["Simple Cannon","Double Cannon","Triple Cannon","Tank","Golden Jet"];
-    if (n >= 1 && n <= 4) result.chain = defaultChain.slice(0, n + 1);
+    // If we found a specific end tier (e.g. "Triple Cannon"), use it as the chain end
+    // rather than defaulting to sequential slice
+    if (n === 1 && foundTiers.length === 1) {
+      // 1 upgrade + end tier known → [Simple Cannon, endTier]
+      result.chain = ["Simple Cannon", foundTiers[0]];
+    } else if (n >= 1 && n <= 4) {
+      result.chain = defaultChain.slice(0, n + 1);
+    }
   }
 
   // Parse giant names — "Yellow Normie", "White Normie", etc.
@@ -606,10 +614,17 @@ function parseContextFacts(context: string): { chain?: string[]; giantNames?: st
   if (hookMatch) result.hookSeconds = parseInt(hookMatch[1]);
 
   // Parse giant survival — "Yellow Normie survives", "giant survives", "no kill", "doesn't die"
-  const survivalPattern = /\b(?:yellow normie|giant|boss|normie)\s+(?:survives?|does(?:n.t| not) die|is not killed|stays alive)/i;
+  // IMPORTANT: "final giant is not killed" or "last giant survives" = second/final giant survives
+  // but the FIRST giant may still be killed. Only lock full giantSurvives for GENERAL statements.
+  const qualifiedSurvival = /\b(?:final|last|second|2nd)\s+(?:giant|boss|normie)\s+(?:survives?|does(?:n.t| not) die|is not killed|stays alive)/i;
+  const generalSurvival = /\b(?:yellow normie|giant|boss|normie)\s+(?:survives?|does(?:n.t| not) die|is not killed|stays alive)/i;
   const noKillPattern = /\bno\s+(?:giant|boss)\s+(?:kill|death|dying)/i;
-  if (survivalPattern.test(context) || noKillPattern.test(context)) {
-    result.giantSurvives = true;
+  if (qualifiedSurvival.test(context)) {
+    // Final/last/second giant survives — first giant may still be killed
+    // Mark as partial: the last giant survives but don't suppress all kills
+    result.giantSurvives = ["last"] as any; // signal: only last giant survives
+  } else if (generalSurvival.test(context) || noKillPattern.test(context)) {
+    result.giantSurvives = true; // all giants survive
   }
 
   return result;
@@ -636,7 +651,11 @@ const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtra
       }
     }
     if (facts.hookSeconds != null) lockedFields.push(`LOCKED hook_timing_seconds: ${facts.hookSeconds}`);
-    if (facts.giantSurvives) lockedFields.push(`LOCKED: The giant/boss SURVIVES to the end of the ad and is NOT defeated. Do NOT add any entry to giant_kills array. Do NOT report a GIANT KILL event.`);
+    if (facts.giantSurvives === true) {
+      lockedFields.push(`LOCKED: ALL giants/bosses SURVIVE to the end — do NOT add any entry to giant_kills array.`);
+    } else if (Array.isArray(facts.giantSurvives)) {
+      lockedFields.push(`LOCKED: The FINAL/LAST giant in this ad is NOT killed — it outlasts the player's mobs. Earlier giants MAY be killed and should be reported normally in giant_kills. Only suppress the kill event for the last giant that appears.`);
+    }
     if (config.context || lockedFields.length) {
       return `GROUND TRUTH — USER-PROVIDED FACTS (ABSOLUTE PRIORITY — these override everything you see in the frames):
 ${config.context ? config.context + "\n" : ""}${lockedFields.length ? "\nPRE-LOCKED FIELDS (copy these values exactly into your JSON output — do not modify):\n" + lockedFields.join("\n") : ""}
