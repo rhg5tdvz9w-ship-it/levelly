@@ -540,6 +540,15 @@ GIANT DEATH — HIGHEST PRIORITY:
 - HP bar appearing empty, giant off-screen, or giant flashing white = NOT sufficient — the number "0" must be visible OR the giant must be completely absent from the frame
 - NEVER skip a confirmed boss_death
 
+DUAL HP BARS — TWO GIANTS SIMULTANEOUSLY:
+- If you see TWO separate HP bars in one frame, describe BOTH independently: "First giant (HP:[X]). Second giant (HP:[Y]) appears." Do NOT merge them or explain one as an "HP update" on the same giant. They are two separate entities. Use significance "boss_damage" for the appearance of the second bar.
+
+GIANT HP — ONLY TIMESTAMP THESE MOMENTS:
+- First appearance of a giant HP bar (any HP value)
+- HP crosses a major threshold: ~75%, ~50%, ~25%, ~10%, or near-zero (under 20HP)
+- HP reaches 0 (boss_death)
+- Do NOT timestamp every HP tick — if a giant goes from HP:694 to HP:601 to HP:347, only timestamp if it crosses a threshold. Skip intermediate damage readings that don't cross a threshold.
+
 GATE DESTRUCTION BY GIANT: ONLY timestamp if you have frame N (gate present) AND frame N+1 (gate completely absent). No inference. No proximity reasoning.
 
 +N GATE: always timestamp. Description: "+[N] gate: cannon count +[N]". If xN and +N occur at same second, one timestamp mentioning both.
@@ -736,6 +745,9 @@ Only report if you have frame N (gate present) + frame N+1 (gate completely abse
 
 RULE 4 — SECOND GIANT NAMING:
 If GROUND TRUTH names 1 giant (e.g. "Yellow Normie") and a second HP bar appears after the first is confirmed dead at HP:0 — call the second one "Second Yellow Normie" if it's the same boss type, or "Unknown" if it's a different entity. NEVER add a colour prefix (no "White Normie", "Red Normie"). White/blue colour on Yellow Normie = hit VFX, same giant.
+
+RULE 4b — DUAL HP BARS IN ONE FRAME:
+If you see TWO HP bars simultaneously in one frame, they belong to TWO different giants. Describe both: "First giant (HP:[X]). Second giant (HP:[Y]) appears." Do NOT write that one giant's HP "jumped" or "reset" — a sudden HP jump from a low value to a much higher value always means a second giant spawned, not an HP update on the first giant.
 
 RULE 5 — WHITE/BLUE/RED NORMIE DOES NOT EXIST:
 Yellow Normie flashes white and blue when hit. This is always Yellow Normie with hit VFX. If you see white/pale/blue humanoid — it IS Yellow Normie. Write "Yellow Normie (HP:[X], taking heavy damage)" not a new giant name.
