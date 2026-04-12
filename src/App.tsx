@@ -506,7 +506,7 @@ const GATE_GUIDE = `GATES — CRITICAL: passing through ANY gate NEVER upgrades 
 
 CANNON UPGRADE RULE — ABSOLUTE: The cannon model (Simple/Double/Triple/Tank) ONLY changes when the MOB SWARM physically DESTROYS a breakable obstacle/container on the road. This is a separate event from any gate pass. NEVER write "cannon upgrades after passing a gate". If you see a cannon change and a gate in the same second, the upgrade came from a container that was also destroyed at that moment, NOT from the gate.
 Report EVERY gate with its exact value. If unclear: "x?" or "+?".
-GATE DESTRUCTION: Gates CAN be physically destroyed by giants/bosses walking through them. When this happens, timestamp it with significance "gate" and note: "Gate destroyed by [giant name] at [X]s". Include in gate_sequence as "xN destroyed by giant at Xs".
+GATE DESTRUCTION: Gates CAN be physically destroyed by giants/bosses walking through them. STRICT VISUAL RULE: Only report a gate as destroyed if you can see the gate present in one frame and ABSENT (disappeared) in the very next consecutive frame. Do NOT guess gate destruction timing based on when a giant is nearby. If you cannot see a gate disappear between two consecutive frames, do not report it as destroyed. When confirmed: timestamp it, significance "gate", note "Gate destroyed by [giant name]", include in gate_sequence as "xN destroyed by giant at Xs".
 cannon_count_log: track cannon count as a running string showing only +N gate changes: "1 cannon start → +1 gate at 3s: 2 cannons → +1 gate at 9s: 3 cannons". x-gates do NOT appear here (they affect mobs, not cannons). IMPORTANT: Even single +1 gates must be tracked — each +1 gate adds exactly 1 more cannon to the firing lineup.
 gate_sequence FIELD: Include ALL gate passes — both xN gates AND +N gates. Format each as "x3 at 2s", "+1 at 3s", "x4 at 8s" etc. Do NOT omit +N gates from gate_sequence just because they are tracked in cannon_count_log. They must appear in BOTH.
 +N GATE FRAME DESCRIPTION RULE: Every auto_frames entry where a blue +N gate is passed MUST include "Cannon count +[N]" in the description.`;
@@ -518,6 +518,7 @@ const frameExtractionSystem = () => `Precise video timestamp analyst for Mob Con
 RULES:
 1. MUST timestamp these MOC events if present: container destructions, unit evolutions, giant/boss deaths (MANDATORY — if a giant dies, timestamp it), every gate pass (BOTH +N gates AND xN gates, with value), almost-fail moments, swarm peak, final defeat
    - GIANT DEATH is the highest-priority event. If a frame shows a giant HP bar empty or a giant disappearing, timestamp it with significance "boss_death"
+   - GATE DESTRUCTION BY GIANT: ONLY timestamp this if you can see the gate present in frame N and gone/absent in frame N+1. Do not infer or guess the timing. If the gate disappears between two frames you have, report it. If you only see it present before and don't have a frame showing it gone, skip it.
    - +N GATE PASS: always timestamp — these show cannon count increasing. Use significance "gate". Description must say "+[N] gate: cannon count +[N]". If an xN gate occurs at the same second, use ONE timestamp but mention BOTH in the description: "xN gate (mob multiply) AND +1 gate (cannon count +1)"
 2. VERIFICATION RULE: For each event you report, confirm you can see it in the frame image. Trust the extracted frame images above all else.
    - If you see a giant HP bar visible but not at zero, still timestamp it with significance "boss_damage" and note the remaining HP
@@ -709,6 +710,7 @@ LIBRARY:${lib.length>0?JSON.stringify(lib.map(d=>({title:d.title,tier:d.tier,hoo
 ${hasRefs?buildReferenceContext():""}
 ${!hasFrameImages?`TIMESTAMP MAP (frame observations — significance tags only, treat as hints):\n${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] (${f.significance})`).join("\\n"):"none"}`:"EXTRACTED FRAME IMAGES provided above — these are your ONLY source of truth for what the cannon looks like at each timestamp. Do NOT use timestamp map descriptions to identify cannon tiers."}
 FRAME DESCRIPTION RULES — apply to every frame:
+0. CANNON TIER NAMING: Always use the exact tier names from the locked unit_evolution_chain. Do not identify cannon tiers from visual appearance alone — the chain defines the ground truth. If the chain is ["Simple Cannon","Triple Cannon"], then at any point in the video the cannon is either Simple Cannon (before the upgrade event) or Triple Cannon (after). Do not invent tier names outside the locked chain.
 1. GIANT KILL: HP bar reaches exactly zero AND/OR giant fully disappears from screen → start description with "GIANT KILL: [name] defeated". Add to giant_kills array. Do NOT write GIANT KILL if HP is still visible above zero — that is boss_damage not boss_death. Skip entirely if GROUND TRUTH says giant survives.
 2. +N GATE: Blue addition gate visible → description MUST say "Cannon count +[N]" (e.g. "Cannon count +1: now 2 cannons firing"). NEVER say "mob swarm passes through +1 gate" — mobs flow through the gate visually but the EFFECT is cannon count increase, not mob multiplication. The mob swarm physically passes through xN gates (mob multiply) and +N gates (cannon count up) — but describe the EFFECT correctly for each type.
    +1 VFX RULE: When you see a floating "+1" number animation appear near the cannon (a visual effect showing cannon count increased), this is NOT a cannon tier upgrade. The cannon MODEL (Simple/Double/Triple/Tank) does NOT change from this animation. A real tier upgrade requires a container with a cannon icon to be physically destroyed — the cannon itself visually changes shape (grows more barrels). Do NOT write "cannon upgrades" when you see a floating +1 animation — write "Cannon count +1" instead.
@@ -1189,24 +1191,19 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
                 {(["Simple Cannon","Double Cannon","Triple Cannon","Tank"] as const).map((tier,i,arr) => (
                   <React.Fragment key={tier}>
                     <button onClick={()=>{
-                      const idx=arr.indexOf(tier);
-                      const current=chainInput;
-                      if(current.includes(tier)){
-                        // Remove this and all after
-                        setChainInput(current.slice(0,current.indexOf(tier)));
-                      } else if(idx>0&&current.includes(arr[idx-1])){
-                        // Add next in sequence
-                        setChainInput([...current,tier]);
-                      } else if(idx===0){
-                        setChainInput([tier]);
-                      }
-                    }} style={{ padding:"3px 10px",fontSize:10,borderRadius:20,border:`1.5px solid ${chainInput.includes(tier)?D.blueDark:D.border2}`,background:chainInput.includes(tier)?D.blueBg:"transparent",color:chainInput.includes(tier)?D.blue:D.textMuted,cursor:"pointer" }}>
+                      const tiers2=["Simple Cannon","Double Cannon","Triple Cannon","Tank"];
+                      const endIdx2=tiers2.indexOf(tier);
+                      const isSelected2=chainInput.length>0&&chainInput[chainInput.length-1]===tier;
+                      const wouldChain2=tiers2.slice(0,endIdx2+1);
+                      if(isSelected2&&chainInput.length===1){setChainInput([]);}
+                      else{setChainInput(wouldChain2);}
+                    }} style={{ padding:"3px 10px",fontSize:10,borderRadius:20,border:`1.5px solid ${chainInput.length>0&&chainInput[chainInput.length-1]===tier?D.blueDark:D.border2}`,background:chainInput.length>0&&chainInput[chainInput.length-1]===tier?D.blueBg:chainInput.includes(tier)?"rgba(88,166,255,0.1)":"transparent",color:chainInput.length>0&&chainInput[chainInput.length-1]===tier?D.blue:D.textMuted,cursor:"pointer",opacity:chainInput.length>0&&!chainInput.includes(tier)?0.5:1 }}>
                       {tier==="Simple Cannon"?"Simple":tier==="Double Cannon"?"Double":tier==="Triple Cannon"?"Triple":"Tank"}
                     </button>
-                    {i<arr.length-1&&chainInput.includes(tier)&&chainInput.includes(arr[i+1])&&<span style={{color:D.textDim,fontSize:10}}>→</span>}
                   </React.Fragment>
                 ))}
-                {chainInput.length>0&&<button onClick={()=>setChainInput([])} style={{fontSize:9,color:D.textMuted,background:"none",border:"none",cursor:"pointer",padding:"2px 6px"}}>✕ clear</button>}
+                {chainInput.length>0&&<span style={{color:D.textDim,fontSize:10,margin:"0 4px"}}>{chainInput.map(t=>t.replace(" Cannon","")).join("→")}</span>}
+                {chainInput.length>0&&<button onClick={()=>setChainInput([])} style={{fontSize:9,color:D.textMuted,background:"none",border:"none",cursor:"pointer",padding:"2px 6px"}}>✕</button>}
               </div>
             </div>
             {/* Giant kills */}
@@ -1399,18 +1396,22 @@ function ReuploadModal({ entry, onConfirm, onCancel }: {
             <div>
               <span style={{ fontSize:10,color:D.textMuted,display:"block",marginBottom:4 }}>Unit evolution chain</span>
               <div style={{ display:"flex",gap:6,alignItems:"center",flexWrap:"wrap" as const }}>
-                {(["Simple Cannon","Double Cannon","Triple Cannon","Tank"] as const).map((t,i,arr)=>(
-                  <React.Fragment key={t}>
-                    <button onClick={()=>{
-                      if(chainInput.includes(t)){ setChainInput(chainInput.slice(0,chainInput.indexOf(t))); }
-                      else if(i===0){ setChainInput([t]); }
-                      else if(chainInput.includes(arr[i-1])){ setChainInput([...chainInput,t]); }
-                    }} style={{ padding:"3px 10px",fontSize:10,borderRadius:20,border:`1.5px solid ${chainInput.includes(t)?D.blueDark:D.border2}`,background:chainInput.includes(t)?D.blueBg:"transparent",color:chainInput.includes(t)?D.blue:D.textMuted,cursor:"pointer" }}>
+                {(["Simple Cannon","Double Cannon","Triple Cannon","Tank"] as const).map((t,i,arr)=>{
+                  const tiers = ["Simple Cannon","Double Cannon","Triple Cannon","Tank"];
+                  const endIdx = tiers.indexOf(t);
+                  // Clicking a tier sets chain from Simple to that tier
+                  const isSelected = chainInput.length > 0 && chainInput[chainInput.length-1] === t;
+                  const wouldChain = tiers.slice(0, endIdx+1);
+                  return (
+                    <button key={t} onClick={()=>{
+                      if(isSelected && chainInput.length === 1){ setChainInput([]); }
+                      else { setChainInput(wouldChain); }
+                    }} style={{ padding:"3px 10px",fontSize:10,borderRadius:20,border:`1.5px solid ${isSelected?D.blueDark:chainInput.includes(t)?D.border2:D.border2}`,background:isSelected?D.blueBg:chainInput.includes(t)?"rgba(88,166,255,0.1)":"transparent",color:isSelected?D.blue:chainInput.includes(t)?D.textMuted:D.textMuted,cursor:"pointer",opacity:chainInput.length>0&&!chainInput.includes(t)?0.4:1 }}>
                       {t==="Simple Cannon"?"Simple":t==="Double Cannon"?"Double":t==="Triple Cannon"?"Triple":"Tank"}
                     </button>
-                    {i<arr.length-1&&chainInput.includes(t)&&chainInput.includes(arr[i+1])&&<span style={{color:D.textDim,fontSize:10}}>→</span>}
-                  </React.Fragment>
-                ))}
+                  );
+                })}
+                {chainInput.length>0&&<span style={{color:D.textDim,fontSize:10,margin:"0 2px"}}>{chainInput.map(t=>t.replace(" Cannon","")).join("→")}</span>}
                 {chainInput.length>0&&<button onClick={()=>setChainInput([])} style={{fontSize:9,color:D.textMuted,background:"none",border:"none",cursor:"pointer",padding:"2px 6px"}}>✕</button>}
               </div>
             </div>
