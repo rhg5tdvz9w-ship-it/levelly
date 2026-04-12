@@ -508,7 +508,7 @@ const GATE_GUIDE = `GATES — CRITICAL: passing through ANY gate NEVER upgrades 
 
 CANNON UPGRADE RULE — ABSOLUTE: The cannon model (Simple/Double/Triple/Tank) ONLY changes when the MOB SWARM physically DESTROYS a breakable obstacle/container on the road. This is a separate event from any gate pass. NEVER write "cannon upgrades after passing a gate". If you see a cannon change and a gate in the same second, the upgrade came from a container that was also destroyed at that moment, NOT from the gate.
 Report EVERY gate with its exact value. If unclear: "x?" or "+?".
-GATE DESTRUCTION: Gates CAN be physically destroyed by giants/bosses walking through them. ABSOLUTE VISUAL RULE: You MUST have TWO CONSECUTIVE frames — frame N shows the gate PRESENT, frame N+1 shows the gate COMPLETELY ABSENT. You must be able to state the exact timestamps of both frames. WITHOUT these two frames, DO NOT report any gate as destroyed. FORBIDDEN INFERENCES: do NOT report gate destruction based on (a) giant proximity to a gate, (b) "the giant was there around that time", (c) any frame where the gate is still visible. BAD EXAMPLE (NEVER DO): "x4 destroyed at 7s because the giant was walking past gates at 7s" — this is forbidden. GOOD EXAMPLE: "x3 destroyed at 9s — gate visible at 8s frame, gone at 9s frame". When confirmed with TWO consecutive frames: timestamp it, significance "gate", note "Gate destroyed by [giant name]", include in gate_sequence as "xN destroyed by giant at Xs". If you are not 100% certain from consecutive frames — omit it entirely.
+GATE DESTRUCTION: Gates CAN be physically destroyed by giants/bosses walking through them. ABSOLUTE VISUAL RULE: You MUST have TWO CONSECUTIVE frames — frame N shows the gate PRESENT, frame N+1 shows the gate COMPLETELY ABSENT. You must be able to state the exact timestamps of both frames. WITHOUT these two frames, DO NOT report any gate as destroyed. FORBIDDEN INFERENCES: do NOT report gate destruction based on (a) giant proximity to a gate, (b) "the giant was there around that time", (c) any frame where the gate is still visible. BAD EXAMPLE (NEVER DO): "x4 destroyed at 8s because the giant was walking near gates at 8s" — this is forbidden. GOOD EXAMPLE: "x3 destroyed at 9s — gate visible at 8s frame, gone at 9s frame". When confirmed with TWO consecutive frames: timestamp it, significance "gate", note "Gate destroyed by [giant name]", include in gate_sequence as "xN destroyed by giant at Xs". If you are not 100% certain from consecutive frames — omit it entirely.
 cannon_count_log: track cannon count as a running string showing only +N gate changes: "1 cannon start → +1 gate at 3s: 2 cannons → +1 gate at 9s: 3 cannons". x-gates do NOT appear here (they affect mobs, not cannons). IMPORTANT: Even single +1 gates must be tracked — each +1 gate adds exactly 1 more cannon to the firing lineup.
 gate_sequence FIELD: Include ALL gate passes — both xN gates AND +N gates. Format each as "x3 at 2s", "+1 at 3s", "x4 at 8s" etc. Do NOT omit +N gates from gate_sequence just because they are tracked in cannon_count_log. They must appear in BOTH.
 +N GATE FRAME DESCRIPTION RULE: Every auto_frames entry where a blue +N gate is passed MUST include "Cannon count +[N]" in the description.`;
@@ -718,6 +718,8 @@ FRAME DESCRIPTION RULES — apply to every frame:
    +1 VFX RULE: When you see a floating "+1" number animation appear near the cannon (a visual effect showing cannon count increased), this is NOT a cannon tier upgrade. The cannon MODEL (Simple/Double/Triple/Tank) does NOT change from this animation. A real tier upgrade requires a container with a cannon icon to be physically destroyed — the cannon itself visually changes shape (grows more barrels). Do NOT write "cannon upgrades" when you see a floating +1 animation — write "Cannon count +1" instead.
 3. GIANT HP: Changing HP = normal damage. Write "HP: [X]" not "new phase" or "health reset".
 4. GIANT COUNT RULE: Assume exactly 1 giant unless GROUND TRUTH explicitly names 2+. HOWEVER: if you have already confirmed a GIANT KILL (HP reached zero) and then see a NEW large HP bar at a substantially higher value — that IS a second giant spawn. Name it "Unknown" unless GROUND TRUTH names it. Do NOT reuse the previous giant's name with a colour prefix (e.g. never "Red Normie", "White Normie"). Use exactly: "Unknown giant (HP:[X]) appears" for any second giant not named in context. The first giant's name does not transfer to the second.
+5. GATE DESTRUCTION CRITICAL RULE: Do NOT report a gate as destroyed unless you have BOTH: (a) a frame showing the gate PRESENT, AND (b) the very next frame showing the gate COMPLETELY GONE. You must cite both frame timestamps. If you cannot name two consecutive frames proving this — do NOT add it to gate_sequence and do NOT mention it in any description. Giant proximity to a gate is NOT evidence. A giant walking near gates is NOT gate destruction. If in doubt — omit entirely.
+6. WHITE/BLUE/RED NORMIE — DOES NOT EXIST: Yellow Normie flashes white and blue when hit by mobs. This is a VFX hit effect, not a new boss. If you see a white, blue or pale humanoid — it is Yellow Normie taking damage. NEVER write "White Normie", "Blue Normie", "Red Normie" or any colour variant. The only valid giant names are those in GROUND TRUTH context, or "Unknown" for a confirmed second spawn.
 ${TIMESTAMP_RULES}
 ${HOOK_GUIDE}
 ${GATE_GUIDE}
@@ -871,10 +873,13 @@ COMPOSITION RULES:
 - Enemy boss fills 60-70% of frame — looming, menacing, facing the viewer
 - Player cannon visible at bottom: small, dwarfed, threatened — creates asymmetric tension
 - Cinematic lighting: dramatic shadows, boss lit from below or side for menace
-- MOC cartoon 3D art style — same polygon count, saturation, and lighting as the lane scene
-- Match biome environment exactly from the lane scene reference
 - NO TEXT OVERLAYS of any kind — no UI, no numbers, no speech bubbles. Pure visual only.
-- GOAL: make a viewer's thumb stop scrolling in the first 0.5 seconds`,
+- GOAL: make a viewer's thumb stop scrolling in the first 0.5 seconds
+CRITICAL ART STYLE — THIS IS A CASUAL MOBILE GAME:
+- Use the EXACT same 3D cartoon art style as the reference images. Low-poly, bright saturated colours, simple rounded shapes.
+- DO NOT create a realistic, photorealistic, or cinematic version of this champion. NO realistic skin textures, NO cinematic lighting rigs, NO hyper-detailed anatomy.
+- The champion must look like it came from the same game as the cannon reference image — simple, cartoonish, friendly-threatening.
+- If a champion reference image is provided above, match its appearance EXACTLY — same body shape, colours, proportions, style.`,
 
     hook_b: `COMEDY/NARRATIVE HOOK — humorous sketch or absurd MOC moment, 9:16:
 ${concept.hook_b_description || "Absurd or funny situation involving the cannon or mobs"}
@@ -882,10 +887,12 @@ COMPOSITION RULES:
 - Scene composition: character-forward, expressive, readable at a glance
 - Can be side view, 3/4 view, or any angle that serves the joke — not locked to top-down
 - Characters: Yellow Normie, mobs, cannon — exaggerated expressions and body language
-- MOC cartoon 3D art style — same visual language as the lane scene reference
-- Match biome colors and environment from the lane scene reference
 - NO TEXT OVERLAYS — the humor must be purely visual, no captions or labels
-- GOAL: make a viewer laugh or share this image immediately`,
+- GOAL: make a viewer laugh or share this image immediately
+CRITICAL ART STYLE — THIS IS A CASUAL MOBILE GAME:
+- Use the EXACT same 3D cartoon art style as the reference images. Low-poly, bright saturated colours, simple rounded shapes.
+- DO NOT create a realistic, photorealistic, or cinematic version of any character. Match the simple cartoon style of the cannon and mob reference images exactly.
+- If a champion reference image is provided above, match its appearance EXACTLY.`,
 
     hook_c: `STOPWATCH/VIRAL HOOK — urgency and tension composition, 9:16:
 ${concept.hook_c_description || "Maximum tension moment — player nearly losing, giant nearly dead, critical decision"}
@@ -2011,13 +2018,29 @@ export default function App() {
   useEffect(()=>{
     const sanitizeLib = (entries: any[]): DNAEntry[] => entries.map(e => sanitizeDNA(e) as DNAEntry);
 
+    // Merge frames from per-entry keys back into library entries
+    const mergeFrames = (entries: DNAEntry[]): DNAEntry[] => entries.map(e => {
+      try {
+        const framesRaw = localStorage.getItem(`levelly_frames_${e.id}`);
+        if (!framesRaw) return e;
+        const frames: FrameExtraction[] = JSON.parse(framesRaw);
+        if (!Array.isArray(frames) || frames.length === 0) return e;
+        // Merge image_data back into auto_frames by timestamp
+        const frameMap = new Map(frames.map(f => [f.timestamp_seconds, f.image_data]));
+        const mergedFrames = (e.auto_frames || []).map(f =>
+          frameMap.has(f.timestamp_seconds) ? { ...f, image_data: frameMap.get(f.timestamp_seconds) } : f
+        );
+        return { ...e, auto_frames: mergedFrames };
+      } catch { return e; }
+    });
+
     // Load localStorage immediately — no waiting for cloud
     try {
       const local = localStorage.getItem("levelly_dna_library");
       if (local) {
         const parsed = JSON.parse(local);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setLib(sanitizeLib(parsed));
+          setLib(sanitizeLib(mergeFrames(parsed)));
         }
       }
     } catch {}
@@ -2033,35 +2056,50 @@ export default function App() {
           if(local){
             const localParsed: DNAEntry[] = JSON.parse(local);
             const localById=new Map(localParsed.map((e: DNAEntry)=>[e.id,e]));
-            // Build creative_id fingerprint map for frame preservation
-            // When an entry is re-uploaded it gets a new numeric id but same creative_id
-            // We use creative_id to carry frames across re-uploads
             const localByCreativeId=new Map(
               localParsed.filter((e: DNAEntry)=>e.creative_id?.trim())
                 .map((e: DNAEntry)=>[e.creative_id!.trim(),e])
             );
-            // localStorage is authoritative for entries it has — cloud only adds NEW entries
-            // Merge: keep local entry if present by id OR creative_id; add cloud-only new entries
-            const cloudOnlyNew = data.filter((e: DNAEntry)=>
-              !localById.has(e.id) && !(e.creative_id?.trim() && localByCreativeId.has(e.creative_id.trim()))
+            const localByTitleFile=new Map(
+              localParsed.map((e: DNAEntry)=>[`${e.title||""}__${e.file_name||""}`,e])
             );
-            // For cloud entries that exist in local by creative_id (reupload case), use local version
+            const cloudOnlyNew = data.filter((e: DNAEntry)=>{
+              if(localById.has(e.id)) return false;
+              if(e.creative_id?.trim() && localByCreativeId.has(e.creative_id.trim())) return false;
+              const tfKey = `${e.title||""}__${e.file_name||""}`;
+              if(tfKey !== "__" && localByTitleFile.has(tfKey)) return false;
+              return true;
+            });
             const merged = [...localParsed, ...cloudOnlyNew];
-            setLib(sanitizeLib(merged));
+            setLib(sanitizeLib(mergeFrames(merged)));
           } else setLib(sanitizeLib(data));
         } catch { setLib(sanitizeLib(data)); }
-      } else { try { const l=localStorage.getItem("levelly_dna_library"); if(l) setLib(sanitizeLib(JSON.parse(l))); } catch {} }
+      } else { try { const l=localStorage.getItem("levelly_dna_library"); if(l) setLib(sanitizeLib(mergeFrames(JSON.parse(l)))); } catch {} }
       setLibraryLoaded(true); })
       .catch(()=>{ try { const l=localStorage.getItem("levelly_dna_library"); if(l) setLib(sanitizeLib(JSON.parse(l))); } catch {} setLibraryLoaded(true); });
   },[]);
 
   const saveLib = useCallback((updated: DNAEntry[])=>{
     setLib(updated);
-    try { localStorage.setItem("levelly_dna_library",JSON.stringify(updated)); } catch {}
+    // Save frames separately to avoid localStorage quota overflow
+    // Main library key: metadata only (no image_data) — stays small
+    // Frame key per entry: image_data stored under "levelly_frames_<id>"
+    try {
+      const withoutFrames = updated.map(e => ({
+        ...e,
+        auto_frames: e.auto_frames?.map(f => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance }))
+      }));
+      localStorage.setItem("levelly_dna_library", JSON.stringify(withoutFrames));
+      // Save each entry's frames under its own key
+      updated.forEach(e => {
+        const frames = e.auto_frames?.filter(f => f.image_data);
+        if (frames && frames.length > 0) {
+          try { localStorage.setItem(`levelly_frames_${e.id}`, JSON.stringify(frames)); } catch {}
+        }
+      });
+    } catch {}
     if(libraryLoaded){
       setCloudStatus("saving");
-      // Strip image_data before cloud save — frames too large for function body limit (6MB)
-      // Frames stored in IndexedDB locally for persistence; re-extract on new devices
       const stripped = updated.map(e => ({
         ...e,
         auto_frames: e.auto_frames?.map(f => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance }))
