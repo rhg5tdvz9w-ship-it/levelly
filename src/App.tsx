@@ -813,7 +813,7 @@ const CANNON_VISUALS: Record<string, string> = {
   "Golden Jet": "Golden Jet: a GROUND CANNON with gold plating and jet engine aesthetic — still on wheeled base on the road. NOT used as cannon evolution in ads. NOT an airplane. Only shown as aspirational eye-catcher on a platform.",
 };
 
-const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", continuityNote?: string) => {
+const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end"|"scene"|"hook_a"|"hook_b"|"hook_c", continuityNote?: string) => {
   const vi = concept.visual_identity;
   const chain: string[] = concept.unit_evolution_chain || (concept as any).unit_evolution_chain || [];
   const hookDesc = concept.hook_description || "";
@@ -822,6 +822,10 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
   const cannonCount = concept.cannon_count_progression || "";
   const tensionMoments = concept.tension_moments || [];
   const upgradeTriggers = concept.upgrade_triggers || [];
+  // Summarise production_script for hook_a context (first 3 steps)
+  const scriptSummary = Array.isArray(concept.production_script) && concept.production_script.length > 0
+    ? concept.production_script.slice(0,3).map((s:ScriptStep) => `${s.time}: ${s.action}`).join(" | ")
+    : "";
 
   const unitAtScene = {
     hook:   chain[0] || "Simple Cannon",
@@ -855,6 +859,7 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
 
     hook_a: `GAMEPLAY BOSS HOOK — 9:16 cinematic close-up, NOT top-down gameplay:
 ${concept.hook_a_description || "Enemy boss dominates the frame, threatening the player cannon"}
+${scriptSummary ? `PRODUCTION SCRIPT CONTEXT (first moments of the ad): ${scriptSummary}` : ""}
 COMPOSITION RULES:
 - Enemy boss fills 60-70% of frame — looming, menacing, facing the viewer
 - Player cannon visible at bottom: small, dwarfed, threatened — creates asymmetric tension
@@ -1985,6 +1990,7 @@ export default function App() {
   const [briefAnalysis, setBriefAnalysis] = useState<BriefAnalysis|null>(null);
   const [expandedConcept, setExpandedConcept] = useState<number|null>(null);
   const [refineTexts, setRefineTexts] = useState<Record<number,string>>({});
+  const [refineTargetScene, setRefineTargetScene] = useState<Record<number,string>>({});
   const [copiedConcept, setCopiedConcept] = useState<number|null>(null);
   const [refining, setRefining] = useState<Record<number,boolean>>({});
   const [refineErr, setRefineErr] = useState<Record<number,string>>({});
@@ -3258,106 +3264,84 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                   {/* ── Refine concept ── */}
                   <div style={{ margin:"16px 0",border:`1.5px solid ${D.blueDark}`,borderRadius:10,overflow:"hidden",background:"#0d1a2d" }}>
                     <div style={{ padding:"12px 16px",borderBottom:`0.5px solid ${D.border}`,display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-                      <span style={{ fontSize:12,fontWeight:600,color:D.blue,letterSpacing:"0.02em" }}>✦ Refine this concept</span>
-                      <span style={{ fontSize:11,color:D.textDim }}>Changes apply instantly — renders auto-clear if needed</span>
+                      <span style={{ fontSize:12,fontWeight:600,color:D.blue,letterSpacing:"0.02em" }}>✦ Refine</span>
+                      <span style={{ fontSize:11,color:D.textDim }}>Edits the brief and re-renders the selected scene</span>
                     </div>
                     <div style={{ padding:"12px 14px" }}>
-                      {/* Google-style dynamic suggestion chips — context-aware, filter as you type */}
+                      {/* Scene target selector */}
+                      <div style={{ display:"flex",gap:5,marginBottom:10,alignItems:"center" }}>
+                        <span style={{ fontSize:10,color:D.textDim,fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase" as const,flexShrink:0 }}>Refine:</span>
+                        {(["scene","hook_a","hook_b","hook_c"] as const).map(s=>{
+                          const hasImg=!!(s==="scene"?(c.visual_scene||c.visual_start):c[`visual_${s}` as keyof Concept]);
+                          const lbl={scene:"Scene",hook_a:"Hook A",hook_b:"Hook B",hook_c:"Hook C"}[s];
+                          const col={scene:D.blue,hook_a:D.red,hook_b:D.purple,hook_c:D.gold}[s];
+                          const active=(refineTargetScene[ci]||"scene")===s;
+                          return (
+                            <button key={s} onClick={()=>setRefineTargetScene((p:Record<number,string>)=>({...p,[ci]:s}))}
+                              style={{ fontSize:11,padding:"3px 10px",borderRadius:20,border:`1px solid ${active?col:D.border2}`,color:active?col:D.textMuted,background:active?`${col}18`:"transparent",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4,transition:"all .15s" }}>
+                              {lbl}{hasImg&&<span style={{ width:5,height:5,borderRadius:"50%",background:active?col:"#3fb950",flexShrink:0 }} />}
+                            </button>
+                          );
+                        })}
+                        <div style={{ marginLeft:"auto",display:"flex",gap:5 }}>
+                          <button onClick={()=>{setConcepts(p=>p.map((cc,i)=>i===ci?{...cc,visual_scene:undefined,visual_start:undefined,visual_hook_a:undefined,visual_hook_b:undefined,visual_hook_c:undefined,visual_hook:undefined,visual_middle:undefined,visual_end:undefined}:cc));setRefineErr(p=>({...p,[ci]:"Renders cleared."}));}}
+                            style={{ fontSize:10,padding:"3px 9px",borderRadius:20,border:`0.5px solid ${D.greenBdr}`,color:D.green,background:D.greenBg,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap" as const }}>🔄 Clear renders</button>
+                          <button onClick={()=>handleRegenScript(ci)}
+                            style={{ fontSize:10,padding:"3px 9px",borderRadius:20,border:`0.5px solid ${D.goldBdr}`,color:D.gold,background:D.goldBg,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap" as const }}>📋 Regen script</button>
+                        </div>
+                      </div>
+                      {/* Quick suggestion chips */}
                       {(()=>{
-                        const currentText=(refineTexts[ci]||"").toLowerCase();
                         const vi=c.visual_identity||{};
                         const biome=vi.environment||"";
                         const chain=(c.unit_evolution_chain||[]).join(" → ");
-                        type ChipColor="blue"|"red"|"green"|"gold"|"purple";
-                        const allSuggestions:{label:string;text:string;color:ChipColor}[]=[
-                          // Biome swaps — only OTHER proven biomes
-                          ...PROVEN_BIOMES.filter(b=>b!==biome).slice(0,3).map(b=>({label:`→ ${b}`,text:`Change biome to ${b}`,color:"blue" as ChipColor})),
-                          // Tension
-                          {label:"More tension",text:"Make the almost-fail moment more extreme — reduce surviving mobs to 1-2. Heighten the tension_moments description.",color:"red"},
-                          // Hook
-                          {label:"Stronger hook",text:"Make the hook more aggressive and threatening. Enemy boss should dominate the frame at the hook moment.",color:"red"},
-                          // Chain improvements
-                          ...(!chain.includes("Triple Cannon")?[{label:"Add Triple Cannon",text:"Add Triple Cannon to the unit_evolution_chain. Update upgrade_triggers accordingly.",color:"green" as ChipColor}]:[]),
-                          ...(!chain.includes("Tank")?[{label:"Add Tank tier",text:"Extend the unit_evolution_chain to include Tank as the final tier. Add an upgrade trigger for the Tank.",color:"green" as ChipColor}]:[]),
-                          // Network cuts
-                          {label:"AppLovin cut",text:"Optimize the hook for AppLovin — fast cut within 2s, cannon visible immediately, no slow build.",color:"purple"},
-                          {label:"Facebook story",text:"Optimize for Facebook — slower emotional build, player motivation highlighted in first 3s.",color:"purple"},
-                          // Visual
-                          {label:"Darker mood",text:"Make the lighting darker and more dramatic. Increase tension through the mood_notes.",color:"gold"},
-                          // Fix
-                          {label:"Fix cannon tier",text:"Fix the unit_evolution_chain to exactly match what's described in the brief. Ensure the cannon model shown at each scene matches the correct tier.",color:"blue"},
+                        type ChipColor="blue"|"red"|"gold"|"purple";
+                        const chips:{label:string;text:string;color:ChipColor}[]=[
+                          ...PROVEN_BIOMES.filter(b=>b!==biome).slice(0,2).map(b=>({label:`→ ${b}`,text:`Change biome to ${b}`,color:"blue" as ChipColor})),
+                          {label:"More tension",text:"Make the almost-fail moment more extreme — reduce surviving mobs to 1-2.",color:"red"},
+                          {label:"Stronger hook",text:"Make the hook more aggressive — enemy boss should dominate the frame.",color:"red"},
+                          {label:"Darker mood",text:"Make the lighting darker and more dramatic.",color:"gold"},
+                          {label:"AppLovin cut",text:"Optimize for AppLovin — fast cut within 2s, cannon visible immediately.",color:"purple"},
+                          ...(!chain.includes("Triple Cannon")?[{label:"+Triple Cannon",text:"Add Triple Cannon to the unit_evolution_chain.",color:"blue" as ChipColor}]:[]),
                         ];
-                        // Filter when user is typing — show chips matching typed keywords
-                        const filtered=currentText.length>2
-                          ?allSuggestions.filter(s=>{const kw=currentText.split(" ").filter((w:string)=>w.length>2);return kw.some((k:string)=>s.label.toLowerCase().includes(k)||s.text.toLowerCase().includes(k));})
-                          :allSuggestions.slice(0,6);
-                        const toShow=filtered.length>0?filtered:allSuggestions.slice(0,5);
-                        const utilChips:[string,string,ChipColor][]=[["🔄 Regen renders","__REGEN__","green"],["📋 Regen script","__REGEN_SCRIPT__","gold"]];
-                        const cm:{[k in ChipColor]:{bg:string;text:string;border:string}}={
-                          blue:{bg:D.blueBg,text:D.blue,border:D.blueDark},
-                          red:{bg:D.redBg,text:D.red,border:"#6e2020"},
-                          green:{bg:D.greenBg,text:D.green,border:D.greenBdr},
-                          gold:{bg:D.goldBg,text:D.gold,border:D.goldBdr},
-                          purple:{bg:D.purpleBg,text:D.purple,border:D.purpleBdr},
-                        };
-                        return (
-                          <div style={{ display:"flex",gap:5,marginBottom:10,flexWrap:"wrap" as const }}>
-                            {toShow.map(({label,text,color})=>(
-                              <button key={label} onClick={()=>setRefineTexts(p=>({...p,[ci]:text}))}
-                                style={{ fontSize:11,padding:"4px 11px",borderRadius:20,border:`0.5px solid ${cm[color].border}`,color:cm[color].text,background:cm[color].bg,cursor:"pointer",fontFamily:"inherit",transition:"opacity .15s",whiteSpace:"nowrap" as const }}>
-                                {label}
-                              </button>
-                            ))}
-                            {utilChips.map(([label,text,color])=>(
-                              <button key={label} onClick={()=>{
-                                if(text==="__REGEN__"){setConcepts(p=>p.map((cc,i)=>i===ci?{...cc,visual_scene:undefined,visual_start:undefined,visual_hook_a:undefined,visual_hook_b:undefined,visual_hook_c:undefined,visual_hook:undefined,visual_middle:undefined,visual_end:undefined}:cc));setRefineErr(p=>({...p,[ci]:"Renders cleared — click render buttons to regenerate."}));}
-                                else if(text==="__REGEN_SCRIPT__"){handleRegenScript(ci);}
-                              }} style={{ fontSize:11,padding:"4px 11px",borderRadius:20,border:`0.5px solid ${cm[color].border}`,color:cm[color].text,background:cm[color].bg,cursor:"pointer",fontFamily:"inherit",transition:"opacity .15s",whiteSpace:"nowrap" as const }}>
-                                {label}
-                              </button>
-                            ))}
-                          </div>
-                        );
+                        const cm:{[k in ChipColor]:{bg:string;text:string;border:string}}={blue:{bg:D.blueBg,text:D.blue,border:D.blueDark},red:{bg:D.redBg,text:D.red,border:"#6e2020"},gold:{bg:D.goldBg,text:D.gold,border:D.goldBdr},purple:{bg:D.purpleBg,text:D.purple,border:D.purpleBdr}};
+                        return <div style={{ display:"flex",gap:5,marginBottom:8,flexWrap:"wrap" as const }}>{chips.map(({label,text,color})=><button key={label} onClick={()=>setRefineTexts(p=>({...p,[ci]:text}))} style={{ fontSize:10,padding:"3px 9px",borderRadius:20,border:`0.5px solid ${cm[color].border}`,color:cm[color].text,background:cm[color].bg,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap" as const }}>{label}</button>)}</div>;
                       })()}
                       <textarea
                         value={refineTexts[ci]||""}
                         onChange={e=>setRefineTexts(p=>({...p,[ci]:e.target.value}))}
-                        placeholder="Describe what to change… e.g. 'change biome to Desert', 'Triple Cannon should have 3 barrels', 'add a second giant'"
-                        rows={3}
-                        style={{ width:"100%",boxSizing:"border-box" as const,fontSize:12,padding:"10px 12px",background:D.surface,border:`1px solid ${(refineTexts[ci]||"").trim().length>3?D.blueDark:D.border2}`,borderRadius:8,color:D.text,resize:"vertical" as const,minHeight:70,fontFamily:"inherit",outline:"none",lineHeight:1.6,transition:"border-color .2s",marginBottom:10 }}
+                        placeholder="Describe what to change… e.g. 'add more mobs', 'make the boss bigger', 'change biome to Desert'"
+                        rows={2}
+                        style={{ width:"100%",boxSizing:"border-box" as const,fontSize:12,padding:"9px 12px",background:D.surface,border:`1px solid ${(refineTexts[ci]||"").trim().length>3?D.blueDark:D.border2}`,borderRadius:8,color:D.text,resize:"vertical" as const,minHeight:60,fontFamily:"inherit",outline:"none",lineHeight:1.6,transition:"border-color .2s",marginBottom:8 }}
                       />
-                      <div style={{ display:"flex",gap:8,alignItems:"center",justifyContent:"space-between" }}>
-                        <div style={{ display:"flex",gap:8,alignItems:"center" }}>
-                          {(refineTexts[ci]||"").trim().length>8&&!refining[ci]&&(
-                            <button onClick={async()=>{
-                              setRefineErr(p=>({...p,[ci]:"Enhancing your prompt…"}));
-                              try {
-                                const enhanced=await enhanceText(refineTexts[ci],"refine");
-                                setRefineTexts(p=>({...p,[ci]:enhanced}));
-                                setRefineErr(p=>({...p,[ci]:""}));
-                              } catch(e: any) {
-                                setRefineErr(p=>({...p,[ci]:"Enhance failed: "+(e as Error).message}));
-                              }
-                            }} style={{ padding:"8px 14px",fontSize:12,background:"none",border:`1px solid ${D.border2}`,borderRadius:8,color:D.textMuted,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:6 }}>
-                              <span style={{ fontSize:13 }}>✦</span> Enhance prompt
-                            </button>
-                          )}
-                          {refining[ci]&&(
-                            <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                              <span style={{ width:14,height:14,borderRadius:"50%",border:`2px solid ${D.blueBg}`,borderTopColor:D.blue,display:"inline-block",animation:"spin .7s linear infinite",flexShrink:0 }} />
-                              <span style={{ fontSize:12,color:D.blue }}>Applying refinement…</span>
-                            </div>
-                          )}
-                        </div>
+                      <div style={{ display:"flex",gap:8,alignItems:"center",justifyContent:"flex-end" }}>
+                        {(refineTexts[ci]||"").trim().length>8&&!refining[ci]&&(
+                          <button onClick={async()=>{
+                            setRefineErr(p=>({...p,[ci]:"Enhancing…"}));
+                            try { const enhanced=await enhanceText(refineTexts[ci],"refine"); setRefineTexts(p=>({...p,[ci]:enhanced})); setRefineErr(p=>({...p,[ci]:""})); }
+                            catch(e: any){ setRefineErr(p=>({...p,[ci]:"Enhance failed: "+(e as Error).message})); }
+                          }} style={{ padding:"7px 12px",fontSize:11,background:"none",border:`1px solid ${D.border2}`,borderRadius:8,color:D.textMuted,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5 }}>
+                            <span style={{ fontSize:12 }}>✦</span> Enhance
+                          </button>
+                        )}
+                        {refining[ci]&&<div style={{ display:"flex",alignItems:"center",gap:6 }}><span style={{ width:12,height:12,borderRadius:"50%",border:`2px solid ${D.blueBg}`,borderTopColor:D.blue,display:"inline-block",animation:"spin .7s linear infinite" }} /><span style={{ fontSize:11,color:D.blue }}>Refining…</span></div>}
                         <button
-                          onClick={()=>handleRefineConcept(ci,refineTexts[ci]||"")}
-                          disabled={refining[ci]||!(refineTexts[ci]||"").trim()}
-                          style={{ padding:"9px 20px",fontSize:13,fontWeight:600,background:refining[ci]||!(refineTexts[ci]||"").trim()?"#1a2130":D.blue,border:"none",borderRadius:8,color:refining[ci]||!(refineTexts[ci]||"").trim()?D.textDim:"#fff",cursor:refining[ci]||!(refineTexts[ci]||"").trim()?"not-allowed":"pointer",fontFamily:"inherit",transition:"background .2s,color .2s",letterSpacing:"0.01em" }}>
-                          {refining[ci]?"Working…":"Refine →"}
+                          onClick={async()=>{
+                            const targetScene=(refineTargetScene[ci]||"scene") as "scene"|"hook_a"|"hook_b"|"hook_c";
+                            const prompt=refineTexts[ci]||"";
+                            if(!prompt.trim()) return;
+                            // Step 1: update brief fields
+                            await handleRefineConcept(ci,prompt);
+                            // Step 2: re-render the selected scene with the updated brief
+                            await handleRenderScene(ci,targetScene);
+                          }}
+                          disabled={refining[ci]||renderingScene[`${ci}-${refineTargetScene[ci]||"scene"}`]||!(refineTexts[ci]||"").trim()}
+                          style={{ padding:"8px 18px",fontSize:13,fontWeight:600,background:refining[ci]||!(refineTexts[ci]||"").trim()?"#1a2130":D.blue,border:"none",borderRadius:8,color:refining[ci]||!(refineTexts[ci]||"").trim()?D.textDim:"#fff",cursor:refining[ci]||!(refineTexts[ci]||"").trim()?"not-allowed":"pointer",fontFamily:"inherit",letterSpacing:"0.01em" }}>
+                          {refining[ci]||renderingScene[`${ci}-${refineTargetScene[ci]||"scene"}`]?"Working…":`Refine ${({scene:"Scene",hook_a:"Hook A",hook_b:"Hook B",hook_c:"Hook C"}[refineTargetScene[ci]||"scene"])} →`}
                         </button>
                       </div>
                       {refineErr[ci]&&(
-                        <div style={{ marginTop:10,padding:"8px 12px",borderRadius:7,background:refineErr[ci].startsWith("✓")?D.greenBg:refineErr[ci].includes("cleared")||refineErr[ci].includes("Enhancing")?D.blueBg:D.redBg,border:`0.5px solid ${refineErr[ci].startsWith("✓")?D.greenBdr:refineErr[ci].includes("cleared")||refineErr[ci].includes("Enhancing")?D.blueDark:"#6e2020"}`,fontSize:11,color:refineErr[ci].startsWith("✓")?D.green:refineErr[ci].includes("cleared")||refineErr[ci].includes("Enhancing")?D.blue:D.red }}>
+                        <div style={{ marginTop:8,padding:"7px 12px",borderRadius:7,background:refineErr[ci].startsWith("✓")?D.greenBg:refineErr[ci].includes("cleared")||refineErr[ci].includes("Enhancing")||refineErr[ci].includes("Refining")?D.blueBg:D.redBg,border:`0.5px solid ${refineErr[ci].startsWith("✓")?D.greenBdr:refineErr[ci].includes("cleared")||refineErr[ci].includes("Enhancing")||refineErr[ci].includes("Refining")?D.blueDark:"#6e2020"}`,fontSize:11,color:refineErr[ci].startsWith("✓")?D.green:refineErr[ci].includes("cleared")||refineErr[ci].includes("Enhancing")||refineErr[ci].includes("Refining")?D.blue:D.red }}>
                           {refineErr[ci]}
                         </div>
                       )}
@@ -3380,6 +3364,23 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                           </div>
                         ))}
                       </div>
+                      {/* Hook B / Hook C descriptions — shown below script if present */}
+                      {(c.hook_b_description||c.hook_c_description)&&(
+                        <div style={{ marginTop:8,display:"flex",flexDirection:"column" as const,gap:5 }}>
+                          {c.hook_b_description&&(
+                            <div style={{ display:"flex",gap:8,padding:"8px 12px",background:D.surface2,borderRadius:7,border:`0.5px solid ${D.purpleBdr}` }}>
+                              <span style={{ fontSize:9,fontWeight:700,padding:"2px 7px",borderRadius:4,background:D.purpleBg,color:D.purple,border:`0.5px solid ${D.purpleBdr}`,flexShrink:0,alignSelf:"flex-start" as const,letterSpacing:"0.05em" }}>HOOK B</span>
+                              <span style={{ fontSize:11,color:D.textMuted,lineHeight:1.5 }}>{c.hook_b_description}</span>
+                            </div>
+                          )}
+                          {c.hook_c_description&&(
+                            <div style={{ display:"flex",gap:8,padding:"8px 12px",background:D.surface2,borderRadius:7,border:`0.5px solid ${D.goldBdr}` }}>
+                              <span style={{ fontSize:9,fontWeight:700,padding:"2px 7px",borderRadius:4,background:D.goldBg,color:D.gold,border:`0.5px solid ${D.goldBdr}`,flexShrink:0,alignSelf:"flex-start" as const,letterSpacing:"0.05em" }}>HOOK C</span>
+                              <span style={{ fontSize:11,color:D.textMuted,lineHeight:1.5 }}>{c.hook_c_description}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                   {Array.isArray(c.performance_hooks)&&c.performance_hooks.length>0&&(
