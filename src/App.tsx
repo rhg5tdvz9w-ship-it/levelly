@@ -705,7 +705,7 @@ ${config.context ? config.context + "\n" : ""}${lockedFields.length ? "\nPRE-LOC
 ANALYSIS APPROACH:
 Your PRIMARY source of truth is the EXTRACTED FRAME IMAGES provided above. These are actual screenshots at specific timestamps. For every event you report, you must be able to point to which frame shows it.
 DO NOT use temporal reasoning. You are NOT watching a video — you are analyzing a set of still frame images at specific timestamps. Each frame is independent evidence. If an event is not visible in at least one frame image, it did not happen as far as you are concerned. The only exception: events explicitly stated in the GROUND TRUTH context above.
-DISCIPLINE: When in doubt — omit rather than guess. Under-reporting is better than hallucinating. EXCEPTION: Giant kills and boss deaths are never omitted — if you see HP reach zero or a giant disappear, always report it. The under-report rule does not apply to boss deaths.
+DISCIPLINE: When in doubt — omit rather than guess. Under-reporting is better than hallucinating. EXCEPTION: Giant kills and boss deaths are never omitted — IF you can see HP=0 or disappearance IN A FRAME IMAGE. "The giant must have died between frames" is NOT valid evidence. You need a frame showing HP=0 or the giant gone. If no such frame exists — do NOT report a giant kill.
 AD TYPE:${config.ad_type} TIER:${config.tier}
 DURATION:${duration}s
 LIBRARY:${lib.length>0?JSON.stringify(lib.map(d=>({title:d.title,tier:d.tier,hook_type:d.hook_type,hook_timing_seconds:d.hook_timing_seconds}))):"empty"}
@@ -726,7 +726,7 @@ ${GATE_GUIDE}
 ${MOC_EVENTS_GUIDE}
 ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}
-UNIT EVOLUTION CHAIN: If PRE-LOCKED chain is provided above, use it exactly — it defines both the tier names and how many upgrades occurred. Do not override. If no locked chain: count upgrade containers WITH A CANNON ICON destroyed in the frames — that count = number of upgrades. Chain = starting tier + one tier per upgrade. Most ads: 1-2 upgrades.
+UNIT EVOLUTION CHAIN: If PRE-LOCKED chain is provided above, use it exactly — it defines both the tier names and how many upgrades occurred. Do not override. If no locked chain: count upgrade containers WITH A CANNON ICON destroyed in the frames — that count = number of upgrades. Chain = starting tier + one tier per upgrade. STRICT EVIDENCE RULE: NEVER add Double Cannon, Triple Cannon, or Tank to the chain unless you have a frame showing (a) an upgrade container with a cannon icon on top being destroyed AND (b) the cannon visually changing shape in the next frame. If neither is visible — the chain has zero upgrades: ["Simple Cannon"]. Do NOT infer upgrades from cannon behaviour or mob count changes.
 CANNON NAMING: Use the exact tier names from unit_evolution_chain. If the chain is locked above, those are the only valid tier names for this creative.
 FRAME EMOTIONS: For each extracted frame timestamp shown above, assign one emotion word (Anticipation, Excitement, Satisfaction, Empowerment, Tension, Almost Fail, Dread, Defeat, Triumph). Return as frame_emotions array. Include ALL timestamps you received frames for — not just key moments.
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
@@ -1957,6 +1957,54 @@ ${d.creative_gaps?`<div style="margin-bottom:12px"><div style="font-size:9px;col
 
 
 
+// ─── IndexedDB frame cache ─────────────────────────────────────────────────────
+// localStorage has a 5MB quota — base64 frames overflow it silently.
+// IndexedDB has no meaningful size limit and persists across refreshes.
+const IDB_NAME = "levelly-frames", IDB_STORE = "frames", IDB_VERSION = 1;
+function openFrameDB(): Promise<IDBDatabase> {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+    req.onupgradeneeded = (e) => (e.target as IDBOpenDBRequest).result.createObjectStore(IDB_STORE, { keyPath: "id" });
+    req.onsuccess = (e) => res((e.target as IDBOpenDBRequest).result);
+    req.onerror = () => rej(req.error);
+  });
+}
+async function saveFramesToIDB(lib: DNAEntry[]): Promise<void> {
+  try {
+    const db = await openFrameDB();
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    const store = tx.objectStore(IDB_STORE);
+    lib.forEach(e => {
+      const frames = e.auto_frames?.filter((f: FrameExtraction) => f.image_data);
+      if (frames && frames.length > 0) store.put({ id: e.id, frames });
+    });
+  } catch {}
+}
+async function mergeFramesFromIDB(entries: DNAEntry[]): Promise<DNAEntry[]> {
+  try {
+    const db = await openFrameDB();
+    return new Promise((res) => {
+      const tx = db.transaction(IDB_STORE, "readonly");
+      const st = tx.objectStore(IDB_STORE);
+      const out: DNAEntry[] = [];
+      let pending = entries.length;
+      if (!pending) { res(entries); return; }
+      entries.forEach(e => {
+        const req = st.get(e.id);
+        req.onsuccess = () => {
+          const cached = req.result?.frames as FrameExtraction[] | undefined;
+          if (cached?.length) {
+            const imgMap = new Map(cached.map((f: FrameExtraction) => [f.timestamp_seconds, f.image_data]));
+            out.push({ ...e, auto_frames: (e.auto_frames || []).map(f => ({ ...f, image_data: imgMap.get(f.timestamp_seconds) ?? f.image_data })) });
+          } else out.push(e);
+          if (--pending === 0) res(out);
+        };
+        req.onerror = () => { out.push(e); if (--pending === 0) res(out); };
+      });
+    });
+  } catch { return entries; }
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [lib, setLib] = useState<DNAEntry[]>([]);
@@ -2018,29 +2066,15 @@ export default function App() {
   useEffect(()=>{
     const sanitizeLib = (entries: any[]): DNAEntry[] => entries.map(e => sanitizeDNA(e) as DNAEntry);
 
-    // Merge frames from per-entry keys back into library entries
-    const mergeFrames = (entries: DNAEntry[]): DNAEntry[] => entries.map(e => {
-      try {
-        const framesRaw = localStorage.getItem(`levelly_frames_${e.id}`);
-        if (!framesRaw) return e;
-        const frames: FrameExtraction[] = JSON.parse(framesRaw);
-        if (!Array.isArray(frames) || frames.length === 0) return e;
-        // Merge image_data back into auto_frames by timestamp
-        const frameMap = new Map(frames.map(f => [f.timestamp_seconds, f.image_data]));
-        const mergedFrames = (e.auto_frames || []).map(f =>
-          frameMap.has(f.timestamp_seconds) ? { ...f, image_data: frameMap.get(f.timestamp_seconds) } : f
-        );
-        return { ...e, auto_frames: mergedFrames };
-      } catch { return e; }
-    });
-
-    // Load localStorage immediately — no waiting for cloud
+    // Load localStorage immediately (metadata only, no frames) then merge frames from IDB
     try {
       const local = localStorage.getItem("levelly_dna_library");
       if (local) {
         const parsed = JSON.parse(local);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setLib(sanitizeLib(mergeFrames(parsed)));
+          const sanitized = sanitizeLib(parsed);
+          // Merge frames from IDB async — filmstrip appears as soon as IDB resolves
+          mergeFramesFromIDB(sanitized).then(withFrames => setLib(withFrames)).catch(() => setLib(sanitized));
         }
       }
     } catch {}
@@ -2048,7 +2082,6 @@ export default function App() {
     fetch("/api/load-library")
       .then(r=>{ if(!r.ok) throw new Error(); return r.json(); })
       .then((data: DNAEntry[])=>{
-      // Skip cloud overwrite if upload already completed — localStorage is fresher
       if(uploadCompletedRef.current) { setLibraryLoaded(true); return; }
       if(Array.isArray(data)&&data.length>0){
         try {
@@ -2070,39 +2103,45 @@ export default function App() {
               if(tfKey !== "__" && localByTitleFile.has(tfKey)) return false;
               return true;
             });
-            const merged = [...localParsed, ...cloudOnlyNew];
-            setLib(sanitizeLib(mergeFrames(merged)));
-          } else setLib(sanitizeLib(data));
-        } catch { setLib(sanitizeLib(data)); }
-      } else { try { const l=localStorage.getItem("levelly_dna_library"); if(l) setLib(sanitizeLib(mergeFrames(JSON.parse(l)))); } catch {} }
+            const merged = sanitizeLib([...localParsed, ...cloudOnlyNew]);
+            mergeFramesFromIDB(merged).then(withFrames => setLib(withFrames)).catch(() => setLib(merged));
+          } else {
+            const sanitized = sanitizeLib(data);
+            mergeFramesFromIDB(sanitized).then(withFrames => setLib(withFrames)).catch(() => setLib(sanitized));
+          }
+        } catch {
+          const sanitized = sanitizeLib(data);
+          mergeFramesFromIDB(sanitized).then(withFrames => setLib(withFrames)).catch(() => setLib(sanitized));
+        }
+      } else {
+        try {
+          const l=localStorage.getItem("levelly_dna_library");
+          if(l){
+            const sanitized = sanitizeLib(JSON.parse(l));
+            mergeFramesFromIDB(sanitized).then(withFrames => setLib(withFrames)).catch(() => setLib(sanitized));
+          }
+        } catch {}
+      }
       setLibraryLoaded(true); })
       .catch(()=>{ try { const l=localStorage.getItem("levelly_dna_library"); if(l) setLib(sanitizeLib(JSON.parse(l))); } catch {} setLibraryLoaded(true); });
   },[]);
 
   const saveLib = useCallback((updated: DNAEntry[])=>{
     setLib(updated);
-    // Save frames separately to avoid localStorage quota overflow
-    // Main library key: metadata only (no image_data) — stays small
-    // Frame key per entry: image_data stored under "levelly_frames_<id>"
+    // Save metadata to localStorage (tiny — no image_data) and frames to IndexedDB (no size limit)
     try {
       const withoutFrames = updated.map(e => ({
         ...e,
-        auto_frames: e.auto_frames?.map(f => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance }))
+        auto_frames: e.auto_frames?.map((f: FrameExtraction) => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance }))
       }));
       localStorage.setItem("levelly_dna_library", JSON.stringify(withoutFrames));
-      // Save each entry's frames under its own key
-      updated.forEach(e => {
-        const frames = e.auto_frames?.filter(f => f.image_data);
-        if (frames && frames.length > 0) {
-          try { localStorage.setItem(`levelly_frames_${e.id}`, JSON.stringify(frames)); } catch {}
-        }
-      });
     } catch {}
+    saveFramesToIDB(updated); // async, no-wait — IndexedDB has no size limit
     if(libraryLoaded){
       setCloudStatus("saving");
       const stripped = updated.map(e => ({
         ...e,
-        auto_frames: e.auto_frames?.map(f => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance }))
+        auto_frames: e.auto_frames?.map((f: FrameExtraction) => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance }))
       }));
       fetch("/api/save-library",{ method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(stripped) })
         .then(r=>{ if(!r.ok) throw new Error(); setCloudStatus("saved"); setTimeout(()=>setCloudStatus("idle"),2000); })
