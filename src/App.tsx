@@ -60,7 +60,10 @@ interface Concept {
   production_script: ScriptStep[]; performance_hooks: PerformanceHook[];
   engagement_hooks: string; quality_score: QualityScore;
   network_adaptations?: NetworkAdaptations;
-  visual_hook?: string; visual_start?: string; visual_middle?: string; visual_end?: string;
+  visual_scene?: string; visual_start?: string; // visual_start kept for backward compat
+  visual_hook_a?: string; visual_hook_b?: string; visual_hook_c?: string;
+  hook_a_description?: string; hook_b_description?: string; hook_c_description?: string;
+  visual_middle?: string; visual_end?: string; visual_hook?: string; // legacy — hidden in UI
 }
 interface BriefAnalysis { patterns_used: string; segment_insight: string; strategy: string; dna_sources?: string[]; }
 
@@ -545,7 +548,7 @@ HOOK RULES:
 - The hook is almost always between 1s and 8s. If you cannot identify a clear hook moment, return the earliest frame that shows something interesting (boss visible, gates, action).
 - ${HOOK_GUIDE}
 - ${TIMESTAMP_RULES}
-Return ONLY JSON: {"hook_timing_seconds":number,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_description":string}`;
+Return ONLY JSON: {"hook_timing_seconds":number,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_description":string,"hook_a_description":string,"hook_b_description":string,"hook_c_description":string}`;
 
 // Parse user context text to extract structured facts that should be locked
 // e.g. "2 upgrades: Simple→Double→Triple" → unit_evolution_chain locked
@@ -794,6 +797,11 @@ Pressure(0-2s: threat visible) → Investment(2-6s: +N gates, cannon count grows
 Each concept MUST fill the nine_step_curve JSON field with a 1-sentence description of what happens at that beat for that specific concept.
 BIOMES (concepts 1-2): Desert, Foggy Forest, Water, Bunker, Meadow ONLY. Concept 3: experimental biome (is_experimental:true).
 
+THREE HOOK CONCEPTS — every concept must generate all three. Each becomes a rendered image using the lane scene as visual reference:
+hook_a_description: GAMEPLAY BOSS HOOK — cinematic, thumb-stopping, boss-forward. Describe: which enemy boss (Yellow Normie, Gold Golem, Skeleton, etc.), what threat they pose at first frame, how the player cannon appears dwarfed/threatened, exact composition (boss fills 60-70% of frame, cannon tiny at bottom). Must feel HIGH STAKES. Be specific enough to generate a great image. Different boss/scenario from other concepts.
+hook_b_description: COMEDY/NARRATIVE HOOK — humorous sketch or absurd MOC situation. Can be gameplay-comedy (cannon panicking, mobs celebrating too early), UGC-style (a "player" reacting to losing), or absurd scenario (Yellow Normie looking confused at a tiny cannon). Must be visually funny without text. Describe: scene, characters, expressions, what makes it laugh-worthy. Different scenario from Hook A.
+hook_c_description: STOPWATCH/VIRAL HOOK — urgency-driven concept (market-informed slot, placeholder until market research feature). Based on the highest-tension moment in this concept's arc: what visual creates maximum "I NEED to see what happens next" feeling. Describe the composition for urgency. Will be enriched with competitor analysis data when the market feature launches.
+
 Return ONLY valid JSON — be concise, no padding or elaboration:
 {"analysis":{"patterns_used":string,"dna_sources":[string],"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"is_experimental":boolean,"experimental_note":string|null,"objective":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"hook_timing_seconds":number,"hook_description":string,"unit_evolution_chain":[string],"cannon_count_progression":string,"lane_design":string,"upgrade_triggers":[string],"tension_moments":[string],"network_adaptations":{"AppLovin":string,"Facebook":string,"Google":string},"engagement_hooks":string,"production_script":[{"time":string,"action":string,"visual_cue":string,"audio_cue":string}],"nine_step_curve":{"Pressure":string,"Investment":string,"Validate":string,"Investment2":string,"Payoff":string,"FalseSafety":string,"PressurePlus":string,"AlmostWin":string,"Fail":string},"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}]}`;
 };
@@ -810,6 +818,7 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
   const vi = concept.visual_identity;
   const chain: string[] = concept.unit_evolution_chain || (concept as any).unit_evolution_chain || [];
   const hookDesc = concept.hook_description || "";
+  const sceneKey = (scene as string);
   const laneDesign = concept.lane_design || "";
   const cannonCount = concept.cannon_count_progression || "";
   const tensionMoments = concept.tension_moments || [];
@@ -832,14 +841,7 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
   }[scene];
 
   const sceneDesc = {
-    hook: `HOOK SCENE — cinematic close-up, NOT top-down:
-- Hook event: ${hookDesc || "enemy boss dominates screen, player cannon tiny and threatened"}
-- Enemy boss fills 60-70% of frame, menacing
-- Player cannon at bottom, dwarfed and threatened
-- Cinematic, dramatic, thumb-stopping
-- STRICT RULE: ABSOLUTELY NO TEXT OVERLAYS OF ANY KIND — no "CAN YOU...", no speech bubbles, no UI text, no subtitles, no call-to-action text, no numbers floating in the scene. Pure visual only.`,
-
-    start: `OPENING SCENE — 3/4 top-down view of the full lane from above:
+    scene: `OPENING SCENE — 3/4 top-down view of the full lane from above:
 - Single ${unitAtScene} cannon at BOTTOM CENTER. Cannon looks EXACTLY like the reference images: small rounded barrel body on 4 small black wheels. Cartoon 3D. Blue/grey color. NOT a military tank, NOT a truck, NOT a realistic vehicle.
 - 6-10 ${vi.player_mob_color} round blob mobs near the cannon — very sparse
 - CRITICAL — THE ROAD HAS 3 PARALLEL SUB-PATHS SIDE BY SIDE (same road width, divided into 3 lanes):
@@ -851,6 +853,41 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
   * ALL THREE sub-paths are visible simultaneously in this top-down view — player can see all options
 - Enemy tower at very TOP of lane: health bar 100% full
 - Biome environment fills both sides of the road`,
+
+    hook_a: `GAMEPLAY BOSS HOOK — 9:16 cinematic close-up, NOT top-down gameplay:
+${concept.hook_a_description || "Enemy boss dominates the frame, threatening the player cannon"}
+COMPOSITION RULES:
+- Enemy boss fills 60-70% of frame — looming, menacing, facing the viewer
+- Player cannon visible at bottom: small, dwarfed, threatened — creates asymmetric tension
+- Cinematic lighting: dramatic shadows, boss lit from below or side for menace
+- MOC cartoon 3D art style — same polygon count, saturation, and lighting as the lane scene
+- Match biome environment exactly from the lane scene reference
+- NO TEXT OVERLAYS of any kind — no UI, no numbers, no speech bubbles. Pure visual only.
+- GOAL: make a viewer's thumb stop scrolling in the first 0.5 seconds`,
+
+    hook_b: `COMEDY/NARRATIVE HOOK — humorous sketch or absurd MOC moment, 9:16:
+${concept.hook_b_description || "Absurd or funny situation involving the cannon or mobs"}
+COMPOSITION RULES:
+- Scene composition: character-forward, expressive, readable at a glance
+- Can be side view, 3/4 view, or any angle that serves the joke — not locked to top-down
+- Characters: Yellow Normie, mobs, cannon — exaggerated expressions and body language
+- MOC cartoon 3D art style — same visual language as the lane scene reference
+- Match biome colors and environment from the lane scene reference
+- NO TEXT OVERLAYS — the humor must be purely visual, no captions or labels
+- GOAL: make a viewer laugh or share this image immediately`,
+
+    hook_c: `STOPWATCH/VIRAL HOOK — urgency and tension composition, 9:16:
+${concept.hook_c_description || "Maximum tension moment — player nearly losing, giant nearly dead, critical decision"}
+COMPOSITION RULES:
+- Composition creates maximum "I NEED to see what happens" feeling
+- Show the highest-stakes moment: near-fail OR near-win — either works for urgency
+- Can show: tiny mob count facing massive boss, or massive swarm about to crush a giant
+- Extreme contrast: overwhelming threat vs tiny hope, OR overwhelming force vs tiny enemy
+- MOC cartoon 3D art style — same visual language as the lane scene reference
+- Match biome colors and environment from the lane scene reference
+- NO TEXT OVERLAYS — urgency from pure visual composition only
+- GOAL: viewer MUST see what happens next. Maximum hook rate.
+NOTE: This slot will be enhanced with competitor market analysis data once the market research feature launches.`,
 
     middle: `MID-BATTLE SCENE — 3/4 top-down view, peak tension:
 - ${unitAtScene} cannon — SAME cartoon style as reference images. Small wheeled barrel. NOT a tank or vehicle. ${cannonCountAtScene}
@@ -883,23 +920,23 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
     "Snow": "ENVIRONMENT: White snow-covered ground, icy frozen structures, blue-white cold lighting. NO lava, NO neon, NO sand, NO desert.",
     "Toxic": "ENVIRONMENT: Purple crystalline ground paths, green glowing slime pools, luminescent toxic crystals. NO lava, NO concrete, NO desert.",
   };
-  const biomeRule = scene === "hook"
-    ? `ENVIRONMENT: Match ${vi.environment} biome from the scene reference images.`
+  const biomeRule = scene !== "scene"
+    ? `ENVIRONMENT: Match ${vi.environment} biome from the scene reference image above — same colors, atmosphere, trees/rocks, lighting.`
     : (biomeRules[vi.environment] || `ENVIRONMENT: ${vi.environment} setting.`);
 
-  const cannonNote = scene === "hook"
-    ? `PLAYER CANNON: Match the cannon appearance from the reference images above — small wheeled cannon, cartoonish 3D style. NOT a car, NOT a military vehicle.`
+  const cannonNote = scene !== "scene"
+    ? `PLAYER CANNON: Match the cannon appearance from the lane scene reference above — small wheeled cannon, cartoonish 3D style. NOT a car, NOT a military vehicle.`
     : `PLAYER CANNON: The cannon MUST look like the reference images above — a small wheeled cannon on the road, cartoonish 3D. ${cannonVisual}. Positioned at bottom center. NOT a car, NOT a military vehicle, NOT a truck.`;
 
-  const gateNote = scene !== "hook"
+  const gateNote = scene === "scene"
     ? `GATES: ${(vi.gate_values||[]).join(", ")} — FLAT rectangular panels spanning the full road width. +N gates are BRIGHT BLUE with bold white text. xN gates are PURPLE/PINK with bold white text. Large multipliers (x100+) are YELLOW/GOLD. They have a frame border and slight 3D panel depth but are essentially flat signs. See gate reference images for exact appearance.`
     : "";
 
-  const compositionRule = scene === "hook"
-    ? "COMPOSITION: Cinematic close-up or medium shot — dramatic framing, NOT the standard top-down lane view. NO HUD, NO score UI, NO text overlays of any kind."
+  const compositionRule = scene !== "scene"
+    ? "COMPOSITION: NOT the standard top-down lane view. Cinematic framing that serves the hook type. NO HUD, NO score UI, NO text overlays of any kind."
     : "COMPOSITION: 3/4 cinematic top-down angle. Cannon at bottom center. Lane runs up center. NO HUD, NO score counter, NO hearts, NO text overlays, NO watermarks, NO speech bubbles.";
 
-  const chainNote = chain.length > 0 && scene !== "hook"
+  const chainNote = chain.length > 0 && scene === "scene"
     ? `UNIT EVOLUTION CHAIN FOR THIS CREATIVE: ${chain.join(" → ")}. At THIS scene (${scene}), the cannon is: ${unitAtScene}. ${cannonVisual}. The cannon model MUST match this tier exactly — if it's Double Cannon, show 2 barrels. If Triple Cannon, show 3 barrels. If Tank, show tank with turret. Do NOT use a different cannon model.`
     : "";
 
@@ -908,9 +945,9 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end", c
     chainNote,
     "", sceneDesc, "", biomeRule, "",
     cannonNote,
-    scene !== "hook" ? `ENEMY BOSS: ${vi.enemy_champion||"generic boss tower"} at top of lane.${vi.enemy_champion==="Yellow Normie"?" Yellow Normie is a LARGE HUMANOID figure with bright yellow skin, bald round cartoon head, chunky upright body, red HP bar above. NOT a blob or sphere — a standing yellow humanoid giant.":vi.enemy_champion==="White Giant"?" White Giant is a large pale humanoid with a round bald head, white skin, simple blocky body, standing upright.":""}` : "",
-    scene !== "hook" ? `PLAYER MOBS: ${vi.player_mob_color} small round blob creatures, cartoonish 3D style.` : "",
-    scene !== "hook" ? `ENEMY MOBS: ${vi.enemy_mob_color} round blob creatures near the top of the lane.` : "",
+    scene === "scene" ? `ENEMY BOSS: ${vi.enemy_champion||"generic boss tower"} at top of lane.${vi.enemy_champion==="Yellow Normie"?" Yellow Normie is a LARGE HUMANOID figure with bright yellow skin, bald round cartoon head, chunky upright body, red HP bar above. NOT a blob or sphere — a standing yellow humanoid giant.":vi.enemy_champion==="White Giant"?" White Giant is a large pale humanoid with a round bald head, white skin, simple blocky body, standing upright.":""}` : "",
+    scene === "scene" ? `PLAYER MOBS: ${vi.player_mob_color} small round blob creatures, cartoonish 3D style.` : "",
+    scene === "scene" ? `ENEMY MOBS: ${vi.enemy_mob_color} round blob creatures near the top of the lane.` : "",
     gateNote,
     `LIGHTING: ${vi.lighting} | MOOD: ${vi.mood_notes}`,
     continuityNote ? `CONTINUITY: ${continuityNote}` : "",
@@ -1090,7 +1127,7 @@ RULES — follow strictly:
 - Output: plain text, max 4 sentences, no bullet points.
 
 Your job is to make the user's note more precise for Gemini — not to rewrite it.`
-    : mode === "refine" ? `You are a Mob Control creative producer refining a specific brief concept. RULES: PRESERVE exact intent. EXPAND vague requests into specific MOC field changes — e.g. "more tension" becomes a specific tension_moment addition. Name cannon tiers exactly: Simple Cannon / Double Cannon / Triple Cannon / Tank. Mention which scene (hook/start/middle/end) for visual changes. Output: plain text, max 4 sentences, no bullets. Make it specific and actionable.`
+    : mode === "refine" ? `You are a Mob Control creative producer refining a specific brief concept. RULES: PRESERVE exact intent. EXPAND vague requests into specific MOC field changes — e.g. "more tension" becomes a specific tension_moment addition. Name cannon tiers exactly: Simple Cannon / Double Cannon / Triple Cannon / Tank. Mention which scene (scene/hook_a/hook_b/hook_c) for visual changes. "Scene" is the top-down lane reference render. Output: plain text, max 4 sentences, no bullets. Make it specific and actionable.`
     : `You are a Mob Control creative producer helping structure brief prompts for generation.
 
 RULES — follow strictly:
@@ -1138,7 +1175,9 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
   const [tier, setTier] = useState<UploadConfig["tier"]>("winner");
   const [adType, setAdType] = useState<UploadConfig["ad_type"]>("moc");
   const [context, setContext] = useState("");
-  const [chainInput, setChainInput] = useState<string[]>([]);
+  const [chainStart, setChainStart] = useState("");
+  const [chainEnd, setChainEnd] = useState("");
+  const [chainOther, setChainOther] = useState("");
   const [giantKillCount, setGiantKillCount] = useState("");
   const [giantKillSec, setGiantKillSec] = useState("");
   const [upgradeSec, setUpgradeSec] = useState("");
@@ -1188,22 +1227,30 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
             <div>
               <span style={{ fontSize:10,color:D.textMuted,display:"block",marginBottom:4 }}>Unit evolution chain</span>
               <div style={{ display:"flex",gap:6,alignItems:"center",flexWrap:"wrap" as const }}>
-                {(["Simple Cannon","Double Cannon","Triple Cannon","Tank"] as const).map((tier,i,arr) => (
-                  <React.Fragment key={tier}>
-                    <button onClick={()=>{
-                      const tiers2=["Simple Cannon","Double Cannon","Triple Cannon","Tank"];
-                      const endIdx2=tiers2.indexOf(tier);
-                      const isSelected2=chainInput.length>0&&chainInput[chainInput.length-1]===tier;
-                      const wouldChain2=tiers2.slice(0,endIdx2+1);
-                      if(isSelected2&&chainInput.length===1){setChainInput([]);}
-                      else{setChainInput(wouldChain2);}
-                    }} style={{ padding:"3px 10px",fontSize:10,borderRadius:20,border:`1.5px solid ${chainInput.length>0&&chainInput[chainInput.length-1]===tier?D.blueDark:D.border2}`,background:chainInput.length>0&&chainInput[chainInput.length-1]===tier?D.blueBg:chainInput.includes(tier)?"rgba(88,166,255,0.1)":"transparent",color:chainInput.length>0&&chainInput[chainInput.length-1]===tier?D.blue:D.textMuted,cursor:"pointer",opacity:chainInput.length>0&&!chainInput.includes(tier)?0.5:1 }}>
-                      {tier==="Simple Cannon"?"Simple":tier==="Double Cannon"?"Double":tier==="Triple Cannon"?"Triple":"Tank"}
-                    </button>
-                  </React.Fragment>
-                ))}
-                {chainInput.length>0&&<span style={{color:D.textDim,fontSize:10,margin:"0 4px"}}>{chainInput.map(t=>t.replace(" Cannon","")).join("→")}</span>}
-                {chainInput.length>0&&<button onClick={()=>setChainInput([])} style={{fontSize:9,color:D.textMuted,background:"none",border:"none",cursor:"pointer",padding:"2px 6px"}}>✕</button>}
+                <select style={{ background:D.bg,border:`0.5px solid ${D.border2}`,borderRadius:6,color:D.text,fontSize:11,padding:"4px 8px",fontFamily:"inherit" }}
+                  value={chainStart} onChange={e=>{setChainStart(e.target.value);setChainEnd("");}}>
+                  <option value="">Starting cannon…</option>
+                  <option value="simple">Simple Cannon</option>
+                  <option value="double">Double Cannon</option>
+                  <option value="triple">Triple Cannon</option>
+                  <option value="tank">Tank</option>
+                  <option value="other">Other…</option>
+                </select>
+                {chainStart&&chainStart!=="other"&&(<>
+                  <span style={{color:D.textDim,fontSize:11}}>→</span>
+                  <select style={{ background:D.bg,border:`0.5px solid ${D.border2}`,borderRadius:6,color:D.text,fontSize:11,padding:"4px 8px",fontFamily:"inherit" }}
+                    value={chainEnd} onChange={e=>setChainEnd(e.target.value)}>
+                    <option value="">No upgrade</option>
+                    <option value="double">→ Double Cannon</option>
+                    <option value="triple">→ Triple Cannon</option>
+                    <option value="tank">→ Tank</option>
+                    <option value="other">→ Other…</option>
+                  </select>
+                </>)}
+                {(chainStart==="other"||chainEnd==="other")&&(
+                  <input style={{ background:D.bg,border:`0.5px solid ${D.border2}`,borderRadius:6,color:D.text,fontSize:11,padding:"4px 8px",fontFamily:"inherit",width:130 }}
+                    placeholder="e.g. Sniper Cannon" value={chainOther} onChange={e=>setChainOther(e.target.value)} />
+                )}
               </div>
             </div>
             {/* Giant kills */}
@@ -1256,7 +1303,8 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
           <button style={btnSec} onClick={onCancel}>Cancel</button>
           <button style={btnPri} onClick={()=>{
                   const parts: string[] = [];
-                  if(chainInput.length>=2) parts.push(`${chainInput.map(t=>t.replace(" Cannon","").toLowerCase()).join(" to ")} cannon chain`);
+                  const tierLabel2: Record<string,string> = {simple:"Simple Cannon",double:"Double Cannon",triple:"Triple Cannon",tank:"Tank"};
+                  if(chainStart){const s=chainStart==="other"?chainOther:tierLabel2[chainStart];const e=chainEnd&&chainEnd!=="other"?tierLabel2[chainEnd]:chainEnd==="other"?chainOther:null;if(s&&e&&s!==e)parts.push(`${s} to ${e} cannon chain`);else if(s)parts.push(`${s} cannon only`);}
                   if(upgradeSec) parts.push(`upgrade at ${upgradeSec}s`);
                   if(giantKillCount) parts.push(`${giantKillCount} giant${parseInt(giantKillCount)!==1?"s":""} killed`);
                   if(giantKillSec) parts.push(`giant killed at ${giantKillSec}s`);
@@ -1352,7 +1400,10 @@ function ReuploadModal({ entry, onConfirm, onCancel }: {
   const [frameFiles, setFrameFiles] = React.useState<File[]>([]);
   const [reuploadCtx, setReuploadCtx] = React.useState("");
   // Pre-populate chain from existing entry data
-  const [chainInput, setChainInput] = React.useState<string[]>(entry.unit_evolution_chain||[]);
+  const existingChain = entry.unit_evolution_chain||[];
+  const [chainStart, setChainStart] = React.useState(existingChain.length>0?existingChain[0].toLowerCase().replace(" cannon",""):"");
+  const [chainEnd, setChainEnd] = React.useState(existingChain.length>1?existingChain[existingChain.length-1].toLowerCase().replace(" cannon",""):"");
+  const [chainOther, setChainOther] = React.useState("");
   const [giantKillCount, setGiantKillCount] = React.useState("");
   const [giantKillSec, setGiantKillSec] = React.useState("");
   const [upgradeSec, setUpgradeSec] = React.useState("");
@@ -1396,23 +1447,30 @@ function ReuploadModal({ entry, onConfirm, onCancel }: {
             <div>
               <span style={{ fontSize:10,color:D.textMuted,display:"block",marginBottom:4 }}>Unit evolution chain</span>
               <div style={{ display:"flex",gap:6,alignItems:"center",flexWrap:"wrap" as const }}>
-                {(["Simple Cannon","Double Cannon","Triple Cannon","Tank"] as const).map((t,i,arr)=>{
-                  const tiers = ["Simple Cannon","Double Cannon","Triple Cannon","Tank"];
-                  const endIdx = tiers.indexOf(t);
-                  // Clicking a tier sets chain from Simple to that tier
-                  const isSelected = chainInput.length > 0 && chainInput[chainInput.length-1] === t;
-                  const wouldChain = tiers.slice(0, endIdx+1);
-                  return (
-                    <button key={t} onClick={()=>{
-                      if(isSelected && chainInput.length === 1){ setChainInput([]); }
-                      else { setChainInput(wouldChain); }
-                    }} style={{ padding:"3px 10px",fontSize:10,borderRadius:20,border:`1.5px solid ${isSelected?D.blueDark:chainInput.includes(t)?D.border2:D.border2}`,background:isSelected?D.blueBg:chainInput.includes(t)?"rgba(88,166,255,0.1)":"transparent",color:isSelected?D.blue:chainInput.includes(t)?D.textMuted:D.textMuted,cursor:"pointer",opacity:chainInput.length>0&&!chainInput.includes(t)?0.4:1 }}>
-                      {t==="Simple Cannon"?"Simple":t==="Double Cannon"?"Double":t==="Triple Cannon"?"Triple":"Tank"}
-                    </button>
-                  );
-                })}
-                {chainInput.length>0&&<span style={{color:D.textDim,fontSize:10,margin:"0 2px"}}>{chainInput.map(t=>t.replace(" Cannon","")).join("→")}</span>}
-                {chainInput.length>0&&<button onClick={()=>setChainInput([])} style={{fontSize:9,color:D.textMuted,background:"none",border:"none",cursor:"pointer",padding:"2px 6px"}}>✕</button>}
+                <select style={{ background:D.bg,border:`0.5px solid ${D.border2}`,borderRadius:6,color:D.text,fontSize:11,padding:"4px 8px",fontFamily:"inherit" }}
+                  value={chainStart} onChange={e=>{setChainStart(e.target.value);setChainEnd("");}}>
+                  <option value="">Starting cannon…</option>
+                  <option value="simple">Simple Cannon</option>
+                  <option value="double">Double Cannon</option>
+                  <option value="triple">Triple Cannon</option>
+                  <option value="tank">Tank</option>
+                  <option value="other">Other…</option>
+                </select>
+                {chainStart&&chainStart!=="other"&&(<>
+                  <span style={{color:D.textDim,fontSize:11}}>→</span>
+                  <select style={{ background:D.bg,border:`0.5px solid ${D.border2}`,borderRadius:6,color:D.text,fontSize:11,padding:"4px 8px",fontFamily:"inherit" }}
+                    value={chainEnd} onChange={e=>setChainEnd(e.target.value)}>
+                    <option value="">No upgrade</option>
+                    <option value="double">→ Double Cannon</option>
+                    <option value="triple">→ Triple Cannon</option>
+                    <option value="tank">→ Tank</option>
+                    <option value="other">→ Other…</option>
+                  </select>
+                </>)}
+                {(chainStart==="other"||chainEnd==="other")&&(
+                  <input style={{ background:D.bg,border:`0.5px solid ${D.border2}`,borderRadius:6,color:D.text,fontSize:11,padding:"4px 8px",fontFamily:"inherit",width:130 }}
+                    placeholder="e.g. Sniper Cannon" value={chainOther} onChange={e=>setChainOther(e.target.value)} />
+                )}
               </div>
             </div>
             <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8 }}>
@@ -1455,7 +1513,8 @@ function ReuploadModal({ entry, onConfirm, onCancel }: {
           <button onClick={onCancel} style={{ padding:"8px 18px",fontSize:13,background:"none",border:`0.5px solid ${D.border2}`,borderRadius:8,color:D.textMuted,cursor:"pointer",fontFamily:"inherit" }}>Cancel</button>
           <button onClick={()=>{ if(videoFile){
                   const parts: string[] = [];
-                  if(chainInput.length>=2) parts.push(`${chainInput[0].replace(" Cannon","").toLowerCase()} to ${chainInput[chainInput.length-1].replace(" Cannon","").toLowerCase()} cannon chain`);
+                  const tierLabel3: Record<string,string> = {simple:"Simple Cannon",double:"Double Cannon",triple:"Triple Cannon",tank:"Tank"};
+                  if(chainStart){const s=chainStart==="other"?chainOther:tierLabel3[chainStart];const e=chainEnd&&chainEnd!=="other"?tierLabel3[chainEnd]:chainEnd==="other"?chainOther:null;if(s&&e&&s!==e)parts.push(`${s} to ${e} cannon chain`);else if(s)parts.push(`${s} cannon only`);}
                   if(upgradeSec) parts.push(`upgrade at ${upgradeSec}s`);
                   if(giantKillCount) parts.push(`${giantKillCount} giant${parseInt(giantKillCount)!==1?"s":""} killed`);
                   if(giantKillSec) parts.push(`giant killed at ${giantKillSec}s`);
@@ -2341,6 +2400,9 @@ Return ONLY: {"production_script": [{time, action, visual_cue, audio_cue}]}`;
       if((c as any).analysis?.strategy) { lines.push("\n## Strategy"); lines.push((c as any).analysis.strategy); }
       lines.push("\n## Hook");
       lines.push(`**${(c as any).hook_type||"Challenge"}** at ${(c as any).hook_timing_seconds??0}s — ${c.hook_description||""}`);
+      if(c.hook_a_description) lines.push(`**Hook A (Gameplay Boss):** ${c.hook_a_description}`);
+      if(c.hook_b_description) lines.push(`**Hook B (Comedy/Narrative):** ${c.hook_b_description}`);
+      if(c.hook_c_description) lines.push(`**Hook C (Stopwatch/Viral):** ${c.hook_c_description}`);
       if(chain) { lines.push("\n## Unit evolution"); lines.push(chain); }
       if(vi.environment) { lines.push("\n## Visual identity"); lines.push(`- Biome: ${vi.environment}`); if(vi.lighting) lines.push(`- Lighting: ${vi.lighting}`); if(vi.mood_notes) lines.push(`- Mood: ${vi.mood_notes}`); }
       if(c.lane_design) { lines.push("\n## Lane design"); lines.push(c.lane_design); }
@@ -2371,7 +2433,7 @@ Return ONLY: {"production_script": [{time, action, visual_cue, audio_cue}]}`;
 
     const renders = (["start","middle","end","hook"] as const)
       .map(scene => {
-        const img = c[`visual_${scene}` as keyof Concept] as string|undefined;
+        const img = (scene==="scene"?(c.visual_scene||c.visual_start):c[`visual_${scene}` as keyof Concept]) as string|undefined;
         return img
           ? `<div style="text-align:center"><div style="font-size:9px;color:#8b949e;margin-bottom:4px;text-transform:uppercase">${scene}</div><img src="${img}" style="width:100%;border-radius:6px;display:block"/></div>`
           : `<div style="aspect-ratio:9/16;background:#161b22;border-radius:6px;display:flex;align-items:center;justify-content:center"><span style="font-size:10px;color:#484f58">${scene}</span></div>`;
@@ -2397,6 +2459,9 @@ Return ONLY: {"production_script": [{time, action, visual_cue, audio_cue}]}`;
 <div>
 ${(c as any).analysis?.strategy ? section("Strategy", (c as any).analysis.strategy) : ""}
 ${section("Hook", `<strong style="color:#58a6ff">${(c as any).hook_type||"Challenge"} at ${(c as any).hook_timing_seconds??0}s</strong><br/>${c.hook_description||""}`)}
+${c.hook_a_description ? section("Hook A — Gameplay Boss", c.hook_a_description) : ""}
+${c.hook_b_description ? section("Hook B — Comedy/Narrative", c.hook_b_description) : ""}
+${c.hook_c_description ? section("Hook C — Stopwatch/Viral", c.hook_c_description + "<br/><em style='color:#666;font-size:10px'>Market data slot — will be enriched when market research feature launches</em>") : ""}
 ${chain ? section("Unit evolution chain", pill(chain)) : ""}
 ${vi.environment ? section("Visual identity", [
   `Biome: <strong>${vi.environment}</strong>`,
@@ -2505,7 +2570,7 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
     }
   };
 
-    const handleRenderScene=async(ci: number,scene: "hook"|"start"|"middle"|"end")=>{
+    const handleRenderScene=async(ci: number,scene: "scene"|"hook_a"|"hook_b"|"hook_c")=>{
     const k=`${ci}-${scene}`; setRenderingScene(p=>({...p,[k]:true}));
     // Clear any previous error for this slot
     setConcepts(p=>p.map((c,i)=>i===ci?{...c,[`render_err_${scene}`]:undefined}:c));
@@ -2513,23 +2578,19 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
       const concept=concepts[ci]; const vi=concept.visual_identity;
       const chain: string[] = concept.unit_evolution_chain || [];
       const unitAtScene = {
-        hook: chain[0] || "Simple Cannon",
-        start: chain[0] || "Simple Cannon",
-        middle: chain[Math.floor(chain.length / 2)] || chain[0] || "Triple Cannon",
-        end: chain[chain.length - 1] || chain[0] || "Tank",
-      }[scene];
-      const refParts=pickRelevantRefs(vi, unitAtScene, lib, scene);
+        scene: chain[0] || "Simple Cannon",
+        hook_a: chain[0] || "Simple Cannon",
+        hook_b: chain[0] || "Simple Cannon",
+        hook_c: chain[0] || "Simple Cannon",
+      }[scene] || chain[0] || "Simple Cannon";
+      const refParts=pickRelevantRefs(vi, unitAtScene, lib, scene==="scene"?"start":"hook");
       const prevParts: any[]=[];
 
-      if(scene==="hook"){
-        // Hook rendered LAST — uses Start/Middle/End as style anchors
-        if(concept.visual_start){ prevParts.push({text:"### START SCENE — match art style, cannon, mobs, environment exactly:"}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_start).mimeType,data:parseDataURI(concept.visual_start).data}}); }
-        if(concept.visual_middle){ prevParts.push({text:"### MIDDLE SCENE — also match:"}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_middle).mimeType,data:parseDataURI(concept.visual_middle).data}}); }
-        if(concept.visual_end){ prevParts.push({text:"### END SCENE — also match:"}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_end).mimeType,data:parseDataURI(concept.visual_end).data}}); }
-      } else {
-        // Start→Middle→End chain: each scene references the previous
-        if(scene==="middle"&&concept.visual_start){ prevParts.push({text:"EDIT THIS IMAGE to show the mid-battle state. KEEP IDENTICAL: cannon model/color/shape, gate colors/positions, road texture, environment, mob blob shape. CHANGE ONLY: increase mob density to fill 45% of lane, reduce enemy HP bar to 50%, show upgrade debris on right lane."}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_start).mimeType,data:parseDataURI(concept.visual_start).data}}); }
-        if(scene==="end"&&concept.visual_middle){ prevParts.push({text:"EDIT THIS IMAGE to show the almost-fail state. KEEP IDENTICAL: cannon model/color/shape, gate positions, road texture, environment. CHANGE ONLY: reduce player mobs to 3-5 tiny blobs, set enemy HP bar to near-empty sliver, show tension."}); prevParts.push({inlineData:{mimeType:parseDataURI(concept.visual_middle).mimeType,data:parseDataURI(concept.visual_middle).data}}); }
+      const sceneRef = concept.visual_scene || concept.visual_start || null;
+      if(scene !== "scene" && sceneRef){
+        // Hook renders use the scene render as style anchor for visual consistency
+        prevParts.push({text:"### LANE SCENE — match art style, cannon type, mob color, environment, biome EXACTLY. This is the visual reference for consistency:"});
+        prevParts.push({inlineData:{mimeType:parseDataURI(sceneRef).mimeType,data:parseDataURI(sceneRef).data}});
       }
 
       const continuityNote = scene === "hook"
@@ -2541,7 +2602,7 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
           : undefined;
 
       const url=await callImageDirect(imagePromptFn(concept,scene,continuityNote),[...refParts,...prevParts]);
-      setConcepts(p=>p.map((c,i)=>i===ci?{...c,[`visual_${scene}`]:url}:c));
+      setConcepts(p=>p.map((c,i)=>i===ci?{...c,[scene==="scene"?"visual_scene":`visual_${scene}`]:url}:c));
     } catch(err: any){ setConcepts(p=>p.map((c,i)=>i===ci?{...c,[`render_err_${scene}`]:(err as Error).message}:c)); }
     finally { setRenderingScene(p=>({...p,[k]:false})); }
   };
@@ -3042,31 +3103,29 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                     {!c.is_experimental&&PROVEN_BIOMES.includes(c.visual_identity?.environment)&&<div style={{ marginBottom:8,padding:"7px 12px",background:D.greenBg,border:`0.5px solid ${D.greenBdr}`,borderRadius:7,fontSize:11,color:D.green }}>Render Start → Middle → End first, then Hook last.</div>}
                     <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8 }}>
                       {(["start","middle","end","hook"] as const).map(scene=>{
-                        const imgUrl=c[`visual_${scene}` as keyof Concept] as string|undefined;
+                        const imgUrl=(scene==="scene"?(c.visual_scene||c.visual_start):c[`visual_${scene}` as keyof Concept]) as string|undefined;
                         const loading=renderingScene[`${ci}-${scene}`];
-                        const isHook=scene==="hook";
-                        // Hook needs all 3 scenes first. Others need previous scene.
-                        const needsPrev=isHook
-                          ? (!c.visual_start||!c.visual_middle||!c.visual_end)
-                          : (scene==="middle"&&!c.visual_start)||(scene==="end"&&!c.visual_middle);
+                        const isHook=scene!=="scene";
+                        const hasSceneRef=!!(c.visual_scene||c.visual_start);
+                        const needsPrev=isHook&&!hasSceneRef;
                         const isNext=!imgUrl&&!needsPrev&&(
-                          (scene==="start"&&!c.visual_start)||
-                          (scene==="middle"&&!!c.visual_start&&!c.visual_middle)||
-                          (scene==="end"&&!!c.visual_middle&&!c.visual_end)||
-                          (scene==="hook"&&!!c.visual_start&&!!c.visual_middle&&!!c.visual_end&&!c.visual_hook)
+                          (scene==="scene"&&!(c.visual_scene||c.visual_start))||
+                          (scene==="hook_a"&&hasSceneRef&&!c.visual_hook_a)||
+                          (scene==="hook_b"&&hasSceneRef&&!c.visual_hook_b)||
+                          (scene==="hook_c"&&hasSceneRef&&!c.visual_hook_c)
                         );
-                        const sceneColor={start:D.blue,middle:D.gold,end:D.green,hook:D.red}[scene];
+                        const sceneColor={scene:D.blue,hook_a:D.red,hook_b:D.purple,hook_c:D.gold}[scene]||D.blue;
                         const borderColor=isNext?sceneColor:D.border;
                         const borderWidth=isNext?"1.5px":"0.5px";
-                        const sceneLabel={start:"Start",middle:"Middle",end:"End",hook:"Hook"}[scene];
-                        const lockedMsg=isHook?"Render Start, Middle, End first":scene==="middle"?"Render Start first":"Render Middle first";
+                        const sceneLabel={scene:"Scene",hook_a:"Hook A",hook_b:"Hook B",hook_c:"Hook C"}[scene]||scene;
+                        const lockedMsg="Render Scene first";
                         return (
                           <div key={scene} style={{ aspectRatio:"9/16",background:D.surface2,borderRadius:10,border:`${borderWidth} solid ${borderColor}`,overflow:"hidden",display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"center",cursor:needsPrev?"not-allowed":"pointer",position:"relative" as const,transition:"border-color .2s" }}
                             onClick={()=>(!imgUrl||(c as any)[`render_err_${scene}`])&&!loading&&!needsPrev&&handleRenderScene(ci,scene)}>
                             {isNext&&!imgUrl&&<div style={{ position:"absolute" as const,top:6,left:0,right:0,display:"flex",justifyContent:"center" }}>
                               <span style={{ fontSize:9,padding:"2px 7px",background:sceneColor,color:"#fff",borderRadius:20,fontWeight:600,letterSpacing:"0.05em" }}>{scene==="start"?"START HERE":"RENDER NEXT"}</span>
                             </div>}
-                            {imgUrl?<img src={imgUrl} alt={scene} onClick={e=>{e.stopPropagation();const scenes=(["hook","start","middle","end"] as const).map(s=>c[`visual_${s}` as keyof Concept] as string|undefined).filter(Boolean) as string[];const idx=scenes.indexOf(imgUrl!);setZoomedFrameList(scenes);setZoomedFrameIndex(Math.max(idx,0));setZoomedFrame(imgUrl!);}} style={{ width:"100%",height:"100%",objectFit:"contain",background:"#0a0c10",cursor:"zoom-in" }} />
+                            {imgUrl?<img src={imgUrl} alt={scene} onClick={e=>{e.stopPropagation();const scenes=(["scene","hook_a","hook_b","hook_c"] as const).map(s=>c[s==="scene"?"visual_scene":`visual_${s}` as keyof Concept] as string|undefined).filter(Boolean) as string[];const idx=scenes.indexOf(imgUrl!);setZoomedFrameList(scenes);setZoomedFrameIndex(Math.max(idx,0));setZoomedFrame(imgUrl!);}} style={{ width:"100%",height:"100%",objectFit:"contain",background:"#0a0c10",cursor:"zoom-in" }} />
                               :loading?<p style={{ margin:0,fontSize:11,fontWeight:500,color:D.textMuted }}>Rendering…</p>
                               :(c as any)[`render_err_${scene}`]?<div style={{ textAlign:"center" as const,padding:"8px 6px" }}><p style={{ margin:0,fontSize:9,color:D.red,fontWeight:600 }}>Failed — click to retry</p><p style={{ margin:"5px 0 0",fontSize:8,color:D.textDim,wordBreak:"break-word" as const,lineHeight:1.4 }}>{((c as any)[`render_err_${scene}`] as string).slice(0,180)}</p></div>
                               :needsPrev?<div style={{ textAlign:"center" as const,padding:10 }}><p style={{ margin:0,fontSize:10,color:D.textDim,textTransform:"uppercase" as const }}>{sceneLabel}</p><p style={{ margin:"4px 0 0",fontSize:9,color:D.textDim }}>{lockedMsg}</p></div>
