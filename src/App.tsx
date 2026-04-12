@@ -515,26 +515,42 @@ gate_sequence FIELD: Include ALL gate passes — both xN gates AND +N gates. For
 const HOOK_GUIDE = `HOOK: EXACT SECOND thumb stops scrolling. NEVER 0 unless frame-0 drama. hook_timing_seconds=REAL SECOND (2,4,8) NEVER fraction.`;
 const TIMESTAMP_RULES = `TIMESTAMPS: Real seconds only (0,2,5,8,14,22). NEVER fractions (0.03,0.28). 30s video midpoint=15.`;
 
-const frameExtractionSystem = () => `Precise video timestamp analyst for Mob Control ads. Extract key moments.
+const frameExtractionSystem = () => `Precise video timestamp analyst for Mob Control ads.
 
-RULES:
-1. MUST timestamp these MOC events if present: container destructions, unit evolutions, giant/boss deaths (MANDATORY — if a giant dies, timestamp it), every gate pass (BOTH +N gates AND xN gates, with value), almost-fail moments, swarm peak, final defeat
-   - GIANT DEATH is the highest-priority event. If a frame shows a giant HP bar empty or a giant disappearing, timestamp it with significance "boss_death"
-   - GATE DESTRUCTION BY GIANT: ONLY timestamp this if you can see the gate present in frame N and gone/absent in frame N+1. Do not infer or guess the timing. If the gate disappears between two frames you have, report it. If you only see it present before and don't have a frame showing it gone, skip it.
-   - +N GATE PASS: always timestamp — these show cannon count increasing. Use significance "gate". Description must say "+[N] gate: cannon count +[N]". If an xN gate occurs at the same second, use ONE timestamp but mention BOTH in the description: "xN gate (mob multiply) AND +1 gate (cannon count +1)"
-2. VERIFICATION RULE: For each event you report, confirm you can see it in the frame image. Trust the extracted frame images above all else.
-   - If you see a giant HP bar visible but not at zero, still timestamp it with significance "boss_damage" and note the remaining HP
-   - If you see a giant HP bar at zero or gone, timestamp with "boss_death" — NEVER skip this
-   - For cannon upgrades specifically: look for a frame where the cannon VISUALLY CHANGES shape. If no frame shows a cannon shape change, do not add that tier to unit_evolution_chain.
-   - For container destructions: look for a cannon/unit icon ON TOP of the container before it's destroyed. No icon = empty container = no upgrade.
-3. Fill gaps larger than 8 seconds with a filler timestamp
-4. Total timestamps: between 18 and 24. Never more than 24. Prioritize every second where you see a visual change (cannon shape change, gate pass, container destruction, giant appearance). Fill gaps larger than 3 seconds with intermediate timestamps.
-5. ${TIMESTAMP_RULES}
-6. No two timestamps closer than 1 second apart
-7. ONLY report what you can clearly see. If ambiguous, skip — do not guess.
-8. CHAMPION NAMING in descriptions: Only use names from the official list. If you see a large humanoid: check for YELLOW SKIN → "Yellow Normie". Any other colour that might be a VFX flash → still "Yellow Normie (hit flash)". If clearly a different entity entirely → "Unknown giant". NEVER write "Red Normie", "White Normie", "Blue Giant", or any other descriptive invention.
+YOUR ONLY JOB: identify WHICH SECONDS contain a performance-relevant visual event. Extract dense coverage (18-24 timestamps) but EVERY timestamp must have a real reason — do not add timestamps where nothing changes.
+
+WHAT COUNTS AS A TIMESTAMP (include all of these):
+- Gate pass (xN or +N) — every single one, with exact value
+- Container destruction (upgrade or empty)
+- Cannon shape change (tier upgrade)
+- Giant/boss appearing, taking damage, dying
+- Almost-fail moment (mob count critically low)
+- Swarm peak (maximum mobs on screen)
+- Final defeat / LOST screen
+- Hook moment (first dramatic visual)
+- Any second where something visually changes that affects the player's state
+
+WHAT DOES NOT GET A TIMESTAMP:
+- Seconds where the scene looks identical to the previous timestamp
+- "Filler" frames just to fill a gap — if nothing happened between 10s and 18s, timestamp 10s and 18s only, not 11-17s
+- Gaps ARE allowed — an 8-second gap with no events is fine if nothing happened
+
+GIANT DEATH — HIGHEST PRIORITY:
+- If a frame shows a giant HP bar displaying the NUMBER "0" or "0%" visibly rendered → significance "boss_death"
+- HP bar appearing empty, giant off-screen, or giant flashing white = NOT sufficient — the number "0" must be visible OR the giant must be completely absent from the frame
+- NEVER skip a confirmed boss_death
+
+GATE DESTRUCTION BY GIANT: ONLY timestamp if you have frame N (gate present) AND frame N+1 (gate completely absent). No inference. No proximity reasoning.
+
++N GATE: always timestamp. Description: "+[N] gate: cannon count +[N]". If xN and +N occur at same second, one timestamp mentioning both.
+
+CHAMPION NAMING: Yellow skin = "Yellow Normie". White/blue flash on Yellow Normie = hit VFX, still "Yellow Normie (hit flash)". Different entity = "Unknown giant". NEVER invent names.
+
+CANNON UPGRADES: Only timestamp if you see the cannon shape visually change in the frame. Upgrade container must have a cannon icon visible on it. Floating "+1" near cannon = cannon COUNT increase, not tier upgrade.
 
 ${MOC_EVENTS_GUIDE}
+
+${TIMESTAMP_RULES}
 
 Return ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":number,"description":string,"significance":"hook|gate|upgrade|boss_death|boss_damage|container|swarm|almost_fail|almost_win|loss|win|fail|transition|filler"}]}`;
 const hookDetectionSystem = () => `Expert mobile ad hook analyst for Mob Control mobile game ads.
@@ -701,37 +717,60 @@ ${config.context ? config.context + "\n" : ""}${lockedFields.length ? "\nPRE-LOC
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 `;
-  })()}World-Class Creative Intelligence Analyst for Mob Control ads. NEVER guess.
+  })()}World-Class Creative Intelligence Analyst for Mob Control ads.
+
+━━ CRITICAL RULES — READ THESE FIRST, THEY OVERRIDE EVERYTHING ELSE ━━
+
+RULE 1 — GIANT KILLS (most commonly hallucinated event):
+A GIANT KILL requires ONE of these two conditions visible IN A FRAME IMAGE:
+(a) The giant's HP bar shows the NUMBER "0" or "0%" visibly rendered — not an empty bar, not a flashing giant, not the bar disappearing off-screen
+(b) The giant's body is completely absent from the frame AND was visible in the previous frame
+"The giant must have died between frames" = NOT valid. Giant flashing white/blue = hit VFX on Yellow Normie, NOT a new boss, NOT a kill.
+NEVER report a giant kill without one of (a) or (b) confirmed in a specific frame.
+
+RULE 2 — CANNON UPGRADES (second most hallucinated):
+The cannon chain ONLY grows when a container WITH A CANNON ICON ON TOP is physically destroyed AND the cannon visually changes shape in the next frame. BOTH must be visible. A floating "+1" animation = cannon COUNT increase, NOT a tier upgrade. If you cannot point to a specific frame showing the cannon shape change — the chain has zero upgrades.
+
+RULE 3 — GATE DESTRUCTION:
+Only report if you have frame N (gate present) + frame N+1 (gate completely absent). Giant proximity = NOT evidence. If uncertain — omit entirely.
+
+RULE 4 — SECOND GIANT NAMING:
+If GROUND TRUTH names 1 giant (e.g. "Yellow Normie") and a second HP bar appears after the first is confirmed dead at HP:0 — call the second one "Second Yellow Normie" if it's the same boss type, or "Unknown" if it's a different entity. NEVER add a colour prefix (no "White Normie", "Red Normie"). White/blue colour on Yellow Normie = hit VFX, same giant.
+
+RULE 5 — WHITE/BLUE/RED NORMIE DOES NOT EXIST:
+Yellow Normie flashes white and blue when hit. This is always Yellow Normie with hit VFX. If you see white/pale/blue humanoid — it IS Yellow Normie. Write "Yellow Normie (HP:[X], taking heavy damage)" not a new giant name.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 ANALYSIS APPROACH:
-Your PRIMARY source of truth is the EXTRACTED FRAME IMAGES provided above. These are actual screenshots at specific timestamps. For every event you report, you must be able to point to which frame shows it.
-DO NOT use temporal reasoning. You are NOT watching a video — you are analyzing a set of still frame images at specific timestamps. Each frame is independent evidence. If an event is not visible in at least one frame image, it did not happen as far as you are concerned. The only exception: events explicitly stated in the GROUND TRUTH context above.
-DISCIPLINE: When in doubt — omit rather than guess. Under-reporting is better than hallucinating. EXCEPTION: Giant kills and boss deaths are never omitted — IF you can see HP=0 or disappearance IN A FRAME IMAGE. "The giant must have died between frames" is NOT valid evidence. You need a frame showing HP=0 or the giant gone. If no such frame exists — do NOT report a giant kill.
-AD TYPE:${config.ad_type} TIER:${config.tier}
-DURATION:${duration}s
-LIBRARY:${lib.length>0?JSON.stringify(lib.map(d=>({title:d.title,tier:d.tier,hook_type:d.hook_type,hook_timing_seconds:d.hook_timing_seconds}))):"empty"}
+Your PRIMARY source of truth is the EXTRACTED FRAME IMAGES. Each frame is independent evidence. For every event you report, point to which frame shows it.
+DO NOT use temporal reasoning between frames. If an event is not visible in at least one frame — it did not happen (except events in GROUND TRUTH).
+DISCIPLINE: When in doubt — omit rather than guess. Under-reporting is always better than hallucinating.
+AD TYPE:${config.ad_type} TIER:${config.tier} DURATION:${duration}s
 ${hasRefs?buildReferenceContext():""}
-${!hasFrameImages?`TIMESTAMP MAP (frame observations — significance tags only, treat as hints):\n${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] (${f.significance})`).join("\\n"):"none"}`:"EXTRACTED FRAME IMAGES provided above — these are your ONLY source of truth for what the cannon looks like at each timestamp. Do NOT use timestamp map descriptions to identify cannon tiers."}
-FRAME DESCRIPTION RULES — apply to every frame:
-0. CANNON TIER NAMING: Always use the exact tier names from the locked unit_evolution_chain. Do not identify cannon tiers from visual appearance alone — the chain defines the ground truth. If the chain is ["Simple Cannon","Triple Cannon"], then at any point in the video the cannon is either Simple Cannon (before the upgrade event) or Triple Cannon (after). Do not invent tier names outside the locked chain.
-1. GIANT KILL: HP bar reaches exactly zero AND/OR giant fully disappears from screen → start description with "GIANT KILL: [name] defeated". Add to giant_kills array. Do NOT write GIANT KILL if HP is still visible above zero — that is boss_damage not boss_death. Skip entirely if GROUND TRUTH says giant survives.
-2. +N GATE: Blue addition gate visible → description MUST say "Cannon count +[N]" (e.g. "Cannon count +1: now 2 cannons firing"). NEVER say "mob swarm passes through +1 gate" — mobs flow through the gate visually but the EFFECT is cannon count increase, not mob multiplication. The mob swarm physically passes through xN gates (mob multiply) and +N gates (cannon count up) — but describe the EFFECT correctly for each type.
-   +1 VFX RULE: When you see a floating "+1" number animation appear near the cannon (a visual effect showing cannon count increased), this is NOT a cannon tier upgrade. The cannon MODEL (Simple/Double/Triple/Tank) does NOT change from this animation. A real tier upgrade requires a container with a cannon icon to be physically destroyed — the cannon itself visually changes shape (grows more barrels). Do NOT write "cannon upgrades" when you see a floating +1 animation — write "Cannon count +1" instead.
-3. GIANT HP: Changing HP = normal damage. Write "HP: [X]" not "new phase" or "health reset".
-4. GIANT COUNT RULE: Assume exactly 1 giant unless GROUND TRUTH explicitly names 2+. HOWEVER: if you have already confirmed a GIANT KILL (HP reached zero) and then see a NEW large HP bar at a substantially higher value — that IS a second giant spawn. Name it "Unknown" unless GROUND TRUTH names it. Do NOT reuse the previous giant's name with a colour prefix (e.g. never "Red Normie", "White Normie"). Use exactly: "Unknown giant (HP:[X]) appears" for any second giant not named in context. The first giant's name does not transfer to the second.
-5. GATE DESTRUCTION CRITICAL RULE: Do NOT report a gate as destroyed unless you have BOTH: (a) a frame showing the gate PRESENT, AND (b) the very next frame showing the gate COMPLETELY GONE. You must cite both frame timestamps. If you cannot name two consecutive frames proving this — do NOT add it to gate_sequence and do NOT mention it in any description. Giant proximity to a gate is NOT evidence. A giant walking near gates is NOT gate destruction. If in doubt — omit entirely.
-6. WHITE/BLUE/RED NORMIE — DOES NOT EXIST: Yellow Normie flashes white and blue when hit by mobs. This is a VFX hit effect, not a new boss. If you see a white, blue or pale humanoid — it is Yellow Normie taking damage. NEVER write "White Normie", "Blue Normie", "Red Normie" or any colour variant. The only valid giant names are those in GROUND TRUTH context, or "Unknown" for a confirmed second spawn.
+${!hasFrameImages?`TIMESTAMP MAP (significance tags only — do NOT use these descriptions to identify cannon tiers or infer events):\n${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] (${f.significance})`).join("\n"):"none"}`:"FRAME IMAGES PROVIDED — these are your primary source of truth. Ignore timestamp map descriptions; use frame images only."}
+FRAME DESCRIPTION RULES:
+0. CANNON TIER NAMING: Use ONLY tier names from locked unit_evolution_chain. If chain is locked, those are the only valid names — do not identify tiers from visual appearance alone.
+2. +N GATE: description MUST say "Cannon count +[N]: now [X] cannons firing". NEVER say "mob multiply" for +N gates.
+   +1 VFX: floating "+1" near cannon = count up, NOT tier upgrade.
+3. GIANT HP: declining HP = normal damage. Write "HP: [X]". Never "new phase" or "health reset".
 ${TIMESTAMP_RULES}
 ${HOOK_GUIDE}
 ${GATE_GUIDE}
 ${MOC_EVENTS_GUIDE}
 ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}
-UNIT EVOLUTION CHAIN: If PRE-LOCKED chain is provided above, use it exactly — it defines both the tier names and how many upgrades occurred. Do not override. If no locked chain: count upgrade containers WITH A CANNON ICON destroyed in the frames — that count = number of upgrades. Chain = starting tier + one tier per upgrade. STRICT EVIDENCE RULE: NEVER add Double Cannon, Triple Cannon, or Tank to the chain unless you have a frame showing (a) an upgrade container with a cannon icon on top being destroyed AND (b) the cannon visually changing shape in the next frame. If neither is visible — the chain has zero upgrades: ["Simple Cannon"]. Do NOT infer upgrades from cannon behaviour or mob count changes.
-CANNON NAMING: Use the exact tier names from unit_evolution_chain. If the chain is locked above, those are the only valid tier names for this creative.
-FRAME EMOTIONS: For each extracted frame timestamp shown above, assign one emotion word (Anticipation, Excitement, Satisfaction, Empowerment, Tension, Almost Fail, Dread, Defeat, Triumph). Return as frame_emotions array. Include ALL timestamps you received frames for — not just key moments.
+UNIT EVOLUTION CHAIN: If PRE-LOCKED — use exactly. If not locked: ONLY add a tier when you have (a) a frame showing an upgrade container with cannon icon being destroyed AND (b) the cannon visually changes shape in the next frame. Both required. Default if no evidence: ["Simple Cannon"].
+CANNON NAMING: Use exact tier names from unit_evolution_chain only.
+FRAME EMOTIONS: For each extracted frame timestamp, assign one emotion (Anticipation, Excitement, Satisfaction, Empowerment, Tension, Almost Fail, Dread, Defeat, Triumph). Return as frame_emotions array covering ALL timestamps.
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
-creative_gaps_structured fields: hook_strength = quality of first 3s hook (Excellent/Good/Moderate/Weak + why); mechanic_clarity = how clearly gates/upgrades/giants communicate the game; emotional_payoff = does the ad deliver satisfying tension or resolution; tension_arc = does the almost-fail moment create genuine suspense (Excellent/Good/Moderate/Weak + why); rewatch_factor = would a viewer watch again or share it (High/Medium/Low + why).
-Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"frame_emotions":[{"timestamp_seconds":number,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string,"tension_arc":string,"rewatch_factor":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
+creative_gaps_structured: Each field must cite a SPECIFIC frame timestamp and what was observed there.
+- hook_strength: reference the hook frame (Xs) — what exactly creates or fails the hook at that second
+- mechanic_clarity: cite the frame where gates/upgrades are shown — are they legible to a new player
+- emotional_payoff: cite the climax frame — does the tension resolve satisfyingly
+- tension_arc: cite the almost-fail frame — how extreme is the mob depletion, how many mobs remain visible
+- rewatch_factor: based on the loss frame — does the defeat feel unfair/surprising enough to retry (High/Medium/Low + specific reason)
+Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"frame_emotions":[{"timestamp_seconds":number,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string,"tension_arc":string,"rewatch_factor":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
 // Field groups for surgical refinement — each group maps to specific concept fields
 const REFINE_FIELD_GROUPS = {
   visual: ["visual_identity","biome_visual_notes"],
@@ -804,7 +843,7 @@ hook_b_description: COMEDY/NARRATIVE HOOK — humorous sketch or absurd MOC situ
 hook_c_description: STOPWATCH/VIRAL HOOK — urgency-driven concept (market-informed slot, placeholder until market research feature). Based on the highest-tension moment in this concept's arc: what visual creates maximum "I NEED to see what happens next" feeling. Describe the composition for urgency. Will be enriched with competitor analysis data when the market feature launches.
 
 Return ONLY valid JSON — be concise, no padding or elaboration:
-{"analysis":{"patterns_used":string,"dna_sources":[string],"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"is_experimental":boolean,"experimental_note":string|null,"objective":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"hook_timing_seconds":number,"hook_description":string,"unit_evolution_chain":[string],"cannon_count_progression":string,"lane_design":string,"upgrade_triggers":[string],"tension_moments":[string],"network_adaptations":{"AppLovin":string,"Facebook":string,"Google":string},"engagement_hooks":string,"production_script":[{"time":string,"action":string,"visual_cue":string,"audio_cue":string}],"nine_step_curve":{"Pressure":string,"Investment":string,"Validate":string,"Investment2":string,"Payoff":string,"FalseSafety":string,"PressurePlus":string,"AlmostWin":string,"Fail":string},"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}]}`;
+{"analysis":{"patterns_used":string,"dna_sources":[string],"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"is_experimental":boolean,"experimental_note":string|null,"objective":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"hook_timing_seconds":number,"hook_description":string,"hook_a_description":string,"hook_b_description":string,"hook_c_description":string,"unit_evolution_chain":[string],"cannon_count_progression":string,"lane_design":string,"upgrade_triggers":[string],"tension_moments":[string],"network_adaptations":{"AppLovin":string,"Facebook":string,"Google":string},"engagement_hooks":string,"production_script":[{"time":string,"action":string,"visual_cue":string,"audio_cue":string}],"nine_step_curve":{"Pressure":string,"Investment":string,"Validate":string,"Investment2":string,"Payoff":string,"FalseSafety":string,"PressurePlus":string,"AlmostWin":string,"Fail":string},"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}]}`;
 };
 
 const CANNON_VISUALS: Record<string, string> = {
