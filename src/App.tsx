@@ -844,15 +844,22 @@ const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"end"|"s
   }[scene];
 
   const sceneDesc = {
-    scene: `OPENING SCENE — 3/4 top-down view of the full lane from above:
+    scene: laneDesign
+      ? `OPENING SCENE — 3/4 top-down view of the full lane from above:
+- Single ${unitAtScene} cannon at BOTTOM CENTER. ${CANNON_VISUALS[unitAtScene]||unitAtScene}. NOT a military tank, NOT a truck.
+- 6-10 ${vi.player_mob_color} round blob mobs near the cannon — very sparse
+- LANE DESIGN (follow this exactly): ${laneDesign}
+- Gate values to use: ${(vi.gate_values||[]).join(", ") || "+1 gates and x3 gates"}
+- Enemy tower at very TOP of lane: health bar 100% full
+- Production script opening: ${Array.isArray(concept.production_script)&&concept.production_script[0] ? concept.production_script[0].visual_cue || concept.production_script[0].action : ""}
+- Biome environment fills both sides of the road`
+      : `OPENING SCENE — 3/4 top-down view of the full lane from above:
 - Single ${unitAtScene} cannon at BOTTOM CENTER. Cannon looks EXACTLY like the reference images: small rounded barrel body on 4 small black wheels. Cartoon 3D. Blue/grey color. NOT a military tank, NOT a truck, NOT a realistic vehicle.
 - 6-10 ${vi.player_mob_color} round blob mobs near the cannon — very sparse
 - CRITICAL — THE ROAD HAS 3 PARALLEL SUB-PATHS SIDE BY SIDE (same road width, divided into 3 lanes):
   * LEFT LANE: 4-6 identical Bright BLUE "+N" gate panels ALL showing the SAME "+1" value (or use the +N values from gate_values if specified: ${(vi.gate_values||[]).filter(g=>g.startsWith("+")).join(", ")||"+1"}) — they fill the ENTIRE left third of the road
   * CENTER LANE: Main driving path — purple/pink xN gate panel + red enemy mob cluster ahead
   * RIGHT LANE: ${upgradeTriggers.length > 0 ? `Breakable upgrade obstacles as described: ${upgradeTriggers[0]}` : `3-4 breakable upgrade containers stacked in order. Container style: ${{"Foggy Forest":"blue wooden crate","Desert":"sandstone/clay block","Bunker":"metal ammo crate","Volcanic":"obsidian rock block","Snow":"ice block","Cyber-City":"glowing tech console","Meadow":"hay bale/wooden box"}[vi.environment||"Foggy Forest"]||"blue wooden crate"}. Each container has a CANNON UPGRADE ICON on top.`}
-  * If the user specified a custom obstacle type (e.g. "egyptian sculptures", "stone pillars", "crystal formations"): draw that object in MOC cartoon 3D art style matching the game's visual language — same polygon count, same lighting, same color saturation as other game objects. It does NOT need to be a real MOC asset
-  * [If lane_design specifies a different arrangement: "${laneDesign ? laneDesign.split(".")[0] : "use default described above"}"]
   * ALL THREE sub-paths are visible simultaneously in this top-down view — player can see all options
 - Enemy tower at very TOP of lane: health bar 100% full
 - Biome environment fills both sides of the road`,
@@ -941,7 +948,7 @@ NOTE: This slot will be enhanced with competitor market analysis data once the m
     : "COMPOSITION: 3/4 cinematic top-down angle. Cannon at bottom center. Lane runs up center. NO HUD, NO score counter, NO hearts, NO text overlays, NO watermarks, NO speech bubbles.";
 
   const chainNote = chain.length > 0 && scene === "scene"
-    ? `UNIT EVOLUTION CHAIN FOR THIS CREATIVE: ${chain.join(" → ")}. At THIS scene (${scene}), the cannon is: ${unitAtScene}. ${cannonVisual}. The cannon model MUST match this tier exactly — if it's Double Cannon, show 2 barrels. If Triple Cannon, show 3 barrels. If Tank, show tank with turret. Do NOT use a different cannon model.`
+    ? `UNIT EVOLUTION CHAIN FOR THIS CREATIVE: ${chain.join(" → ")}. At THIS scene (${scene}), the cannon is: ${unitAtScene}. ${cannonVisual}. The cannon model MUST match this tier exactly — if it's Double Cannon, show 2 barrels. If Triple Cannon, show 3 barrels. If Tank, show tank with turret. Do NOT use a different cannon model.${scriptSummary ? `\nPRODUCTION SCRIPT — first moments: ${scriptSummary}` : ""}`
     : "";
 
   return [
@@ -2599,11 +2606,8 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
       const merged: Concept = { ...current };
       for (const key of fieldNames) { if (key in result) (merged as any)[key] = (result as any)[key]; }
 
-      // Clear renders when visual or structural fields changed — not for text-only fields like engagement_hooks
-      const renderAffecting = wantsVisual || wantsEvolution || wantsLane;
-      const updated: Concept = renderAffecting
-        ? { ...merged, visual_scene: undefined, visual_start: undefined, visual_hook_a: undefined, visual_hook_b: undefined, visual_hook_c: undefined, visual_hook: undefined, visual_middle: undefined, visual_end: undefined }
-        : merged;
+      // Never clear renders here — the Refine button handles re-rendering the selected scene only
+      const updated: Concept = merged;
 
       setConcepts(p => p.map((c, i) => i === ci ? updated : c));
       setRefineTexts(p => ({ ...p, [ci]: "" }));
@@ -2617,9 +2621,9 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
     }
   };
 
-    const handleRenderScene=async(ci: number,scene: "scene"|"hook_a"|"hook_b"|"hook_c")=>{
+    const handleRenderScene=async(ci: number,scene: "scene"|"hook_a"|"hook_b"|"hook_c", refinePrompt?: string)=>{
     const k=`${ci}-${scene}`; setRenderingScene(p=>({...p,[k]:true}));
-    // Clear any previous error for this slot
+    // Clear any previous error for this slot only
     setConcepts(p=>p.map((c,i)=>i===ci?{...c,[`render_err_${scene}`]:undefined}:c));
     try {
       const concept=concepts[ci]; const vi=concept.visual_identity;
@@ -2631,57 +2635,30 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
         hook_c: chain[0] || "Simple Cannon",
       }[scene] || chain[0] || "Simple Cannon";
 
-      // Check if this scene already has a rendered image — if so, use image editing mode
+      // Check if this scene already has a rendered image AND we have a refine prompt — use direct image editing
       const existingImgKey = scene === "scene" ? "visual_scene" : `visual_${scene}`;
       const existingImg = (concept as any)[existingImgKey] as string | undefined;
 
-      if (existingImg) {
-        // ── IMAGE EDITING MODE ──────────────────────────────────────────────
-        // Send the existing render as the primary input and instruct Gemini to edit it.
-        // This mirrors how Google's Nano Banana sends image edits — source image first,
-        // edit instruction immediately after, NO other reference images mixed in.
+      if (existingImg && refinePrompt) {
+        // ── DIRECT IMAGE EDIT MODE (Nano Banana style) ──────────────────────
+        // User's exact instruction + source image only. No brief fields, no extra context.
+        // This is what makes Nano Banana work: clean image + clean instruction.
         const { mimeType, data } = parseDataURI(existingImg);
-        const biome = vi.environment || "Foggy Forest";
-        const editInstruction = [
-          `EDIT THIS IMAGE. You are modifying an existing Mob Control game screenshot.`,
-          `Current biome: ${biome}. Current cannon: ${unitAtScene}. Visual style: 3D cartoon, same as input image.`,
-          ``,
-          `WHAT TO CHANGE based on the updated brief:`,
-          `Biome/environment: ${vi.environment}`,
-          `Lighting: ${vi.lighting}`,
-          `Mood: ${vi.mood_notes}`,
-          `Player mob color: ${vi.player_mob_color}`,
-          `Enemy mob color: ${vi.enemy_mob_color}`,
-          `Cannon: ${unitAtScene} — ${vi.cannon_type || "small wheeled cartoon cannon"}`,
-          ``,
-          `STRICT RULES:`,
-          `- Preserve the overall composition, camera angle, and road layout from the input image`,
-          `- Preserve the gate positions and general lane structure`,
-          `- Change ONLY what differs from the current brief (biome colors, mob colors, lighting atmosphere)`,
-          `- Do NOT add text overlays, HUD elements, or UI`,
-          `- Maintain the exact same 3D cartoon render quality and art style as the input`,
-          `- Output aspect ratio: 9:16`,
-        ].join("\n");
-
         const editBody = JSON.stringify({
           contents: [{
             role: "user",
             parts: [
               { inlineData: { mimeType, data } },
-              { text: editInstruction },
+              { text: `EDIT THIS IMAGE: ${refinePrompt}\n\nKeep everything else identical — same composition, camera angle, art style, road layout, and all unchanged elements. Output 9:16.` },
             ]
           }],
           generationConfig: { responseModalities: ["IMAGE", "TEXT"], imageConfig: { aspectRatio: "9:16" } }
         });
-
         let url: string | null = null;
         for (let attempt = 0; attempt < 2; attempt++) {
           const r = await fetch(GEMINI_IMAGE_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: editBody });
           const text = await r.text();
-          if (!r.ok) {
-            if (attempt === 0 && (r.status === 503 || r.status === 429)) { await new Promise(res => setTimeout(res, 3000)); continue; }
-            throw new Error(`Image edit ${r.status}: ${text.slice(0, 500)}`);
-          }
+          if (!r.ok) { if (attempt === 0 && (r.status === 503 || r.status === 429)) { await new Promise(res => setTimeout(res, 3000)); continue; } throw new Error(`Image edit ${r.status}: ${text.slice(0, 500)}`); }
           const result = JSON.parse(text);
           const imgPart = result.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
           if (!imgPart) { if (attempt === 0) { await new Promise(res => setTimeout(res, 2000)); continue; } throw new Error("No image returned from edit"); }
@@ -2691,6 +2668,11 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
         if (!url) throw new Error("Image edit failed after 2 attempts");
         setConcepts(p=>p.map((c,i)=>i===ci?{...c,[existingImgKey]:url}:c));
         return;
+      }
+
+      if (existingImg && !refinePrompt) {
+        // ── FRESH RE-RENDER (no refine prompt — user clicked ↺ Re-render) ──
+        // Fall through to fresh render mode below — regenerate from brief
       }
 
       // ── FRESH RENDER MODE ───────────────────────────────────────────────────
@@ -3226,35 +3208,37 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                         const sceneSubLabel={scene:"Top-down lane",hook_a:"Gameplay Boss",hook_b:"Comedy/Narrative",hook_c:"Stopwatch/Viral"}[scene]||"";
                         const lockedMsg="Render Scene first";
                         return (
-                          <div key={scene} style={{ aspectRatio:"9/16",background:D.surface2,borderRadius:10,border:`${borderWidth} solid ${borderColor}`,overflow:"hidden",display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"center",cursor:needsPrev?"not-allowed":"pointer",position:"relative" as const,transition:"border-color .2s" }}
-                            onClick={()=>!loading&&!needsPrev&&(!(c as any)[`render_err_${scene}`]&&imgUrl?undefined:handleRenderScene(ci,scene))}>
+                          <div key={scene} style={{ display:"flex",flexDirection:"column" as const,gap:3 }}>
+                          <div style={{ aspectRatio:"9/16",background:D.surface2,borderRadius:10,border:`${borderWidth} solid ${borderColor}`,overflow:"hidden",display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"center",cursor:needsPrev?"not-allowed":imgUrl?"zoom-in":"pointer",position:"relative" as const,transition:"border-color .2s" }}
+                            onClick={()=>{
+                              if(imgUrl&&!(c as any)[`render_err_${scene}`]){const scenes=(["scene","hook_a","hook_b","hook_c"] as const).map(s=>c[s==="scene"?"visual_scene":`visual_${s}` as keyof Concept] as string|undefined).filter(Boolean) as string[];const idx=scenes.indexOf(imgUrl);setZoomedFrameList(scenes);setZoomedFrameIndex(Math.max(idx,0));setZoomedFrame(imgUrl);}
+                              else if(!loading&&!needsPrev) handleRenderScene(ci,scene);
+                            }}>
                             {isNext&&!imgUrl&&<div style={{ position:"absolute" as const,top:6,left:0,right:0,display:"flex",justifyContent:"center" }}>
                               <span style={{ fontSize:9,padding:"2px 7px",background:sceneColor,color:"#fff",borderRadius:20,fontWeight:600,letterSpacing:"0.05em" }}>{scene==="scene"?"START HERE":"RENDER NEXT"}</span>
                             </div>}
                             {imgUrl?(
                               <div style={{ position:"relative" as const,width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center" }}>
                                 <img src={imgUrl} alt={scene}
-                                  onClick={e=>{e.stopPropagation();const scenes=(["scene","hook_a","hook_b","hook_c"] as const).map(s=>c[s==="scene"?"visual_scene":`visual_${s}` as keyof Concept] as string|undefined).filter(Boolean) as string[];const idx=scenes.indexOf(imgUrl!);setZoomedFrameList(scenes);setZoomedFrameIndex(Math.max(idx,0));setZoomedFrame(imgUrl!);}}
-                                  style={{ width:"100%",height:"100%",objectFit:"contain",background:"#0a0c10",display:"block",opacity:loading?0.4:1,transition:"opacity .2s" }} />
-                                {/* Loading overlay when editing in progress */}
-                                {loading&&<div style={{ position:"absolute" as const,inset:0,display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"center",gap:8 }}>
+                                  style={{ width:"100%",height:"100%",objectFit:"contain",background:"#0a0c10",display:"block",opacity:loading?0.4:1,transition:"opacity .2s",cursor:"zoom-in" }} />
+                                {loading&&<div style={{ position:"absolute" as const,inset:0,display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"center",gap:8,background:"rgba(0,0,0,0.5)" }}>
                                   <div style={{ width:20,height:20,borderRadius:"50%",border:`2px solid ${sceneColor}44`,borderTopColor:sceneColor,animation:"spin .7s linear infinite" }} />
-                                  <span style={{ fontSize:9,color:sceneColor,fontWeight:600 }}>Editing…</span>
-                                </div>}
-                                {/* Re-render / Edit overlay — appears on hover when not loading */}
-                                {!loading&&<div className="rerender-overlay" onClick={e=>{e.stopPropagation();handleRenderScene(ci,scene);}}
-                                  style={{ position:"absolute" as const,inset:0,background:"rgba(0,0,0,0)",display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"flex-end",padding:"10px",opacity:0,transition:"opacity .18s,background .18s",cursor:"pointer" }}
-                                  onMouseEnter={e=>{(e.currentTarget as HTMLDivElement).style.opacity="1";(e.currentTarget as HTMLDivElement).style.background="rgba(0,0,0,0.55)";}}
-                                  onMouseLeave={e=>{(e.currentTarget as HTMLDivElement).style.opacity="0";(e.currentTarget as HTMLDivElement).style.background="rgba(0,0,0,0)";}}>
-                                  <div style={{ padding:"5px 10px",borderRadius:6,background:sceneColor,color:"#fff",fontSize:10,fontWeight:600,letterSpacing:"0.04em",whiteSpace:"nowrap" as const }}>✏ Edit image</div>
-                                  <div style={{ marginTop:4,fontSize:8,color:"rgba(255,255,255,0.7)",textAlign:"center" as const }}>Edits existing render</div>
+                                  <span style={{ fontSize:9,color:sceneColor,fontWeight:600 }}>Rendering…</span>
                                 </div>}
                               </div>
                             )
                               :loading?<p style={{ margin:0,fontSize:11,fontWeight:500,color:D.textMuted }}>Rendering…</p>
-                              :(c as any)[`render_err_${scene}`]?<div style={{ textAlign:"center" as const,padding:"8px 6px" }}><p style={{ margin:0,fontSize:9,color:D.red,fontWeight:600 }}>Failed — click to retry</p><p style={{ margin:"5px 0 0",fontSize:8,color:D.textDim,wordBreak:"break-word" as const,lineHeight:1.4 }}>{((c as any)[`render_err_${scene}`] as string).slice(0,180)}</p></div>
+                              :(c as any)[`render_err_${scene}`]?<div style={{ textAlign:"center" as const,padding:"8px 6px" }}><p style={{ margin:0,fontSize:9,color:D.red,fontWeight:600 }}>Failed</p><p style={{ margin:"4px 0 0",fontSize:8,color:D.textDim,wordBreak:"break-word" as const,lineHeight:1.4 }}>{((c as any)[`render_err_${scene}`] as string).slice(0,120)}</p></div>
                               :needsPrev?<div style={{ textAlign:"center" as const,padding:10 }}><p style={{ margin:0,fontSize:10,color:D.textDim,textTransform:"uppercase" as const }}>{sceneLabel}</p><p style={{ margin:"4px 0 0",fontSize:9,color:D.textDim }}>{lockedMsg}</p></div>
                               :<div style={{ textAlign:"center" as const,padding:10,marginTop:isNext?18:0 }}><p style={{ margin:0,fontSize:11,fontWeight:600,textTransform:"uppercase" as const,color:isNext?sceneColor:D.textDim,letterSpacing:"0.05em" }}>{sceneLabel}</p><p style={{ margin:"3px 0 0",fontSize:8,color:isNext?`${sceneColor}cc`:D.textDim,fontStyle:"italic" }}>{sceneSubLabel}</p><p style={{ margin:"6px 0 0",fontSize:9,color:isNext?sceneColor:D.textDim }}>{isNext?"Click to render":"Click to render"}</p></div>}
+                          </div>
+                          {/* Re-render button below each slot — only shown when image exists */}
+                          {imgUrl&&!loading&&<button onClick={e=>{e.stopPropagation();handleRenderScene(ci,scene);}}
+                            style={{ fontSize:9,padding:"3px 0",borderRadius:5,border:`0.5px solid ${D.border2}`,color:D.textDim,background:D.surface2,cursor:"pointer",fontFamily:"inherit",width:"100%",transition:"color .15s,border-color .15s" }}
+                            onMouseEnter={e=>{(e.currentTarget as HTMLButtonElement).style.color=sceneColor;(e.currentTarget as HTMLButtonElement).style.borderColor=sceneColor;}}
+                            onMouseLeave={e=>{(e.currentTarget as HTMLButtonElement).style.color=D.textDim;(e.currentTarget as HTMLButtonElement).style.borderColor=D.border2;}}>
+                            ↺ Re-render
+                          </button>}
                           </div>
                         );
                       })}
@@ -3265,7 +3249,7 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                   <div style={{ margin:"16px 0",border:`1.5px solid ${D.blueDark}`,borderRadius:10,overflow:"hidden",background:"#0d1a2d" }}>
                     <div style={{ padding:"12px 16px",borderBottom:`0.5px solid ${D.border}`,display:"flex",alignItems:"center",justifyContent:"space-between" }}>
                       <span style={{ fontSize:12,fontWeight:600,color:D.blue,letterSpacing:"0.02em" }}>✦ Refine</span>
-                      <span style={{ fontSize:11,color:D.textDim }}>Edits the brief and re-renders the selected scene</span>
+                      <span style={{ fontSize:11,color:D.textDim }}>Select a scene, describe the change, press Refine</span>
                     </div>
                     <div style={{ padding:"12px 14px" }}>
                       {/* Scene target selector */}
@@ -3330,14 +3314,31 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                             const targetScene=(refineTargetScene[ci]||"scene") as "scene"|"hook_a"|"hook_b"|"hook_c";
                             const prompt=refineTexts[ci]||"";
                             if(!prompt.trim()) return;
-                            // Step 1: update brief fields
-                            await handleRefineConcept(ci,prompt);
-                            // Step 2: re-render the selected scene with the updated brief
-                            await handleRenderScene(ci,targetScene);
+                            setRefining(p=>({...p,[ci]:true}));
+                            try {
+                              // Always directly edit the image with the user's exact prompt
+                              // handleRefineConcept still runs to keep brief fields in sync (text only, no render clear)
+                              await handleRefineConcept(ci,prompt);
+                              // Pass the user's prompt directly to image edit — this is the Nano Banana approach
+                              await handleRenderScene(ci,targetScene,prompt);
+                              setRefineTexts(p=>({...p,[ci]:""}));
+                              setRefineErr(p=>({...p,[ci]:"✓ Done"}));
+                            } catch(err:any){
+                              setRefineErr(p=>({...p,[ci]:"Refine failed: "+(err as Error).message}));
+                            } finally {
+                              setRefining(p=>({...p,[ci]:false}));
+                            }
                           }}
                           disabled={refining[ci]||renderingScene[`${ci}-${refineTargetScene[ci]||"scene"}`]||!(refineTexts[ci]||"").trim()}
                           style={{ padding:"8px 18px",fontSize:13,fontWeight:600,background:refining[ci]||!(refineTexts[ci]||"").trim()?"#1a2130":D.blue,border:"none",borderRadius:8,color:refining[ci]||!(refineTexts[ci]||"").trim()?D.textDim:"#fff",cursor:refining[ci]||!(refineTexts[ci]||"").trim()?"not-allowed":"pointer",fontFamily:"inherit",letterSpacing:"0.01em" }}>
-                          {refining[ci]||renderingScene[`${ci}-${refineTargetScene[ci]||"scene"}`]?"Working…":`Refine ${({scene:"Scene",hook_a:"Hook A",hook_b:"Hook B",hook_c:"Hook C"}[refineTargetScene[ci]||"scene"])} →`}
+                          {(()=>{
+                            const ts=(refineTargetScene[ci]||"scene") as "scene"|"hook_a"|"hook_b"|"hook_c";
+                            const hasImg=!!(ts==="scene"?(c.visual_scene||c.visual_start):c[`visual_${ts}` as keyof Concept]);
+                            const lbl={scene:"Scene",hook_a:"Hook A",hook_b:"Hook B",hook_c:"Hook C"}[ts];
+                            const busy=refining[ci]||renderingScene[`${ci}-${ts}`];
+                            if(busy) return "Working…";
+                            return hasImg?`Edit ${lbl} →`:`Render ${lbl} →`;
+                          })()}
                         </button>
                       </div>
                       {refineErr[ci]&&(
