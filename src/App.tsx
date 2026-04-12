@@ -421,25 +421,24 @@ function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string, lib?: any[],
 
   // Inject matching library frames — real high-performing MOC ad frames as composition anchors
   if (lib && lib.length > 0 && scene) {
-    const biomeNorm = (vi.environment || "").toLowerCase();
-    // Map scene to relevant significance tags
+    const biomeNorm = (vi.environment || "").toLowerCase().split(" ")[0]; // "foggy" from "Foggy Forest"
+    // Map scene to relevant significance tags — updated for Scene + Hook A/B/C system
     const sigMap: Record<string, string[]> = {
-      start: ["hook", "gate"],
-      middle: ["swarm", "upgrade", "gate"],
-      end: ["almost_fail", "fail", "loss", "boss_death"],
-      hook: ["hook"],
+      start: ["hook", "gate"],   // Scene render: hook/gate moments for composition ref
+      hook:  ["hook", "swarm"],  // Hook renders: hook + swarm moments for drama ref
     };
     const wantedSigs = sigMap[scene] || ["hook"];
 
     const matchingFrames: {data: string, label: string}[] = [];
     for (const entry of lib) {
       if (matchingFrames.length >= 2) break;
-      // Match biome
+      // Match biome — check both directions: "foggy" in "foggy forest", "desert" in "desert"
       const entryBiome = (entry.biome || "").toLowerCase();
-      if (!entryBiome.includes(biomeNorm.split(" ")[0]) && !biomeNorm.includes(entryBiome.split(" ")[0])) continue;
+      const biomeMatch = entryBiome.includes(biomeNorm) || biomeNorm.includes(entryBiome.split(" ")[0]);
+      if (!biomeMatch) continue;
       // Only use winner/scalable entries
       if (!["winner","scalable"].includes(entry.tier)) continue;
-      // Find a matching frame by significance
+      // Find a matching frame by significance — check auto_frames for image_data
       const frames = (entry.auto_frames || []).filter((f: any) =>
         f.image_data && wantedSigs.some(sig => (f.significance || "").includes(sig))
       );
@@ -509,7 +508,7 @@ const GATE_GUIDE = `GATES — CRITICAL: passing through ANY gate NEVER upgrades 
 
 CANNON UPGRADE RULE — ABSOLUTE: The cannon model (Simple/Double/Triple/Tank) ONLY changes when the MOB SWARM physically DESTROYS a breakable obstacle/container on the road. This is a separate event from any gate pass. NEVER write "cannon upgrades after passing a gate". If you see a cannon change and a gate in the same second, the upgrade came from a container that was also destroyed at that moment, NOT from the gate.
 Report EVERY gate with its exact value. If unclear: "x?" or "+?".
-GATE DESTRUCTION: Gates CAN be physically destroyed by giants/bosses walking through them. STRICT VISUAL RULE: Only report a gate as destroyed if you can see the gate present in one frame and ABSENT (disappeared) in the very next consecutive frame. Do NOT guess gate destruction timing based on when a giant is nearby. If you cannot see a gate disappear between two consecutive frames, do not report it as destroyed. When confirmed: timestamp it, significance "gate", note "Gate destroyed by [giant name]", include in gate_sequence as "xN destroyed by giant at Xs".
+GATE DESTRUCTION: Gates CAN be physically destroyed by giants/bosses walking through them. ABSOLUTE VISUAL RULE: You MUST have TWO CONSECUTIVE frames — frame N shows the gate PRESENT, frame N+1 shows the gate COMPLETELY ABSENT. You must be able to state the exact timestamps of both frames. WITHOUT these two frames, DO NOT report any gate as destroyed. FORBIDDEN INFERENCES: do NOT report gate destruction based on (a) giant proximity to a gate, (b) "the giant was there around that time", (c) any frame where the gate is still visible. BAD EXAMPLE (NEVER DO): "x4 destroyed at 7s because the giant was walking past gates at 7s" — this is forbidden. GOOD EXAMPLE: "x3 destroyed at 9s — gate visible at 8s frame, gone at 9s frame". When confirmed with TWO consecutive frames: timestamp it, significance "gate", note "Gate destroyed by [giant name]", include in gate_sequence as "xN destroyed by giant at Xs". If you are not 100% certain from consecutive frames — omit it entirely.
 cannon_count_log: track cannon count as a running string showing only +N gate changes: "1 cannon start → +1 gate at 3s: 2 cannons → +1 gate at 9s: 3 cannons". x-gates do NOT appear here (they affect mobs, not cannons). IMPORTANT: Even single +1 gates must be tracked — each +1 gate adds exactly 1 more cannon to the firing lineup.
 gate_sequence FIELD: Include ALL gate passes — both xN gates AND +N gates. Format each as "x3 at 2s", "+1 at 3s", "x4 at 8s" etc. Do NOT omit +N gates from gate_sequence just because they are tracked in cannon_count_log. They must appear in BOTH.
 +N GATE FRAME DESCRIPTION RULE: Every auto_frames entry where a blue +N gate is passed MUST include "Cannon count +[N]" in the description.`;
@@ -2020,10 +2019,20 @@ export default function App() {
           const local=localStorage.getItem("levelly_dna_library");
           if(local){
             const localParsed: DNAEntry[] = JSON.parse(local);
-            const localMap=new Map(localParsed.map((e: DNAEntry)=>[e.id,e]));
+            const localById=new Map(localParsed.map((e: DNAEntry)=>[e.id,e]));
+            // Build creative_id fingerprint map for frame preservation
+            // When an entry is re-uploaded it gets a new numeric id but same creative_id
+            // We use creative_id to carry frames across re-uploads
+            const localByCreativeId=new Map(
+              localParsed.filter((e: DNAEntry)=>e.creative_id?.trim())
+                .map((e: DNAEntry)=>[e.creative_id!.trim(),e])
+            );
             // localStorage is authoritative for entries it has — cloud only adds NEW entries
-            // This prevents cloud (which strips image_data) from overwriting fresh local data
-            const cloudOnlyNew = data.filter((e: DNAEntry)=>!localMap.has(e.id));
+            // Merge: keep local entry if present by id OR creative_id; add cloud-only new entries
+            const cloudOnlyNew = data.filter((e: DNAEntry)=>
+              !localById.has(e.id) && !(e.creative_id?.trim() && localByCreativeId.has(e.creative_id.trim()))
+            );
+            // For cloud entries that exist in local by creative_id (reupload case), use local version
             const merged = [...localParsed, ...cloudOnlyNew];
             setLib(sanitizeLib(merged));
           } else setLib(sanitizeLib(data));
@@ -2071,9 +2080,41 @@ export default function App() {
   // Re-upload: keep existing metadata (tier/spend/creative_id/parent_id), re-run full analysis pipeline on new video
 
 // Quick consistency check — fixes contradictions between evolution chain and frame descriptions
-async function enforceConsistency(dna: any, frameParts: any[]): Promise<any> {
+async function enforceConsistency(dna: any, frameParts: any[], uploadContext?: string): Promise<any> {
   if (!dna || !Array.isArray(dna.unit_evolution_chain) || dna.unit_evolution_chain.length < 2) return dna;
   if (!Array.isArray(dna.auto_frames) || dna.auto_frames.length === 0) return dna;
+
+  // If giant survival is locked in context, remove any erroneously added giant_kills
+  if (uploadContext) {
+    const facts = parseContextFacts(uploadContext);
+    if (facts.giantSurvives === true && Array.isArray(dna.giant_kills) && dna.giant_kills.length > 0) {
+      // Context says ALL giants survive — wipe giant_kills and fix any boss_death frame descriptions
+      const fixedFrames = (dna.auto_frames as any[]).map((f: any) => {
+        if (f.significance === "boss_death") {
+          return { ...f, significance: "boss_damage", description: f.description.replace(/GIANT KILL:/gi, "GIANT HP CRITICAL:").replace(/\(HP:0\)/g, "(HP: very low)") };
+        }
+        return f;
+      });
+      dna = { ...dna, giant_kills: [], auto_frames: fixedFrames };
+    } else if (Array.isArray(facts.giantSurvives) && Array.isArray(dna.giant_kills)) {
+      // Final giant survives — only one kill allowed max (the first one)
+      if (dna.giant_kills.length > 1) {
+        // Keep only the first kill, remove subsequent ones and fix frames
+        const firstKillTs = dna.giant_kills[0]?.timestamp_seconds;
+        const fixedFrames = (dna.auto_frames as any[]).map((f: any) => {
+          if (f.significance === "boss_death" && f.timestamp_seconds !== firstKillTs) {
+            return { ...f, significance: "boss_damage", description: f.description.replace(/GIANT KILL:/gi, "GIANT HP LOW:") };
+          }
+          return f;
+        });
+        dna = { ...dna, giant_kills: [dna.giant_kills[0]], auto_frames: fixedFrames };
+      }
+    }
+    if (facts.giantKillCount != null && Array.isArray(dna.giant_kills) && dna.giant_kills.length > facts.giantKillCount) {
+      // Trim giant_kills to the locked count
+      dna = { ...dna, giant_kills: dna.giant_kills.slice(0, facts.giantKillCount) };
+    }
+  }
 
   // Check if any frame descriptions contradict the evolution chain
   const chain = dna.unit_evolution_chain as string[];
@@ -2170,7 +2211,7 @@ For each description above:
       const cfg={tier:entry.tier,ad_type:entry.ad_type,context:newContext||entry.upload_context||"",manual_frames:[]};
       const rawDna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(hasManual?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"INSTRUCTION: Analyze only the extracted frame images above. DO NOT infer events between frames. Base every finding on visible frame evidence only."}]);
       setAnalyzeStep("validating");
-      const consistentDna = await enforceConsistency(rawDna, frameParts);
+      const consistentDna = await enforceConsistency(rawDna, frameParts, newContext||entry.upload_context||"");
       const dna=sanitizeDNA(consistentDna);
       setAnalyzeStep("saving");
       const frameImageMap: Record<number,string>={};
@@ -2264,7 +2305,7 @@ For each description above:
           : [];
         const rawDna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,refParts.length>0),[...refParts,...frameParts,...(manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"INSTRUCTION: Analyze only the extracted frame images above. DO NOT infer events between frames. Base every finding on visible frame evidence only."}]);
         setAnalyzeStep("validating");
-        const consistentDna = await enforceConsistency(rawDna, frameParts);
+        const consistentDna = await enforceConsistency(rawDna, frameParts, cfg.context);
         const dna=sanitizeDNA(consistentDna);
         setAnalyzeStep("saving");
         // Build a lookup: timestamp → base64 image from extractedFrameParts
@@ -2555,7 +2596,7 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
       // Clear renders when visual or structural fields changed — not for text-only fields like engagement_hooks
       const renderAffecting = wantsVisual || wantsEvolution || wantsLane;
       const updated: Concept = renderAffecting
-        ? { ...merged, visual_hook: undefined, visual_start: undefined, visual_middle: undefined, visual_end: undefined }
+        ? { ...merged, visual_scene: undefined, visual_start: undefined, visual_hook_a: undefined, visual_hook_b: undefined, visual_hook_c: undefined, visual_hook: undefined, visual_middle: undefined, visual_end: undefined }
         : merged;
 
       setConcepts(p => p.map((c, i) => i === ci ? updated : c));
@@ -2583,6 +2624,70 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
         hook_b: chain[0] || "Simple Cannon",
         hook_c: chain[0] || "Simple Cannon",
       }[scene] || chain[0] || "Simple Cannon";
+
+      // Check if this scene already has a rendered image — if so, use image editing mode
+      const existingImgKey = scene === "scene" ? "visual_scene" : `visual_${scene}`;
+      const existingImg = (concept as any)[existingImgKey] as string | undefined;
+
+      if (existingImg) {
+        // ── IMAGE EDITING MODE ──────────────────────────────────────────────
+        // Send the existing render as the primary input and instruct Gemini to edit it.
+        // This mirrors how Google's Nano Banana sends image edits — source image first,
+        // edit instruction immediately after, NO other reference images mixed in.
+        const { mimeType, data } = parseDataURI(existingImg);
+        const biome = vi.environment || "Foggy Forest";
+        const editInstruction = [
+          `EDIT THIS IMAGE. You are modifying an existing Mob Control game screenshot.`,
+          `Current biome: ${biome}. Current cannon: ${unitAtScene}. Visual style: 3D cartoon, same as input image.`,
+          ``,
+          `WHAT TO CHANGE based on the updated brief:`,
+          `Biome/environment: ${vi.environment}`,
+          `Lighting: ${vi.lighting}`,
+          `Mood: ${vi.mood_notes}`,
+          `Player mob color: ${vi.player_mob_color}`,
+          `Enemy mob color: ${vi.enemy_mob_color}`,
+          `Cannon: ${unitAtScene} — ${vi.cannon_type || "small wheeled cartoon cannon"}`,
+          ``,
+          `STRICT RULES:`,
+          `- Preserve the overall composition, camera angle, and road layout from the input image`,
+          `- Preserve the gate positions and general lane structure`,
+          `- Change ONLY what differs from the current brief (biome colors, mob colors, lighting atmosphere)`,
+          `- Do NOT add text overlays, HUD elements, or UI`,
+          `- Maintain the exact same 3D cartoon render quality and art style as the input`,
+          `- Output aspect ratio: 9:16`,
+        ].join("\n");
+
+        const editBody = JSON.stringify({
+          contents: [{
+            role: "user",
+            parts: [
+              { inlineData: { mimeType, data } },
+              { text: editInstruction },
+            ]
+          }],
+          generationConfig: { responseModalities: ["IMAGE", "TEXT"], imageConfig: { aspectRatio: "9:16" } }
+        });
+
+        let url: string | null = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const r = await fetch(GEMINI_IMAGE_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: editBody });
+          const text = await r.text();
+          if (!r.ok) {
+            if (attempt === 0 && (r.status === 503 || r.status === 429)) { await new Promise(res => setTimeout(res, 3000)); continue; }
+            throw new Error(`Image edit ${r.status}: ${text.slice(0, 500)}`);
+          }
+          const result = JSON.parse(text);
+          const imgPart = result.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
+          if (!imgPart) { if (attempt === 0) { await new Promise(res => setTimeout(res, 2000)); continue; } throw new Error("No image returned from edit"); }
+          url = `data:${imgPart.inlineData.mimeType || "image/png"};base64,${imgPart.inlineData.data}`;
+          break;
+        }
+        if (!url) throw new Error("Image edit failed after 2 attempts");
+        setConcepts(p=>p.map((c,i)=>i===ci?{...c,[existingImgKey]:url}:c));
+        return;
+      }
+
+      // ── FRESH RENDER MODE ───────────────────────────────────────────────────
       const refParts=pickRelevantRefs(vi, unitAtScene, lib, scene==="scene"?"start":"hook");
       const prevParts: any[]=[];
 
@@ -2593,13 +2698,7 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
         prevParts.push({inlineData:{mimeType:parseDataURI(sceneRef).mimeType,data:parseDataURI(sceneRef).data}});
       }
 
-      const continuityNote = scene === "hook"
-        ? `This is a CINEMATIC CLOSE-UP, not top-down. Match the exact art style, colours, cannon design, and mob appearance from the 3 scene references above. Only the composition and framing changes.`
-        : scene === "middle" && concept.visual_start
-          ? `IMAGE EDITING MODE: You are editing the START SCENE image provided. DO NOT redraw from scratch. Modify ONLY: mob count (increase to fill 45% of lane), enemy HP bar (set to 50%). Everything else — cannon shape, color, gate appearance, road, trees, environment — must be pixel-identical to the source image.`
-          : scene === "end" && concept.visual_middle
-          ? `IMAGE EDITING MODE: You are editing the MIDDLE SCENE image provided. DO NOT redraw from scratch. Modify ONLY: reduce player mobs to 3-5 blobs, set enemy HP bar to near-empty. Keep cannon, gates, road, and environment identical.`
-          : undefined;
+      const continuityNote = undefined;
 
       const url=await callImageDirect(imagePromptFn(concept,scene,continuityNote),[...refParts,...prevParts]);
       setConcepts(p=>p.map((c,i)=>i===ci?{...c,[scene==="scene"?"visual_scene":`visual_${scene}`]:url}:c));
@@ -3100,9 +3199,9 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                   <div style={{ marginBottom:14 }}>
                     <span style={labelStyle}>Scene renders</span>
                     {c.is_experimental&&<div style={{ marginBottom:8,padding:"7px 12px",background:"#2a1a2e",border:"0.5px solid #9d174d",borderRadius:7,fontSize:11,color:"#f472b6" }}>⚠ Experimental biome — no spend data. Use for inspiration only.</div>}
-                    {!c.is_experimental&&PROVEN_BIOMES.includes(c.visual_identity?.environment)&&<div style={{ marginBottom:8,padding:"7px 12px",background:D.greenBg,border:`0.5px solid ${D.greenBdr}`,borderRadius:7,fontSize:11,color:D.green }}>Render Start → Middle → End first, then Hook last.</div>}
+                    {!c.is_experimental&&PROVEN_BIOMES.includes(c.visual_identity?.environment)&&<div style={{ marginBottom:8,padding:"7px 12px",background:D.greenBg,border:`0.5px solid ${D.greenBdr}`,borderRadius:7,fontSize:11,color:D.green }}>Render Scene first — then Hook A, B, C in any order.</div>}
                     <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8 }}>
-                      {(["start","middle","end","hook"] as const).map(scene=>{
+                      {(["scene","hook_a","hook_b","hook_c"] as const).map(scene=>{
                         const imgUrl=(scene==="scene"?(c.visual_scene||c.visual_start):c[`visual_${scene}` as keyof Concept]) as string|undefined;
                         const loading=renderingScene[`${ci}-${scene}`];
                         const isHook=scene!=="scene";
@@ -3117,19 +3216,39 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                         const sceneColor={scene:D.blue,hook_a:D.red,hook_b:D.purple,hook_c:D.gold}[scene]||D.blue;
                         const borderColor=isNext?sceneColor:D.border;
                         const borderWidth=isNext?"1.5px":"0.5px";
-                        const sceneLabel={scene:"Scene",hook_a:"Hook A",hook_b:"Hook B",hook_c:"Hook C"}[scene]||scene;
+                        const sceneLabel={scene:"SCENE",hook_a:"HOOK A",hook_b:"HOOK B",hook_c:"HOOK C"}[scene]||scene;
+                        const sceneSubLabel={scene:"Top-down lane",hook_a:"Gameplay Boss",hook_b:"Comedy/Narrative",hook_c:"Stopwatch/Viral"}[scene]||"";
                         const lockedMsg="Render Scene first";
                         return (
                           <div key={scene} style={{ aspectRatio:"9/16",background:D.surface2,borderRadius:10,border:`${borderWidth} solid ${borderColor}`,overflow:"hidden",display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"center",cursor:needsPrev?"not-allowed":"pointer",position:"relative" as const,transition:"border-color .2s" }}
-                            onClick={()=>(!imgUrl||(c as any)[`render_err_${scene}`])&&!loading&&!needsPrev&&handleRenderScene(ci,scene)}>
+                            onClick={()=>!loading&&!needsPrev&&(!(c as any)[`render_err_${scene}`]&&imgUrl?undefined:handleRenderScene(ci,scene))}>
                             {isNext&&!imgUrl&&<div style={{ position:"absolute" as const,top:6,left:0,right:0,display:"flex",justifyContent:"center" }}>
-                              <span style={{ fontSize:9,padding:"2px 7px",background:sceneColor,color:"#fff",borderRadius:20,fontWeight:600,letterSpacing:"0.05em" }}>{scene==="start"?"START HERE":"RENDER NEXT"}</span>
+                              <span style={{ fontSize:9,padding:"2px 7px",background:sceneColor,color:"#fff",borderRadius:20,fontWeight:600,letterSpacing:"0.05em" }}>{scene==="scene"?"START HERE":"RENDER NEXT"}</span>
                             </div>}
-                            {imgUrl?<img src={imgUrl} alt={scene} onClick={e=>{e.stopPropagation();const scenes=(["scene","hook_a","hook_b","hook_c"] as const).map(s=>c[s==="scene"?"visual_scene":`visual_${s}` as keyof Concept] as string|undefined).filter(Boolean) as string[];const idx=scenes.indexOf(imgUrl!);setZoomedFrameList(scenes);setZoomedFrameIndex(Math.max(idx,0));setZoomedFrame(imgUrl!);}} style={{ width:"100%",height:"100%",objectFit:"contain",background:"#0a0c10",cursor:"zoom-in" }} />
+                            {imgUrl?(
+                              <div style={{ position:"relative" as const,width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center" }}>
+                                <img src={imgUrl} alt={scene}
+                                  onClick={e=>{e.stopPropagation();const scenes=(["scene","hook_a","hook_b","hook_c"] as const).map(s=>c[s==="scene"?"visual_scene":`visual_${s}` as keyof Concept] as string|undefined).filter(Boolean) as string[];const idx=scenes.indexOf(imgUrl!);setZoomedFrameList(scenes);setZoomedFrameIndex(Math.max(idx,0));setZoomedFrame(imgUrl!);}}
+                                  style={{ width:"100%",height:"100%",objectFit:"contain",background:"#0a0c10",display:"block",opacity:loading?0.4:1,transition:"opacity .2s" }} />
+                                {/* Loading overlay when editing in progress */}
+                                {loading&&<div style={{ position:"absolute" as const,inset:0,display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"center",gap:8 }}>
+                                  <div style={{ width:20,height:20,borderRadius:"50%",border:`2px solid ${sceneColor}44`,borderTopColor:sceneColor,animation:"spin .7s linear infinite" }} />
+                                  <span style={{ fontSize:9,color:sceneColor,fontWeight:600 }}>Editing…</span>
+                                </div>}
+                                {/* Re-render / Edit overlay — appears on hover when not loading */}
+                                {!loading&&<div className="rerender-overlay" onClick={e=>{e.stopPropagation();handleRenderScene(ci,scene);}}
+                                  style={{ position:"absolute" as const,inset:0,background:"rgba(0,0,0,0)",display:"flex",flexDirection:"column" as const,alignItems:"center",justifyContent:"flex-end",padding:"10px",opacity:0,transition:"opacity .18s,background .18s",cursor:"pointer" }}
+                                  onMouseEnter={e=>{(e.currentTarget as HTMLDivElement).style.opacity="1";(e.currentTarget as HTMLDivElement).style.background="rgba(0,0,0,0.55)";}}
+                                  onMouseLeave={e=>{(e.currentTarget as HTMLDivElement).style.opacity="0";(e.currentTarget as HTMLDivElement).style.background="rgba(0,0,0,0)";}}>
+                                  <div style={{ padding:"5px 10px",borderRadius:6,background:sceneColor,color:"#fff",fontSize:10,fontWeight:600,letterSpacing:"0.04em",whiteSpace:"nowrap" as const }}>✏ Edit image</div>
+                                  <div style={{ marginTop:4,fontSize:8,color:"rgba(255,255,255,0.7)",textAlign:"center" as const }}>Edits existing render</div>
+                                </div>}
+                              </div>
+                            )
                               :loading?<p style={{ margin:0,fontSize:11,fontWeight:500,color:D.textMuted }}>Rendering…</p>
                               :(c as any)[`render_err_${scene}`]?<div style={{ textAlign:"center" as const,padding:"8px 6px" }}><p style={{ margin:0,fontSize:9,color:D.red,fontWeight:600 }}>Failed — click to retry</p><p style={{ margin:"5px 0 0",fontSize:8,color:D.textDim,wordBreak:"break-word" as const,lineHeight:1.4 }}>{((c as any)[`render_err_${scene}`] as string).slice(0,180)}</p></div>
                               :needsPrev?<div style={{ textAlign:"center" as const,padding:10 }}><p style={{ margin:0,fontSize:10,color:D.textDim,textTransform:"uppercase" as const }}>{sceneLabel}</p><p style={{ margin:"4px 0 0",fontSize:9,color:D.textDim }}>{lockedMsg}</p></div>
-                              :<div style={{ textAlign:"center" as const,padding:10,marginTop:isNext?18:0 }}><p style={{ margin:0,fontSize:11,fontWeight:500,textTransform:"uppercase" as const,color:isNext?sceneColor:D.textDim }}>{sceneLabel}</p><p style={{ margin:"4px 0 0",fontSize:9,color:isNext?sceneColor:D.textDim }}>{isNext?"Render next":"Click to render"}</p></div>}
+                              :<div style={{ textAlign:"center" as const,padding:10,marginTop:isNext?18:0 }}><p style={{ margin:0,fontSize:11,fontWeight:600,textTransform:"uppercase" as const,color:isNext?sceneColor:D.textDim,letterSpacing:"0.05em" }}>{sceneLabel}</p><p style={{ margin:"3px 0 0",fontSize:8,color:isNext?`${sceneColor}cc`:D.textDim,fontStyle:"italic" }}>{sceneSubLabel}</p><p style={{ margin:"6px 0 0",fontSize:9,color:isNext?sceneColor:D.textDim }}>{isNext?"Click to render":"Click to render"}</p></div>}
                           </div>
                         );
                       })}
@@ -3143,27 +3262,63 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                       <span style={{ fontSize:11,color:D.textDim }}>Changes apply instantly — renders auto-clear if needed</span>
                     </div>
                     <div style={{ padding:"12px 14px" }}>
-                      <div style={{ display:"flex",gap:6,marginBottom:10,flexWrap:"wrap" as const }}>
-                        {[
-                          {label:"Fix cannon tier",text:"Fix the unit_evolution_chain to exactly match what's described in the brief. Ensure the cannon model shown at each scene matches the correct tier."},
-                          {label:"Change biome",text:"Change biome to "},
-                          {label:"More tension",text:"Make the almost-fail moment more extreme — reduce surviving mobs to 1-2. Heighten the tension_moments description."},
-                          {label:"Aggressive hook",text:"Make the hook more aggressive and threatening. Enemy boss should dominate the frame."},
-                          {label:"🔄 Regen renders",text:"__REGEN__"},
-                          {label:"📋 Regen script",text:"__REGEN_SCRIPT__"},
-                        ].map(({label,text})=>(
-                          <button key={label} onClick={()=>{
-                            if(text==="__REGEN__"){
-                              setConcepts(p=>p.map((cc,i)=>i===ci?{...cc,visual_hook:undefined,visual_start:undefined,visual_middle:undefined,visual_end:undefined}:cc));
-                              setRefineErr(p=>({...p,[ci]:"Renders cleared — click render buttons to regenerate."}));
-                            } else if(text==="__REGEN_SCRIPT__"){
-                              handleRegenScript(ci);
-                            } else {
-                              setRefineTexts(p=>({...p,[ci]:text}));
-                            }
-                          }} style={{ fontSize:11,padding:"4px 11px",borderRadius:20,border:`0.5px solid ${label.includes("script")?D.goldBdr:label.includes("Regen")?D.greenBdr:D.blueDark}`,color:label.includes("script")?D.gold:label.includes("Regen")?D.green:D.blue,background:label.includes("script")?D.goldBg:label.includes("Regen")?D.greenBg:D.blueBg,cursor:"pointer",fontFamily:"inherit",transition:"opacity .15s" }}>{label}</button>
-                        ))}
-                      </div>
+                      {/* Google-style dynamic suggestion chips — context-aware, filter as you type */}
+                      {(()=>{
+                        const currentText=(refineTexts[ci]||"").toLowerCase();
+                        const vi=c.visual_identity||{};
+                        const biome=vi.environment||"";
+                        const chain=(c.unit_evolution_chain||[]).join(" → ");
+                        type ChipColor="blue"|"red"|"green"|"gold"|"purple";
+                        const allSuggestions:{label:string;text:string;color:ChipColor}[]=[
+                          // Biome swaps — only OTHER proven biomes
+                          ...PROVEN_BIOMES.filter(b=>b!==biome).slice(0,3).map(b=>({label:`→ ${b}`,text:`Change biome to ${b}`,color:"blue" as ChipColor})),
+                          // Tension
+                          {label:"More tension",text:"Make the almost-fail moment more extreme — reduce surviving mobs to 1-2. Heighten the tension_moments description.",color:"red"},
+                          // Hook
+                          {label:"Stronger hook",text:"Make the hook more aggressive and threatening. Enemy boss should dominate the frame at the hook moment.",color:"red"},
+                          // Chain improvements
+                          ...(!chain.includes("Triple Cannon")?[{label:"Add Triple Cannon",text:"Add Triple Cannon to the unit_evolution_chain. Update upgrade_triggers accordingly.",color:"green" as ChipColor}]:[]),
+                          ...(!chain.includes("Tank")?[{label:"Add Tank tier",text:"Extend the unit_evolution_chain to include Tank as the final tier. Add an upgrade trigger for the Tank.",color:"green" as ChipColor}]:[]),
+                          // Network cuts
+                          {label:"AppLovin cut",text:"Optimize the hook for AppLovin — fast cut within 2s, cannon visible immediately, no slow build.",color:"purple"},
+                          {label:"Facebook story",text:"Optimize for Facebook — slower emotional build, player motivation highlighted in first 3s.",color:"purple"},
+                          // Visual
+                          {label:"Darker mood",text:"Make the lighting darker and more dramatic. Increase tension through the mood_notes.",color:"gold"},
+                          // Fix
+                          {label:"Fix cannon tier",text:"Fix the unit_evolution_chain to exactly match what's described in the brief. Ensure the cannon model shown at each scene matches the correct tier.",color:"blue"},
+                        ];
+                        // Filter when user is typing — show chips matching typed keywords
+                        const filtered=currentText.length>2
+                          ?allSuggestions.filter(s=>{const kw=currentText.split(" ").filter((w:string)=>w.length>2);return kw.some((k:string)=>s.label.toLowerCase().includes(k)||s.text.toLowerCase().includes(k));})
+                          :allSuggestions.slice(0,6);
+                        const toShow=filtered.length>0?filtered:allSuggestions.slice(0,5);
+                        const utilChips:[string,string,ChipColor][]=[["🔄 Regen renders","__REGEN__","green"],["📋 Regen script","__REGEN_SCRIPT__","gold"]];
+                        const cm:{[k in ChipColor]:{bg:string;text:string;border:string}}={
+                          blue:{bg:D.blueBg,text:D.blue,border:D.blueDark},
+                          red:{bg:D.redBg,text:D.red,border:"#6e2020"},
+                          green:{bg:D.greenBg,text:D.green,border:D.greenBdr},
+                          gold:{bg:D.goldBg,text:D.gold,border:D.goldBdr},
+                          purple:{bg:D.purpleBg,text:D.purple,border:D.purpleBdr},
+                        };
+                        return (
+                          <div style={{ display:"flex",gap:5,marginBottom:10,flexWrap:"wrap" as const }}>
+                            {toShow.map(({label,text,color})=>(
+                              <button key={label} onClick={()=>setRefineTexts(p=>({...p,[ci]:text}))}
+                                style={{ fontSize:11,padding:"4px 11px",borderRadius:20,border:`0.5px solid ${cm[color].border}`,color:cm[color].text,background:cm[color].bg,cursor:"pointer",fontFamily:"inherit",transition:"opacity .15s",whiteSpace:"nowrap" as const }}>
+                                {label}
+                              </button>
+                            ))}
+                            {utilChips.map(([label,text,color])=>(
+                              <button key={label} onClick={()=>{
+                                if(text==="__REGEN__"){setConcepts(p=>p.map((cc,i)=>i===ci?{...cc,visual_scene:undefined,visual_start:undefined,visual_hook_a:undefined,visual_hook_b:undefined,visual_hook_c:undefined,visual_hook:undefined,visual_middle:undefined,visual_end:undefined}:cc));setRefineErr(p=>({...p,[ci]:"Renders cleared — click render buttons to regenerate."}));}
+                                else if(text==="__REGEN_SCRIPT__"){handleRegenScript(ci);}
+                              }} style={{ fontSize:11,padding:"4px 11px",borderRadius:20,border:`0.5px solid ${cm[color].border}`,color:cm[color].text,background:cm[color].bg,cursor:"pointer",fontFamily:"inherit",transition:"opacity .15s",whiteSpace:"nowrap" as const }}>
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })()}
                       <textarea
                         value={refineTexts[ci]||""}
                         onChange={e=>setRefineTexts(p=>({...p,[ci]:e.target.value}))}
