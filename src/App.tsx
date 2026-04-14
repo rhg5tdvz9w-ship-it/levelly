@@ -4,6 +4,7 @@ import { buildReferenceParts, MOC_REFERENCES } from "./refImages";
 import type { EmotionalBeat, DNASegment, DNAEntry, FrameExtraction, UploadConfig, VisualIdentity, ScriptStep, PerformanceHook, QualityScore, NetworkAdaptations, Concept, BriefAnalysis, SortMode } from "./types";
 import { BIOME_GUIDE, CHAMPION_GUIDE, MOC_EVENTS_GUIDE, GATE_GUIDE, HOOK_GUIDE, TIMESTAMP_RULES, frameExtractionSystem, hookDetectionSystem, parseContextFacts, analyzeSystem, REFINE_FIELD_GROUPS, refinementSystem, reanalysisSystem, briefSystem, CANNON_VISUALS, imagePromptFn, ENHANCE_UPLOAD_SYSTEM, ENHANCE_REFINE_SYSTEM, ENHANCE_BRIEF_SYSTEM } from "./prompts";
 import { saveFramesToIDB, mergeFramesFromIDB } from "./storage";
+import { velocityPerDay, sanitizeDNA, buildLineageChain, parentValidation, sortLib } from "./library";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const TIERS = ["winner", "scalable", "failed", "inspiration"] as const;
@@ -28,8 +29,6 @@ const WINDOW_OPTIONS = [
   { value: 7, label: "7d" }, { value: 14, label: "14d" }, { value: 30, label: "30d" },
   { value: 60, label: "60d" }, { value: 90, label: "90d" }, { value: 180, label: "6mo" }, { value: 365, label: "1yr+" },
 ];
-const SPEND_RANK: Record<string, number> = { "1M": 5, "500K": 4, "300K": 3, "100K": 2, "sub100K": 1 };
-
 // Analysis steps for homepage progress indicator (#7)
 const ANALYSIS_STEPS = [
   { key: "uploading",  label: "Uploading video" },
@@ -87,13 +86,6 @@ const chipStyle = (active: boolean, color: "blue"|"green" = "blue"): React.CSSPr
   color: active ? (color === "green" ? D.green : D.blue) : D.textMuted,
 });
 
-function velocityPerDay(tier: string, days: number | null | undefined): string | null {
-  if (!tier || !days || tier === "sub100K") return null;
-  const amounts: Record<string, number> = { "100K": 100000, "300K": 300000, "500K": 500000, "1M": 1000000 };
-  const v = amounts[tier]; if (!v) return null;
-  return `~$${Math.round(v / days).toLocaleString()}/day`;
-}
-
 // ─── API calls ────────────────────────────────────────────────────────────────
 async function callGeminiDirect(systemPrompt: string, contentParts: any[]): Promise<any> {
   const body = JSON.stringify({ system_instruction: { parts: [{ text: systemPrompt }] }, contents: [{ role: "user", parts: contentParts }], generationConfig: { response_mime_type: "application/json" } });
@@ -135,27 +127,6 @@ function parseJSON(text: string): any {
   }
 }
 
-// Ensure all array fields on a raw DNA response are actually arrays — prevents "e is not iterable"
-function sanitizeDNA(raw: any): any {
-  if (!raw || typeof raw !== "object") return {};
-  const ARRAY_FIELDS = ["emotional_beats","gate_sequence","unit_evolution_chain","champions_visible","auto_frames","manual_frames","spend_networks","segments","production_script","performance_hooks","upgrade_triggers","tension_moments","frame_emotions","giant_kills"];
-  const out = { ...raw };
-  for (const field of ARRAY_FIELDS) {
-    if (!Array.isArray(out[field])) out[field] = out[field] ? [out[field]] : [];
-  }
-  // Also sanitize array fields inside each segment
-  if (Array.isArray(out.segments)) {
-    out.segments = out.segments.map((seg: any) => {
-      if (!seg || typeof seg !== "object") return seg;
-      const s = { ...seg };
-      for (const f of ["gate_sequence","unit_evolution_chain","champions_visible","emotional_beats"]) {
-        if (!Array.isArray(s[f])) s[f] = s[f] ? [s[f]] : [];
-      }
-      return s;
-    });
-  }
-  return out;
-}
 
 function parseDataURI(uri: string): { mimeType: string; data: string } {
   const m = uri.match(/^data:([^;]+);base64,(.+)$/s);
@@ -401,61 +372,8 @@ function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string, lib?: any[],
 }
 
 
-// ─── Dynamic lineage chain builder ───────────────────────────────────────────
-function buildLineageChain(entry: DNAEntry, lib: DNAEntry[]): string[] | null {
-  try {
-    const id = entry.creative_id?.trim();
-    if (!id) return null;
-    const visited = new Set<string>();
-    const chain: string[] = [];
-    let current: DNAEntry | undefined = entry;
-    while (current) {
-      const cid = current.creative_id?.trim();
-      if (!cid || visited.has(cid)) break;
-      visited.add(cid);
-      chain.unshift(cid);
-      const pid = current.parent_id?.trim();
-      if (!pid) break;
-      current = lib.find(e => { const ecid = e.creative_id?.trim(); return ecid && ecid !== "" && ecid === pid; });
-    }
-    const seen = new Set(chain);
-    let tip = id; let found = true; let safety = 0;
-    while (found && safety++ < 50) {
-      found = false;
-      const child = lib.find(e => { const epid = e.parent_id?.trim(); const ecid = e.creative_id?.trim(); return epid && epid !== "" && epid === tip && ecid && !seen.has(ecid); });
-      if (child?.creative_id) { const cid = child.creative_id.trim(); seen.add(cid); chain.push(cid); tip = cid; found = true; }
-    }
-    return chain.length > 1 ? chain : null;
-  } catch { return null; }
-}
 
-// ─── Parent ID validator ──────────────────────────────────────────────────────
-function parentValidation(parentId: string, currentId: string, lib: DNAEntry[]) {
-  const pid = parentId.trim();
-  if (!pid) return null;
-  const found = lib.find(e => e.creative_id?.trim() === pid && e.creative_id?.trim() !== currentId.trim());
-  if (found) return { color: D.green, border: D.greenBdr, bg: D.greenBg, msg: `✓ Found: ${found.creative_id}` };
-  return { color: "#f0c53a", border: "#9e6a03", bg: "#2a1a0a", msg: `⚠ Not found in library` };
-}
 
-// ─── Sorted library helper ────────────────────────────────────────────────────
-function sortLib(lib: DNAEntry[], mode: SortMode): DNAEntry[] {
-  const filtered = mode === "all" ? lib : lib.filter(d => d.tier === mode);
-  const active = filtered.filter(d => d.creative_status !== "fatigued");
-  const fatigued = filtered.filter(d => d.creative_status === "fatigued");
-  const now = Date.now();
-  const bySpendThenNewest = (a: DNAEntry, b: DNAEntry) => {
-    const aNew = !a.spend_tier && (now - new Date(a.added_at).getTime()) < 48 * 60 * 60 * 1000;
-    const bNew = !b.spend_tier && (now - new Date(b.added_at).getTime()) < 48 * 60 * 60 * 1000;
-    // Untagged entries added in last 48h float to top
-    if (aNew && !bNew) return -1;
-    if (bNew && !aNew) return 1;
-    const spendDiff = (SPEND_RANK[b.spend_tier??""]??0) - (SPEND_RANK[a.spend_tier??""]??0);
-    if (spendDiff !== 0) return spendDiff;
-    return new Date(b.added_at).getTime() - new Date(a.added_at).getTime();
-  };
-  return [...active.sort(bySpendThenNewest), ...fatigued.sort(bySpendThenNewest)];
-}
 
 // ─── #7 Analysis Progress Panel ───────────────────────────────────────────────
 function AnalysisProgressPanel({ step, fileName, error }: { step: string; fileName: string; error: string }) {
