@@ -1,11 +1,11 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { buildReferenceParts, MOC_REFERENCES } from "./refImages";
 
-import type { EmotionalBeat, DNASegment, DNAEntry, FrameExtraction, UploadConfig, VisualIdentity, ScriptStep, PerformanceHook, QualityScore, NetworkAdaptations, Concept, BriefAnalysis, SortMode } from "./types";
-import { BIOME_GUIDE, CHAMPION_GUIDE, MOC_EVENTS_GUIDE, GATE_GUIDE, HOOK_GUIDE, TIMESTAMP_RULES, frameExtractionSystem, hookDetectionSystem, parseContextFacts, analyzeSystem, REFINE_FIELD_GROUPS, refinementSystem, reanalysisSystem, briefSystem, CANNON_VISUALS, imagePromptFn, ENHANCE_UPLOAD_SYSTEM, ENHANCE_REFINE_SYSTEM, ENHANCE_BRIEF_SYSTEM } from "./prompts";
+import type { DNAEntry, FrameExtraction, UploadConfig, Concept, BriefAnalysis, SortMode } from "./types";
+import { frameExtractionSystem, hookDetectionSystem, parseContextFacts, analyzeSystem, refinementSystem, reanalysisSystem, briefSystem, imagePromptFn } from "./prompts";
 import { saveFramesToIDB, mergeFramesFromIDB } from "./storage";
 import { velocityPerDay, sanitizeDNA, buildLineageChain, parentValidation, sortLib } from "./library";
-import { GEMINI_KEY, GEMINI_IMAGE_URL, callGeminiDirect, parseJSON, parseDataURI, callImageDirect, uploadToGeminiFileAPI, fileToBase64, extractFramesFromVideo } from "./analysis";
+import { GEMINI_IMAGE_URL, callGeminiDirect, parseDataURI, callImageDirect, uploadToGeminiFileAPI, fileToBase64, extractFramesFromVideo } from "./analysis";
 import { enhanceText } from "./briefing";
 import { pickRelevantRefs } from "./rendering";
 
