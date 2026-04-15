@@ -1,5 +1,5 @@
 import type { Handler } from "@netlify/functions";
-import { getStore } from "@netlify/blobs";
+import { connectLambda, getStore } from "@netlify/blobs";
 
 export const handler: Handler = async (event) => {
   const headers = {
@@ -9,6 +9,10 @@ export const handler: Handler = async (event) => {
   };
 
   if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers, body: "" };
+
+  // Required: generate-brief-background writes Blobs via connectLambda,
+  // so the reader must also use connectLambda to see the same data.
+  connectLambda(event);
 
   try {
     const jobId = event.queryStringParameters?.id;
