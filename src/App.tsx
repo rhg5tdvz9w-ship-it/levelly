@@ -1028,6 +1028,7 @@ export default function App() {
   const [briefRef, setBriefRef] = useState<{ base64: string; mimeType: string; name: string } | null>(null);
   const [generating, setGenerating] = useState(false);
   const [briefErr, setBriefErr] = useState("");
+  const [briefProgress, setBriefProgress] = useState("");
   const [concepts, setConcepts] = useState<Concept[]>([]);
   const [briefAnalysis, setBriefAnalysis] = useState<BriefAnalysis|null>(null);
   const [expandedConcept, setExpandedConcept] = useState<number|null>(null);
@@ -1405,7 +1406,7 @@ For each description above:
   const handleGenerateBrief = async () => {
     if (!briefCtx.trim()) { setBriefErr("Enter a brief context first."); return; }
     if (lib.length === 0) { setBriefErr("Add at least one ad first."); return; }
-    setGenerating(true); setBriefErr(""); setConcepts([]); setBriefAnalysis(null);
+    setGenerating(true); setBriefErr(""); setBriefProgress("Starting brief generation…"); setConcepts([]); setBriefAnalysis(null);
     try {
       const refNote = briefRef ? `User visual reference: "${briefRef.name}"` : undefined;
       const trimmedLib = lib
@@ -1440,6 +1441,7 @@ For each description above:
 
       // Poll every 2s for up to 5 minutes
       let lastConceptCount = 0;
+      setBriefProgress("Generating concept 1 of 4…");
       for (let i = 0; i < 240; i++) {
         await new Promise(r => setTimeout(r, 2000));
         const pollRes = await fetch(`/api/brief-result?id=${jobId}`);
@@ -1457,9 +1459,27 @@ For each description above:
             if (lastConceptCount === 0 && i === 0) setExpandedConcept(0);
           });
           lastConceptCount = job.concepts.length;
+
+          // Update progress indicator
+          const failCount = Array.isArray(job.failures) ? job.failures.length : 0;
+          const done = lastConceptCount;
+          const next = done + failCount + 1;
+          if (job.status === "partial" && next <= 4) {
+            setBriefProgress(`✓ ${done} concept${done>1?"s":""} ready — generating ${next} of 4…`);
+          } else if (job.status === "partial") {
+            setBriefProgress(`✓ ${done} concept${done>1?"s":""} ready — finishing up…`);
+          }
         }
 
-        if (job.status === "done") return;
+        if (job.status === "done") {
+          const failCount = Array.isArray(job.failures) ? job.failures.length : 0;
+          if (failCount > 0) {
+            setBriefProgress(`✓ ${lastConceptCount} concept${lastConceptCount>1?"s":""} generated (${failCount} failed)`);
+          } else {
+            setBriefProgress(`✓ All ${lastConceptCount} concepts generated`);
+          }
+          return;
+        }
       }
       throw new Error("Brief generation timed out — please try again");
     } catch (err: any) { setBriefErr(err.message); }
@@ -2087,9 +2107,17 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                 <ReferenceDropZone onRef={setBriefRef} currentRef={briefRef} onClear={() => setBriefRef(null)} iterateFrom={iterateFrom} onIterateFrom={setIterateFrom} />
               </div>
               <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderTop:`0.5px solid ${D.border}` }}>
-                <span style={{ fontSize:11,color:D.textDim }}>Generating for <strong style={{ color:D.text }}>Whale</strong> + <strong style={{ color:D.text }}>Dolphin</strong></span>
+                {generating && briefProgress
+                  ? <span style={{ fontSize:11,color:D.green,fontWeight:500,display:"flex",alignItems:"center",gap:6 }}>
+                      <span style={{ width:10,height:10,borderRadius:"50%",border:"1.5px solid rgba(63,185,80,0.3)",borderTopColor:D.green,display:"inline-block",animation:"spin .6s linear infinite" }} />
+                      {briefProgress}
+                    </span>
+                  : !generating && briefProgress
+                  ? <span style={{ fontSize:11,color:briefProgress.includes("failed")?D.gold:D.green,fontWeight:500 }}>{briefProgress}</span>
+                  : <span style={{ fontSize:11,color:D.textDim }}>Generating for <strong style={{ color:D.text }}>Whale</strong> + <strong style={{ color:D.text }}>Dolphin</strong></span>
+                }
                 <button onClick={generating ? undefined : handleGenerateBrief} style={{ ...btnPri,display:"flex",alignItems:"center",gap:6,background:generating?"#1a7f37":D.blueDark,border:generating?`1px solid ${D.greenBdr}`:"none",transition:"background .3s",cursor:generating?"default":"pointer" }}>
-                  {generating?<><span style={{ width:10,height:10,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.3)",borderTopColor:"#fff",display:"inline-block",animation:"spin .6s linear infinite" }} />Generating…</>:"Generate concepts ↗"}
+                  {generating?"Generating…":"Generate concepts ↗"}
                 </button>
               </div>
               {briefErr&&<div style={{ fontSize:11,color:D.red,background:D.redBg,border:`0.5px solid #6e2020`,borderRadius:7,padding:"7px 12px",margin:"0 16px 12px" }}>{briefErr}</div>}
