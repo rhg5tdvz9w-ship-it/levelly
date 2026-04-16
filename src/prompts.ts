@@ -283,15 +283,26 @@ Yellow Normie flashes white and blue when hit. This is always Yellow Normie with
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-ANALYSIS APPROACH:
-Your PRIMARY source of truth is the EXTRACTED FRAME IMAGES. Each frame is independent evidence. For every event you report, point to which frame shows it.
-DO NOT use temporal reasoning between frames. If an event is not visible in at least one frame — it did not happen (except events in GROUND TRUTH).
-DISCIPLINE: When in doubt — omit rather than guess. Under-reporting is always better than hallucinating.
+ANALYSIS — TWO STEPS IN ONE OUTPUT:
+
+STEP 1 — OBSERVE: Scan all frames and list 8-12 KEY EVENTS only. Each event must be visible in at least one frame.
+KEY EVENT TYPES: hook (first dramatic visual), gate (xN or +N pass with value), upgrade (container destroyed + cannon shape change), boss_appear (giant first visible with HP), boss_damage (HP crosses 75%/50%/25%/near-zero), boss_death (HP:0 visible or body absent), container (obstacle destroyed), swarm (max mobs), almost_fail (mob count critical), almost_win (tower HP critical), loss (FAILED screen).
+DO NOT add events you cannot see in a frame. If unsure — omit. 8-12 events total, not one per second.
+
+STEP 2 — BUILD DNA: Derive every field FROM your key_events. If no key_event supports a value, leave it empty/null.
+- unit_evolution_chain: ONLY from upgrade key_events. No upgrade events = ["Simple Cannon"].
+- gate_sequence: ONLY from gate key_events.
+- giant_kills: ONLY from boss_death key_events.
+- hook_timing_seconds: from the hook key_event.
+- loss_event_timing_seconds: from the loss key_event.
+
+CONSISTENCY CHECK: Every upgrade in unit_evolution_chain must have a matching upgrade key_event. Every giant_kills entry must have a matching boss_death key_event. gate_sequence must only contain gates from gate key_events. If a DNA field contradicts your key_events — fix the DNA field, not the events.
+
 AD TYPE:${config.ad_type} TIER:${config.tier} DURATION:${duration}s
 ${hasRefs?buildReferenceContext():""}
-${!hasFrameImages?`TIMESTAMP MAP (significance tags only — do NOT use these descriptions to identify cannon tiers or infer events):\n${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] (${f.significance})`).join("\n"):"none"}`:"FRAME IMAGES PROVIDED — these are your primary source of truth. Ignore timestamp map descriptions; use frame images only."}
-CANNON TIER NAMING: Use ONLY tier names from locked unit_evolution_chain. If chain is locked, those are the only valid names — do not identify tiers from visual appearance alone.
-UNIT EVOLUTION CHAIN: If PRE-LOCKED — use exactly. If not locked: ONLY add a tier when you have (a) a frame showing an upgrade container with cannon icon being destroyed AND (b) the cannon visually changes shape in the next frame. Both required. Default if no evidence: ["Simple Cannon"].
+${!hasFrameImages?`TIMESTAMP MAP (significance tags only):\n${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] (${f.significance})`).join("\n"):"none"}`:"FRAME IMAGES PROVIDED — primary source of truth. Use frame images only."}
+CANNON TIER NAMING: Use ONLY tier names from locked unit_evolution_chain. If chain is locked, those are the only valid names.
+UNIT EVOLUTION CHAIN: If PRE-LOCKED — use exactly. If not locked: ONLY add a tier when a frame shows (a) upgrade container with cannon icon destroyed AND (b) cannon shape change in next frame. Default: ["Simple Cannon"].
 ${TIMESTAMP_RULES}
 ${HOOK_GUIDE}
 ${GATE_GUIDE}
@@ -299,7 +310,8 @@ ${MOC_EVENTS_GUIDE}
 ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
-Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string,"tension_arc":string,"rewatch_factor":string},"frame_extraction_gaps":string}`;
+Return ONLY JSON — key_events FIRST, then DNA fields:
+{"key_events":[{"timestamp_seconds":number,"event_type":"hook|gate|upgrade|boss_appear|boss_damage|boss_death|container|swarm|almost_fail|almost_win|loss","description":string,"frame_evidence":string}],"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string,"tension_arc":string,"rewatch_factor":string},"frame_extraction_gaps":string}`;
 // Field groups for surgical refinement — each group maps to specific concept fields
 export const REFINE_FIELD_GROUPS = {
   visual: ["visual_identity","biome_visual_notes"],
