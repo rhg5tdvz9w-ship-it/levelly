@@ -93,8 +93,8 @@ async function generateConceptWithRetry(
         ? result.concepts[0]
         : null;
 
-      if (!concept || !concept.hook_type) {
-        throw new Error("Parsed OK but concept is empty or missing required fields");
+      if (!concept || !concept.title || !concept.production_script) {
+        throw new Error("Parsed OK but concept is empty or missing required fields (no title or production_script)");
       }
 
       console.log(`brief-background: concept ${conceptNum} parsed OK`);
