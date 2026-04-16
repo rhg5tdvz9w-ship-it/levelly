@@ -53,28 +53,46 @@ gate_sequence FIELD: Include ALL gate passes — both xN gates AND +N gates. For
 export const HOOK_GUIDE = `HOOK: EXACT SECOND thumb stops scrolling. NEVER 0 unless frame-0 drama. hook_timing_seconds=REAL SECOND (2,4,8) NEVER fraction.`;
 export const TIMESTAMP_RULES = `TIMESTAMPS: Real seconds only (0,2,5,8,14,22). NEVER fractions (0.03,0.28). 30s video midpoint=15.`;
 
-export const frameExtractionSystem = () => `Precise video timestamp analyst for Mob Control mobile game ads.
+export const frameExtractionSystem = () => `Precise video timestamp analyst for Mob Control ads.
 
-YOUR ONLY JOB: identify WHICH SECONDS have a visible change. Extract 18-24 timestamps. Every timestamp must show something different from the previous one — no filler.
+YOUR ONLY JOB: identify WHICH SECONDS contain a performance-relevant visual event. Extract dense coverage (18-24 timestamps) but EVERY timestamp must have a real reason — do not add timestamps where nothing changes.
 
-TIMESTAMP THESE (all of them):
-- Gate pass (xN or +N) with exact value
-- Container/obstacle destruction
-- Cannon shape change (upgrade)
-- Giant/boss: first appearance, HP thresholds (75%/50%/25%/near-zero), death (HP:0 visible or body gone)
-- Swarm peak (max mobs on screen)
-- Almost-fail (mob count critically low)
+WHAT COUNTS AS A TIMESTAMP (include all of these):
+- Gate pass (xN or +N) — every single one, with exact value
+- Container destruction (upgrade or empty)
+- Cannon shape change (tier upgrade)
+- Giant/boss appearing, taking damage, dying
+- Almost-fail moment (mob count critically low)
+- Swarm peak (maximum mobs on screen)
 - Final defeat / LOST screen
 - Hook moment (first dramatic visual)
+- Any second where something visually changes that affects the player's state
 
-DO NOT TIMESTAMP: identical frames, filler between events. Gaps are fine.
+WHAT DOES NOT GET A TIMESTAMP:
+- Seconds where the scene looks identical to the previous timestamp
+- "Filler" frames just to fill a gap — if nothing happened between 10s and 18s, timestamp 10s and 18s only, not 11-17s
+- Gaps ARE allowed — an 8-second gap with no events is fine if nothing happened
 
-NAMING: Yellow-skinned giant = "Yellow Normie" (flashes white/blue when hit — still Yellow Normie). Gates: report exact values (x3, +1, x100). Cannons: Simple/Double/Triple/Tank. Floating "+1" near cannon = count increase, NOT tier upgrade.
+GIANT DEATH — HIGHEST PRIORITY:
+- If HP bar shows "0" or giant body completely absent from frame → significance "boss_death"
+- HP bar appearing empty or giant flashing white = NOT sufficient
+- NEVER skip a confirmed boss_death
 
-GIANT DEATH: Only report if HP bar shows "0" or giant body completely disappears between frames.
-GATE DESTRUCTION: Only report if gate is present in one frame and completely absent in the next.
+GIANT HP — ONLY TIMESTAMP THESE MOMENTS:
+- First appearance of a giant HP bar
+- HP crosses a major threshold: ~75%, ~50%, ~25%, ~10%, or near-zero
+- HP reaches 0 (boss_death)
+- Do NOT timestamp every HP tick
 
-Use real seconds only (0, 2, 5, 8, 14). Never fractions.
+GATE DESTRUCTION: ONLY timestamp if gate is present in one frame and completely absent in the next. No inference from proximity.
+
++N GATE: always timestamp. Description: "+[N] gate: cannon count +[N]".
+
+CHAMPION NAMING: Yellow skin = "Yellow Normie". White/blue flash on Yellow Normie = hit VFX, still "Yellow Normie". Different entity = "Unknown giant". NEVER invent names.
+
+CANNON UPGRADES: Only timestamp if cannon shape visually changes. Floating "+1" near cannon = count increase, NOT tier upgrade.
+
+${TIMESTAMP_RULES}
 
 Return ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":number,"description":string,"significance":"hook|gate|upgrade|boss_death|boss_damage|container|swarm|almost_fail|almost_win|loss|win|fail|transition|filler"}]}`;
 export const hookDetectionSystem = () => `Expert mobile ad hook analyst for Mob Control mobile game ads.
