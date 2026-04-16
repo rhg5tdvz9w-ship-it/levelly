@@ -6,3 +6,4 @@ dist
 
 # Library snapshot — actual data lives in Netlify Blobs
 library/library.json
+.claude/
