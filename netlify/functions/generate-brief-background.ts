@@ -65,6 +65,54 @@ function repairJSON(raw: string): any {
   return JSON.parse(str);
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function generateConceptWithRetry(
+  system: string,
+  prompt: string,
+  apiKey: string,
+  maxTokens: number,
+  conceptNum: number,
+): Promise<{ concept: any; analysis?: any } | null> {
+  const MAX_ATTEMPTS = 2;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const label = attempt === 1 ? "" : ` (retry)`;
+      console.log(`brief-background: generating concept ${conceptNum}${label}`);
+
+      const text = await callClaude(system, prompt, apiKey, maxTokens);
+      console.log(`brief-background: concept ${conceptNum} raw length=${text.length}`);
+
+      const result = repairJSON(text);
+
+      // Validate that we got a real concept, not an empty shell from JSON repair
+      const concept = Array.isArray(result.concepts) && result.concepts.length > 0
+        ? result.concepts[0]
+        : null;
+
+      if (!concept || !concept.hook_type) {
+        throw new Error("Parsed OK but concept is empty or missing required fields");
+      }
+
+      console.log(`brief-background: concept ${conceptNum} parsed OK`);
+      return { concept, analysis: result.analysis ?? undefined };
+    } catch (err: any) {
+      console.error(`concept ${conceptNum} attempt ${attempt} FAILED: ${err.message}`);
+
+      if (attempt < MAX_ATTEMPTS) {
+        console.log(`brief-background: waiting 3s before retry...`);
+        await sleep(3000);
+      }
+    }
+  }
+
+  // Both attempts failed
+  return null;
+}
+
 export const handler: Handler = async (event) => {
   const headers = {
     "Access-Control-Allow-Origin": "*",
@@ -88,12 +136,25 @@ export const handler: Handler = async (event) => {
     const { system } = parsed;
     if (!system || !jobId) return { statusCode: 400, headers, body: JSON.stringify({ error: "Missing fields" }) };
 
+    // Dedup guard: if this job is already in progress, don't start a second one
+    try {
+      const existing = await store.get(`brief:${jobId}`);
+      if (existing) {
+        const existingJob = JSON.parse(existing);
+        if (existingJob.status === "partial" || existingJob.status === "done") {
+          console.log(`brief-background: jobId=${jobId} already ${existingJob.status}, skipping`);
+          return { statusCode: 200, headers, body: JSON.stringify({ jobId, deduplicated: true }) };
+        }
+      }
+    } catch { /* key doesn't exist yet — good, proceed */ }
+
     const apiKey = process.env.ANTHROPIC_API_KEY ?? "";
     console.log(`brief-background: jobId=${jobId} apiKey=${apiKey ? "set" : "MISSING"}`);
 
     await store.set(`brief:${jobId}`, JSON.stringify({ status: "pending", concepts: [], analysis: null }));
 
     const concepts: any[] = [];
+    const failures: string[] = [];
     let analysis: any = null;
 
     const conceptDefs = [
@@ -128,32 +189,33 @@ Return ONLY valid JSON (nothing before or after, NO analysis block):
     ];
 
     for (const def of conceptDefs) {
-      try {
-        console.log(`brief-background: generating concept ${def.num}`);
-        const text = await callClaude(system, def.prompt, apiKey, def.maxTokens);
-        console.log(`brief-background: concept ${def.num} raw length=${text.length}`);
+      const result = await generateConceptWithRetry(system, def.prompt, apiKey, def.maxTokens, def.num);
 
-        const result = repairJSON(text);
-        console.log(`brief-background: concept ${def.num} parsed OK`);
-
+      if (result) {
         if (result.analysis && !analysis) analysis = result.analysis;
-        if (Array.isArray(result.concepts) && result.concepts.length > 0) {
-          concepts.push(result.concepts[0]);
-        }
-
-        await store.set(`brief:${jobId}`, JSON.stringify({
-          status: concepts.length === 4 ? "done" : "partial",
-          concepts,
-          analysis,
-        }));
-        console.log(`brief-background: concept ${def.num} done, total=${concepts.length}`);
-      } catch (err: any) {
-        console.error(`concept ${def.num} FAILED: ${err.message}`);
+        concepts.push(result.concept);
+      } else {
+        failures.push(`concept_${def.num}`);
       }
+
+      // Write progress after each concept (success or fail)
+      await store.set(`brief:${jobId}`, JSON.stringify({
+        status: "partial",
+        concepts,
+        analysis,
+        failures: failures.length > 0 ? failures : undefined,
+      }));
+      console.log(`brief-background: concept ${def.num} ${result ? "done" : "FAILED (2 attempts)"}, total=${concepts.length}`);
     }
 
-    await store.set(`brief:${jobId}`, JSON.stringify({ status: "done", concepts, analysis }));
-    console.log(`brief-background: ALL DONE concepts=${concepts.length}`);
+    // Final write with done status
+    await store.set(`brief:${jobId}`, JSON.stringify({
+      status: "done",
+      concepts,
+      analysis,
+      failures: failures.length > 0 ? failures : undefined,
+    }));
+    console.log(`brief-background: ALL DONE concepts=${concepts.length} failures=${failures.length}`);
 
     return { statusCode: 202, headers, body: JSON.stringify({ jobId }) };
   } catch (err: any) {
