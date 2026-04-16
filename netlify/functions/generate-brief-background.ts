@@ -99,28 +99,28 @@ export const handler: Handler = async (event) => {
     const conceptDefs = [
       {
         num: 1,
-        maxTokens: 6000,
+        maxTokens: 8000,
         prompt: `Generate concept 1: PROVEN biome (Desert/Foggy Forest/Water/Bunker/Meadow), data-backed, network-optimized, is_experimental:false.
 Return ONLY valid JSON (nothing before or after):
 {"analysis":{"patterns_used":string,"dna_sources":[string],"strategy":string},"concepts":[{ONE complete concept object including production_script}]}`
       },
       {
         num: 2,
-        maxTokens: 6000,
+        maxTokens: 8000,
         prompt: `Generate concept 2: PROVEN biome different from concept 1, data-backed, network-optimized, is_experimental:false.
 Return ONLY valid JSON (nothing before or after, NO analysis block):
 {"concepts":[{ONE complete concept object including production_script}]}`
       },
       {
         num: 3,
-        maxTokens: 6000,
+        maxTokens: 8000,
         prompt: `Generate concept 3: ADJACENT biome — take a proven biome and twist it into something fresh (e.g. "Desert at Night", "Flooded Bunker", "Autumn Forest", "Foggy Forest in Rain", "Snow Meadow"). Still grounded in proven visual language but visually distinct. is_experimental:true, include experimental_note explaining the twist and which proven biome it builds on.
 Return ONLY valid JSON (nothing before or after, NO analysis block):
 {"concepts":[{ONE complete concept object including production_script}]}`
       },
       {
         num: 4,
-        maxTokens: 6000,
+        maxTokens: 8000,
         prompt: `Generate concept 4: WILD CARD — pick a completely original biome from this pool (choose ONE, do NOT repeat any biome from concepts 1-3): Underwater Ruins, Crystal Caverns, Overgrown City, Floating Islands, Ancient Temple, Frozen Tundra, Swamp, Cloud Kingdom, Bamboo Forest, Canyon, Underground Mine, Coral Reef, Haunted Castle, Sky Bridge, Shipwreck Bay, Glacier, Jungle Canopy, Sandstorm, Mushroom Grove, Clockwork Factory. Must feel genuinely different from all other concepts. is_experimental:true, include experimental_note.
 Return ONLY valid JSON (nothing before or after, NO analysis block):
 {"concepts":[{ONE complete concept object including production_script}]}`

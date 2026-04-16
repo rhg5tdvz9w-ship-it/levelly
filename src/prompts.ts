@@ -53,144 +53,121 @@ gate_sequence FIELD: Include ALL gate passes — both xN gates AND +N gates. For
 export const HOOK_GUIDE = `HOOK: EXACT SECOND thumb stops scrolling. NEVER 0 unless frame-0 drama. hook_timing_seconds=REAL SECOND (2,4,8) NEVER fraction.`;
 export const TIMESTAMP_RULES = `TIMESTAMPS: Real seconds only (0,2,5,8,14,22). NEVER fractions (0.03,0.28). 30s video midpoint=15.`;
 
-export const frameExtractionSystem = () => `Precise video timestamp analyst for Mob Control ads.
+export const frameExtractionSystem = () => `Precise video timestamp analyst for Mob Control mobile game ads.
 
-YOUR ONLY JOB: identify WHICH SECONDS contain a performance-relevant visual event. Extract dense coverage (18-24 timestamps) but EVERY timestamp must have a real reason — do not add timestamps where nothing changes.
+YOUR ONLY JOB: identify WHICH SECONDS have a visible change. Extract 18-24 timestamps. Every timestamp must show something different from the previous one — no filler.
 
-WHAT COUNTS AS A TIMESTAMP (include all of these):
-- Gate pass (xN or +N) — every single one, with exact value
-- Container destruction (upgrade or empty)
-- Cannon shape change (tier upgrade)
-- Giant/boss appearing, taking damage, dying
-- Almost-fail moment (mob count critically low)
-- Swarm peak (maximum mobs on screen)
+TIMESTAMP THESE (all of them):
+- Gate pass (xN or +N) with exact value
+- Container/obstacle destruction
+- Cannon shape change (upgrade)
+- Giant/boss: first appearance, HP thresholds (75%/50%/25%/near-zero), death (HP:0 visible or body gone)
+- Swarm peak (max mobs on screen)
+- Almost-fail (mob count critically low)
 - Final defeat / LOST screen
 - Hook moment (first dramatic visual)
-- Any second where something visually changes that affects the player's state
 
-WHAT DOES NOT GET A TIMESTAMP:
-- Seconds where the scene looks identical to the previous timestamp
-- "Filler" frames just to fill a gap — if nothing happened between 10s and 18s, timestamp 10s and 18s only, not 11-17s
-- Gaps ARE allowed — an 8-second gap with no events is fine if nothing happened
+DO NOT TIMESTAMP: identical frames, filler between events. Gaps are fine.
 
-GIANT DEATH — HIGHEST PRIORITY:
-- If a frame shows a giant HP bar displaying the NUMBER "0" or "0%" visibly rendered → significance "boss_death"
-- HP bar appearing empty, giant off-screen, or giant flashing white = NOT sufficient — the number "0" must be visible OR the giant must be completely absent from the frame
-- NEVER skip a confirmed boss_death
+NAMING: Yellow-skinned giant = "Yellow Normie" (flashes white/blue when hit — still Yellow Normie). Gates: report exact values (x3, +1, x100). Cannons: Simple/Double/Triple/Tank. Floating "+1" near cannon = count increase, NOT tier upgrade.
 
-DUAL HP BARS — TWO GIANTS SIMULTANEOUSLY:
-- If you see TWO separate HP bars in one frame, describe BOTH independently: "First giant (HP:[X]). Second giant (HP:[Y]) appears." Do NOT merge them or explain one as an "HP update" on the same giant. They are two separate entities. Use significance "boss_damage" for the appearance of the second bar.
+GIANT DEATH: Only report if HP bar shows "0" or giant body completely disappears between frames.
+GATE DESTRUCTION: Only report if gate is present in one frame and completely absent in the next.
 
-GIANT HP — ONLY TIMESTAMP THESE MOMENTS:
-- First appearance of a giant HP bar (any HP value)
-- HP crosses a major threshold: ~75%, ~50%, ~25%, ~10%, or near-zero (under 20HP)
-- HP reaches 0 (boss_death)
-- Do NOT timestamp every HP tick — if a giant goes from HP:694 to HP:601 to HP:347, only timestamp if it crosses a threshold. Skip intermediate damage readings that don't cross a threshold.
-
-GATE DESTRUCTION BY GIANT: ONLY timestamp if you have frame N (gate present) AND frame N+1 (gate completely absent). No inference. No proximity reasoning.
-
-+N GATE: always timestamp. Description: "+[N] gate: cannon count +[N]". If xN and +N occur at same second, one timestamp mentioning both.
-
-CHAMPION NAMING: Yellow skin = "Yellow Normie". White/blue flash on Yellow Normie = hit VFX, still "Yellow Normie (hit flash)". Different entity = "Unknown giant". NEVER invent names.
-
-CANNON UPGRADES: Only timestamp if you see the cannon shape visually change in the frame. Upgrade container must have a cannon icon visible on it. Floating "+1" near cannon = cannon COUNT increase, not tier upgrade.
-
-${MOC_EVENTS_GUIDE}
-
-${TIMESTAMP_RULES}
+Use real seconds only (0, 2, 5, 8, 14). Never fractions.
 
 Return ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":number,"description":string,"significance":"hook|gate|upgrade|boss_death|boss_damage|container|swarm|almost_fail|almost_win|loss|win|fail|transition|filler"}]}`;
 export const hookDetectionSystem = () => `Expert mobile ad hook analyst for Mob Control mobile game ads.
-You will receive a set of extracted frame images and their timestamps. Your job: identify the HOOK — the exact second when a thumb would stop scrolling.
+You will receive extracted frame images and their timestamps. Identify the HOOK — the exact second a thumb would stop scrolling.
 
-HOOK RULES:
-- The hook is the first moment of visual drama, tension, or curiosity. Usually: a giant boss visible, a dangerous gate choice, an almost-fail moment, or an impressive swarm.
-- hook_timing_seconds MUST be one of the timestamp values from the provided frames. Do NOT invent a timestamp not in the list.
-- NEVER return 0 unless the very first frame (0s) contains clear dramatic action (boss on screen, danger, intense moment). A cannon sitting idle at 0s is NOT a hook.
-- The hook is almost always between 1s and 8s. If you cannot identify a clear hook moment, return the earliest frame that shows something interesting (boss visible, gates, action).
-- ${HOOK_GUIDE}
-- ${TIMESTAMP_RULES}
-Return ONLY JSON: {"hook_timing_seconds":number,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_description":string,"hook_a_description":string,"hook_b_description":string,"hook_c_description":string}`;
+RULES:
+- The hook is the first moment of visual drama, tension, or curiosity (boss visible, dangerous gate choice, almost-fail, impressive swarm).
+- hook_timing_seconds MUST be one of the provided frame timestamps. Do NOT invent a timestamp.
+- NEVER return 0 unless frame 0 has clear dramatic action. Idle cannon at 0s is NOT a hook.
+- Hook is usually between 1s and 8s. Use real seconds only, never fractions.
+
+Return ONLY JSON: {"hook_timing_seconds":number,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_description":string}`;
 
 // Parse user context text to extract structured facts that should be locked
-// e.g. "2 upgrades: Simple→Double→Triple" → unit_evolution_chain locked
-// e.g. "giants: Yellow Normie at 7s, White Normie at 12s" → giant_kills locked
+// PRIORITY: arrow notation (Simple→Double→Triple) wins over individual mentions.
+// LAST match wins — user corrections override earlier auto-parsed notes.
 export function parseContextFacts(context: string): { chain?: string[]; giantNames?: string[]; hookSeconds?: number; giantSurvives?: true | string[]; giantKillSeconds?: number; giantKillCount?: number; upgradeSeconds?: number } {
   const result: { chain?: string[]; giantNames?: string[]; hookSeconds?: number; giantSurvives?: true | string[]; giantKillSeconds?: number; giantKillCount?: number; upgradeSeconds?: number } = {};
   if (!context) return result;
   const lc = context.toLowerCase();
-
-  // Parse evolution chain — look for cannon tier names in sequence
-  const tierNames = ["simple cannon", "double cannon", "triple cannon", "tank", "golden jet"];
-  const foundTiers: string[] = [];
-  // Find all tier mentions in order
-  let searchPos = 0;
-  while (searchPos < lc.length) {
-    let nextTier = -1, nextTierName = "";
-    for (const tier of tierNames) {
-      const pos = lc.indexOf(tier, searchPos);
-      if (pos !== -1 && (nextTier === -1 || pos < nextTier)) {
-        nextTier = pos;
-        nextTierName = tier;
-      }
-    }
-    if (nextTier === -1) break;
-    const canonical = nextTierName.split(" ").map(w => w[0].toUpperCase() + w.slice(1)).join(" ");
-    // Skip if tier name is negated ("no Tank", "not Tank", "never reaches Tank")
-    const preceding = lc.slice(Math.max(0, nextTier - 8), nextTier);
-    const negated = /\bno\s+$|\bnot\s+$|\bnever\s+/.test(preceding);
-    if (!negated && !foundTiers.includes(canonical)) foundTiers.push(canonical);
-    searchPos = nextTier + nextTierName.length;
-  }
-  // Also handle abbreviated "simple to triple", "simple → triple" notation
   const abbrevMap: Record<string,string> = {simple:"Simple Cannon",double:"Double Cannon",triple:"Triple Cannon",tank:"Tank","golden jet":"Golden Jet"};
-  if (foundTiers.length < 2) {
-    // Match arrow notation: "simple → double → triple"
-    const arrowChain = context.match(/\b(simple|double|triple|tank|golden jet)(?:\s*(?:→|->|>|\bto\b)\s*(simple|double|triple|tank|golden jet))+/gi)
-      || context.match(/(simple|double|triple|tank)\s+to\s+(simple|double|triple|tank)\s+cannon\s+chain/gi);
-    if (arrowChain) {
-      const parts = arrowChain[0].split(/\s*(?:→|->|>|\bto\b)\s*/i);
-      const chain = parts.map(p => abbrevMap[p.trim().toLowerCase()]).filter(Boolean);
-      if (chain.length >= 2) foundTiers.push(...chain.filter(t => !foundTiers.includes(t)));
-    }
-  }
-  if (foundTiers.length >= 2) result.chain = foundTiers;
 
-  // Parse number of upgrades — "1 upgrade from simple to triple", "2 upgrades", "one upgrade"
-  const upgradeMatch = lc.match(/(\d+|one|two|three|four)\s+(?:cannon\s+)?upgrades?/);
-  if (upgradeMatch && !result.chain) {
-    const n = {"one":1,"two":2,"three":3,"four":4}[upgradeMatch[1] as string] ?? parseInt(upgradeMatch[1]);
-    const defaultChain = ["Simple Cannon","Double Cannon","Triple Cannon","Tank","Golden Jet"];
-    // If we found a specific end tier (e.g. "Triple Cannon"), use it as the chain end
-    // rather than defaulting to sequential slice
-    if (n === 1 && foundTiers.length === 1) {
-      // 1 upgrade + end tier known → [Simple Cannon, endTier]
-      result.chain = ["Simple Cannon", foundTiers[0]];
-    } else if (n >= 1 && n <= 4) {
-      result.chain = defaultChain.slice(0, n + 1);
-    }
+  // ── EVOLUTION CHAIN ──
+  // Priority 1: Arrow notation (Simple→Double→Triple) — take the LAST one found (user correction wins)
+  const arrowPattern = /\b(simple|double|triple|tank|golden jet)\s*(?:cannon\s*)?(?:\u2192|->|>|to)\s*(?:cannon\s*)?(simple|double|triple|tank|golden jet)(?:\s*(?:cannon\s*)?(?:\u2192|->|>|to)\s*(?:cannon\s*)?(simple|double|triple|tank|golden jet))?(?:\s*(?:cannon\s*)?(?:\u2192|->|>|to)\s*(?:cannon\s*)?(simple|double|triple|tank|golden jet))?/gi;
+  const arrowMatches = [...context.matchAll(arrowPattern)];
+  if (arrowMatches.length > 0) {
+    const lastMatch = arrowMatches[arrowMatches.length - 1];
+    const chain = [lastMatch[1], lastMatch[2], lastMatch[3], lastMatch[4]]
+      .filter(Boolean)
+      .map(p => abbrevMap[p.trim().toLowerCase()])
+      .filter(Boolean);
+    if (chain.length >= 2) result.chain = chain;
   }
 
-  // Parse giant names — "Yellow Normie", "White Normie", etc.
-  const giantPattern = /(yellow normie|red giant|skeleton|knight|captain kaboom|gold golem|mobzilla|hulk)/gi;
+  // Priority 2: Full cannon tier names in left-to-right order (only if no arrow chain)
+  if (!result.chain) {
+    const tierNames = ["simple cannon", "double cannon", "triple cannon", "tank", "golden jet"];
+    const foundTiers: string[] = [];
+    let searchPos = 0;
+    while (searchPos < lc.length) {
+      let nextTier = -1, nextTierName = "";
+      for (const tier of tierNames) {
+        const pos = lc.indexOf(tier, searchPos);
+        if (pos !== -1 && (nextTier === -1 || pos < nextTier)) {
+          nextTier = pos;
+          nextTierName = tier;
+        }
+      }
+      if (nextTier === -1) break;
+      const canonical = nextTierName.split(" ").map(w => w[0].toUpperCase() + w.slice(1)).join(" ");
+      const preceding = lc.slice(Math.max(0, nextTier - 8), nextTier);
+      const negated = /\bno\s+$|\bnot\s+$|\bnever\s+/.test(preceding);
+      if (!negated && !foundTiers.includes(canonical)) foundTiers.push(canonical);
+      searchPos = nextTier + nextTierName.length;
+    }
+    if (foundTiers.length >= 2) result.chain = foundTiers;
+  }
+
+  // Priority 3: Upgrade count ("2 upgrades") — only if no chain found
+  if (!result.chain) {
+    const upgradeMatch = lc.match(/(\d+|one|two|three|four)\s+(?:cannon\s+)?upgrades?/);
+    if (upgradeMatch) {
+      const n = ({"one":1,"two":2,"three":3,"four":4} as Record<string,number>)[upgradeMatch[1]] ?? parseInt(upgradeMatch[1]);
+      const defaultChain = ["Simple Cannon","Double Cannon","Triple Cannon","Tank","Golden Jet"];
+      if (n >= 1 && n <= 4) result.chain = defaultChain.slice(0, n + 1);
+    }
+  }
+
+  // ── GIANT NAMES ──
+  const giantPattern = /(yellow normie|red giant|skeleton|knight|captain kaboom|gold golem|mobzilla|hulk)/gi;
   const giants = [...context.matchAll(giantPattern)].map(m => m[0].split(" ").map((w:string) => w[0].toUpperCase() + w.slice(1)).join(" "));
   if (giants.length) result.giantNames = [...new Set(giants)];
 
-  // Parse hook timing — "hook at 8s", "hook: 8 seconds"
-  const hookMatch = lc.match(/hook\s+(?:at\s+)?(\d+)\s*s/);
+  // ── HOOK TIMING — supports "hook at 1s", "hook at 1-2s", "hook at 1-2 sec" ──
+  const hookMatch = lc.match(/hook\s+(?:at\s+)?(\d+)(?:\s*-\s*\d+)?\s*s(?:ec)?/);
   if (hookMatch) result.hookSeconds = parseInt(hookMatch[1]);
 
-  // Parse upgrade timing — "upgrade at 7s", "upgrade at 7th sec", "upgrade happens at 7th sec"
-  const upgradeTimingMatch = context.match(/upgrade(?:s|\s+happens?)?\s+at\s+(?:the\s+)?(\d+)(?:th|st|nd|rd)?\s*s(?:ec)?/i)
-    || context.match(/(\d+)(?:th|st|nd|rd)?\s*s(?:ec)?[^.]*upgrade/i);
-  if (upgradeTimingMatch) result.upgradeSeconds = parseInt(upgradeTimingMatch[1]);
+  // ── UPGRADE TIMING — takes LAST match (user correction wins) ──
+  const upgradeTimes: number[] = [];
+  const upTimingA = /upgrade\S*\s+(?:to\s+\w+\s+(?:cannon\s+)?)?(?:at\s+)?(?:the\s+)?(\d+)(?:th|st|nd|rd)?\s*s(?:ec)?/gi;
+  for (const m of context.matchAll(upTimingA)) upgradeTimes.push(parseInt(m[1]));
+  const upTimingB = /(?:at\s+)?(?:the\s+)?(\d+)(?:th|st|nd|rd)?\s*s(?:ec)?[^.]*upgrade/gi;
+  for (const m of context.matchAll(upTimingB)) { const t = parseInt(m[1]); if (!upgradeTimes.includes(t)) upgradeTimes.push(t); }
+  if (upgradeTimes.length > 0) result.upgradeSeconds = upgradeTimes[upgradeTimes.length - 1];
 
-  // Parse giant kill timing — "1 giant killed at 10th sec", "giant dies at 7s"
+  // ── GIANT KILL TIMING — "giant killed at 10th sec", "giant kill moment at 32nd sec" ──
   const giantKillTimingMatch = context.match(/(?:giant|boss|normie)\s+(?:is\s+)?killed\s+at\s+(?:the\s+)?(\d+)(?:th|st|nd|rd)?\s*s(?:ec)?/i)
-    || context.match(/(?:killed|dies?|defeated)\s+at\s+(?:the\s+)?(\d+)(?:th|st|nd|rd)?\s*s(?:ec)?/i);
+    || context.match(/(?:killed|dies?|defeated)\s+at\s+(?:the\s+)?(\d+)(?:th|st|nd|rd)?\s*s(?:ec)?/i)
+    || context.match(/(?:giant|boss)\s+kill\s+(?:moment\s+)?at\s+(?:the\s+)?(\d+)(?:th|st|nd|rd)?\s*s(?:ec)?/i);
   if (giantKillTimingMatch) result.giantKillSeconds = parseInt(giantKillTimingMatch[1]);
 
-  // Parse total giant kill count — "only 1 giant is killed", "2 giants killed"
+  // ── GIANT KILL COUNT ──
   const giantKillCountMatch = context.match(/(?:only\s+)?(\d+|one|two|three)\s+giants?\s+(?:is\s+|are\s+)?killed/i)
     || context.match(/(\d+|one|two|three)\s+(?:boss|giant)\s+(?:kill|death)/i);
   if (giantKillCountMatch) {
@@ -198,18 +175,14 @@ export function parseContextFacts(context: string): { chain?: string[]; giantNam
     result.giantKillCount = countMap[giantKillCountMatch[1].toLowerCase()] ?? parseInt(giantKillCountMatch[1]);
   }
 
-  // Parse giant survival — "Yellow Normie survives", "giant survives", "no kill", "doesn't die"
-  // IMPORTANT: "final giant is not killed" or "last giant survives" = second/final giant survives
-  // but the FIRST giant may still be killed. Only lock full giantSurvives for GENERAL statements.
+  // ── GIANT SURVIVAL ──
   const qualifiedSurvival = /\b(?:final|last|second|2nd)\s+(?:giant|boss|normie)\s+(?:survives?|does(?:n.t| not) die|is not killed|stays alive)/i;
   const generalSurvival = /\b(?:yellow normie|giant|boss|normie)\s+(?:survives?|does(?:n.t| not) die|is not killed|stays alive)/i;
   const noKillPattern = /\bno\s+(?:giant|boss)\s+(?:kill|death|dying)/i;
   if (qualifiedSurvival.test(context)) {
-    // Final/last/second giant survives — first giant may still be killed
-    // Mark as partial: the last giant survives but don't suppress all kills
-    result.giantSurvives = ["last"] as any; // signal: only last giant survives
+    result.giantSurvives = ["last"] as any;
   } else if (generalSurvival.test(context) || noKillPattern.test(context)) {
-    result.giantSurvives = true; // all giants survive
+    result.giantSurvives = true;
   }
 
   return result;
@@ -299,28 +272,16 @@ DISCIPLINE: When in doubt — omit rather than guess. Under-reporting is always 
 AD TYPE:${config.ad_type} TIER:${config.tier} DURATION:${duration}s
 ${hasRefs?buildReferenceContext():""}
 ${!hasFrameImages?`TIMESTAMP MAP (significance tags only — do NOT use these descriptions to identify cannon tiers or infer events):\n${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] (${f.significance})`).join("\n"):"none"}`:"FRAME IMAGES PROVIDED — these are your primary source of truth. Ignore timestamp map descriptions; use frame images only."}
-FRAME DESCRIPTION RULES:
-0. CANNON TIER NAMING: Use ONLY tier names from locked unit_evolution_chain. If chain is locked, those are the only valid names — do not identify tiers from visual appearance alone.
-2. +N GATE: description MUST say "Cannon count +[N]: now [X] cannons firing". NEVER say "mob multiply" for +N gates.
-   +1 VFX: floating "+1" near cannon = count up, NOT tier upgrade.
-3. GIANT HP: declining HP = normal damage. Write "HP: [X]". Never "new phase" or "health reset".
+CANNON TIER NAMING: Use ONLY tier names from locked unit_evolution_chain. If chain is locked, those are the only valid names — do not identify tiers from visual appearance alone.
+UNIT EVOLUTION CHAIN: If PRE-LOCKED — use exactly. If not locked: ONLY add a tier when you have (a) a frame showing an upgrade container with cannon icon being destroyed AND (b) the cannon visually changes shape in the next frame. Both required. Default if no evidence: ["Simple Cannon"].
 ${TIMESTAMP_RULES}
 ${HOOK_GUIDE}
 ${GATE_GUIDE}
 ${MOC_EVENTS_GUIDE}
 ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}
-UNIT EVOLUTION CHAIN: If PRE-LOCKED — use exactly. If not locked: ONLY add a tier when you have (a) a frame showing an upgrade container with cannon icon being destroyed AND (b) the cannon visually changes shape in the next frame. Both required. Default if no evidence: ["Simple Cannon"].
-CANNON NAMING: Use exact tier names from unit_evolution_chain only.
-FRAME EMOTIONS: For each extracted frame timestamp, assign one emotion (Anticipation, Excitement, Satisfaction, Empowerment, Tension, Almost Fail, Dread, Defeat, Triumph). Return as frame_emotions array covering ALL timestamps.
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
-creative_gaps_structured: Each field must cite a SPECIFIC frame timestamp and what was observed there.
-- hook_strength: reference the hook frame (Xs) — what exactly creates or fails the hook at that second
-- mechanic_clarity: cite the frame where gates/upgrades are shown — are they legible to a new player
-- emotional_payoff: cite the climax frame — does the tension resolve satisfyingly
-- tension_arc: cite the almost-fail frame — how extreme is the mob depletion, how many mobs remain visible
-- rewatch_factor: based on the loss frame — does the defeat feel unfair/surprising enough to retry (High/Medium/Low + specific reason)
-Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"frame_emotions":[{"timestamp_seconds":number,"emotion":string}],"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"why_it_fails":string|null,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string,"tension_arc":string,"rewatch_factor":string},"frame_extraction_gaps":string,"strategic_notes":string,"replication_instructions":string}`;
+Return ONLY JSON:{"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string,"tension_arc":string,"rewatch_factor":string},"frame_extraction_gaps":string}`;
 // Field groups for surgical refinement — each group maps to specific concept fields
 export const REFINE_FIELD_GROUPS = {
   visual: ["visual_identity","biome_visual_notes"],
@@ -349,7 +310,19 @@ ${subFieldHints && subFieldHints.length > 0 ? `- Within visual_identity, change 
 - Return ONLY valid JSON matching the exact field names above. No explanation. No markdown.`;
 
 export const reanalysisSystem = (entry: DNAEntry) =>
-  `Re-analyze Mob Control ad. Fix errors.\nEXISTING:${JSON.stringify(entry,null,2)}\nFIX:1.hook_timing fractions→real seconds 2.timestamps→real 3.gate type confusion (+ gates = cannon firing count, x gates = mob multiplier) 4.unit_evolution_chain — count only UPGRADE CONTAINERS (with cannon icon on top) that were destroyed. REMOVE any tier beyond what upgrade containers justify. Most ads: 1-2 upgrades. Only add Tank/Golden Jet if 3rd/4th upgrade container was explicitly seen. Trust extracted frames to count upgrades. 5.frame_emotions — one emotion per timestamp 6.giant_kills — add any missed boss/giant deaths as [{timestamp_seconds, giant_name, note}] 7.creative_gaps_structured 7.compound segments\n${TIMESTAMP_RULES}\n${HOOK_GUIDE}\n${GATE_GUIDE}\n${MOC_EVENTS_GUIDE}\n${BIOME_GUIDE}\n${CHAMPION_GUIDE}\nReturn CORRECTED full JSON with all original fields.`;
+  `Re-analyze Mob Control ad. Fix errors in the existing analysis.
+EXISTING:${JSON.stringify(entry,null,2)}
+FIX THESE SPECIFIC ISSUES:
+1. hook_timing fractions → real seconds (0,2,5,8 etc)
+2. timestamps → real seconds only
+3. gate type confusion: + gates = cannon firing count, x gates = mob multiplier
+4. unit_evolution_chain — count only UPGRADE CONTAINERS (with cannon icon on top) destroyed. REMOVE tiers beyond what containers justify. Most ads: 1-2 upgrades.
+5. giant_kills — add any missed boss deaths as [{timestamp_seconds, giant_name, note}]
+6. If compound ad: fill segments array
+${GATE_GUIDE}
+${BIOME_GUIDE}
+${CHAMPION_GUIDE}
+Return CORRECTED full JSON with all original fields.`;
 
 export const briefSystem = (lib: any[], ctx: string, seg: string, iterateFrom?: string, refNote?: string) => {
   const refBlock = iterateFrom ? `\nITERATE FROM: "${iterateFrom}" — creative starting point.\n` : "";
