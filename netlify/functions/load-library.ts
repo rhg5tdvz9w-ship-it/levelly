@@ -1,13 +1,13 @@
 import type { Handler } from "@netlify/functions";
 import { getStore } from "@netlify/blobs";
 
-export const handler: Handler = async (event) => {
-  const headers = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Content-Type": "application/json",
-  };
+const headers = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Content-Type",
+  "Content-Type": "application/json",
+};
 
+export const handler: Handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers, body: "" };
   if (event.httpMethod !== "GET") {
     return { statusCode: 405, headers, body: JSON.stringify({ error: "Method not allowed" }) };
