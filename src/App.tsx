@@ -471,6 +471,51 @@ function FrameDescriptionToggle({ frames, keyEvents }: { frames: FrameExtraction
   );
 }
 
+// ─── Timeline Section (library card expanded) ────────────────────────────────
+function TimelineSection({ frames, keyEvents }: { frames: FrameExtraction[]; keyEvents?: any[] }) {
+  const [showAll, setShowAll] = React.useState(false);
+  const labelStyle = { display: "block" as const, fontSize: 9, fontWeight: 600, color: D.textDim, textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 6 };
+  const sigColor: Record<string,string> = { hook: D.red, upgrade: D.green, container: D.green, gate: D.blue, swarm: D.gold, almost_fail: "#f472b6", almost_win: "#34d399", fail: D.red, loss: D.red, boss_death: D.gold, boss_appear: D.purple, boss_damage: "#f472b6" };
+  return (
+    <div style={{ marginBottom: 10 }}>
+      {keyEvents && keyEvents.length > 0 && (
+        <div style={{ marginBottom: 8 }}>
+          <span style={labelStyle}>Key events ({keyEvents.length})</span>
+          <div style={{ display: "flex", flexDirection: "column" as const, gap: 2 }}>
+            {keyEvents.map((ev: any, i: number) => {
+              const color = sigColor[ev.event_type] || D.textDim;
+              return (
+                <div key={i} style={{ fontSize: 11, padding: "4px 8px", background: D.surface, borderRadius: 5, display: "flex", gap: 8, alignItems: "flex-start" }}>
+                  <span style={{ fontWeight: 600, color: D.blue, minWidth: 28, flexShrink: 0 }}>{ev.timestamp_seconds}s</span>
+                  <span style={{ color: D.text, flex: 1, lineHeight: 1.4 }}>{ev.description}</span>
+                  <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 10, background: `${color}22`, color, border: `0.5px solid ${color}44`, flexShrink: 0, alignSelf: "center" }}>{(ev.event_type||"").replace("_"," ")}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      <button onClick={()=>setShowAll(p=>!p)} style={{ background:"none",border:`0.5px solid ${D.border2}`,borderRadius:6,color:showAll?D.blue:D.textMuted,cursor:"pointer",fontFamily:"inherit",fontSize:10,fontWeight:500,padding:"3px 10px",marginBottom:4 }}>
+        {showAll ? "▲ Hide all frames" : `▼ Show all frames (${frames.length})`}
+      </button>
+      {showAll && (
+        <div style={{ display: "flex", flexDirection: "column" as const, gap: 2 }}>
+          {frames.map((f, i) => {
+            const color = sigColor[f.significance] || D.textDim;
+            return (
+              <div key={i} style={{ fontSize: 11, padding: "4px 8px", background: D.surface, borderRadius: 5, display: "flex", gap: 8, alignItems: "flex-start" }}>
+                <span style={{ fontWeight: 600, color: D.blue, minWidth: 28, flexShrink: 0 }}>{f.timestamp_seconds}s</span>
+                <span style={{ color: D.text, flex: 1, lineHeight: 1.4 }}>{f.description}</span>
+                {f.significance && f.significance !== "filler" && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 10, background: `${color}22`, color, border: `0.5px solid ${color}44`, flexShrink: 0, alignSelf: "center" }}>{f.significance.replace("_"," ")}</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Re-upload Modal ──────────────────────────────────────────────────────────
 function ReuploadModal({ entry, onConfirm, onCancel }: {
   entry: DNAEntry;
@@ -913,50 +958,9 @@ ${d.creative_gaps?`<div style="margin-bottom:12px"><div style="font-size:9px;col
             </div>
           )}
 
-          {d.auto_frames && d.auto_frames.length > 0 && (() => {
-            const keyEvents = (d as any).key_events as any[] | undefined;
-            const [showAllFrames, setShowAllFrames] = React.useState(false);
-            return (
-            <div style={{ marginBottom: 10 }}>
-              {keyEvents && keyEvents.length > 0 && (
-                <div style={{ marginBottom: 8 }}>
-                  <span style={labelStyle}>Key events ({keyEvents.length})</span>
-                  <div style={{ display: "flex", flexDirection: "column" as const, gap: 2 }}>
-                    {keyEvents.map((ev: any, i: number) => {
-                      const sigColor: Record<string,string> = { hook: D.red, upgrade: D.green, container: D.green, gate: D.blue, swarm: D.gold, almost_fail: "#f472b6", almost_win: "#34d399", loss: D.red, boss_death: D.gold, boss_appear: D.purple, boss_damage: "#f472b6" };
-                      const color = sigColor[ev.event_type] || D.textDim;
-                      return (
-                        <div key={i} style={{ fontSize: 11, padding: "4px 8px", background: D.surface, borderRadius: 5, display: "flex", gap: 8, alignItems: "flex-start" }}>
-                          <span style={{ fontWeight: 600, color: D.blue, minWidth: 28, flexShrink: 0 }}>{ev.timestamp_seconds}s</span>
-                          <span style={{ color: D.text, flex: 1, lineHeight: 1.4 }}>{ev.description}</span>
-                          <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 10, background: `${color}22`, color, border: `0.5px solid ${color}44`, flexShrink: 0, alignSelf: "center" }}>{(ev.event_type||"").replace("_"," ")}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              <button onClick={()=>setShowAllFrames(p=>!p)} style={{ background:"none",border:`0.5px solid ${D.border2}`,borderRadius:6,color:showAllFrames?D.blue:D.textMuted,cursor:"pointer",fontFamily:"inherit",fontSize:10,fontWeight:500,padding:"3px 10px",marginBottom:4 }}>
-                {showAllFrames ? "▲ Hide all frames" : `▼ Show all frames (${d.auto_frames.length})`}
-              </button>
-              {showAllFrames && (
-              <div style={{ display: "flex", flexDirection: "column" as const, gap: 2 }}>
-                {d.auto_frames.map((f, i) => {
-                  const sigColor: Record<string,string> = { hook: D.red, upgrade: D.green, container: D.green, gate: D.blue, swarm: D.gold, almost_fail: "#f472b6", almost_win: "#34d399", fail: D.red, boss_death: D.gold, battle: "#f472b6" };
-                  const color = sigColor[f.significance] || D.textDim;
-                  return (
-                    <div key={i} style={{ fontSize: 11, padding: "4px 8px", background: D.surface, borderRadius: 5, display: "flex", gap: 8, alignItems: "flex-start" }}>
-                      <span style={{ fontWeight: 600, color: D.blue, minWidth: 28, flexShrink: 0 }}>{f.timestamp_seconds}s</span>
-                      <span style={{ color: D.text, flex: 1, lineHeight: 1.4 }}>{f.description}</span>
-                      {f.significance && f.significance !== "filler" && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 10, background: `${color}22`, color, border: `0.5px solid ${color}44`, flexShrink: 0, alignSelf: "center" }}>{f.significance.replace("_"," ")}</span>}
-                    </div>
-                  );
-                })}
-              </div>
-              )}
-            </div>
-            );
-          })()}
+          {d.auto_frames && d.auto_frames.length > 0 && (
+            <TimelineSection frames={d.auto_frames} keyEvents={(d as any).key_events} />
+          )}
 
           {d.gate_sequence?.length > 0 && (
             <div style={{ marginBottom: 10 }}>
