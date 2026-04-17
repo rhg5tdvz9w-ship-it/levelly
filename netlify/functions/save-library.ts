@@ -1,5 +1,5 @@
 import type { Handler } from "@netlify/functions";
-import { getStore } from "@netlify/blobs";
+import { connectLambda, getStore } from "@netlify/blobs";
 
 const headers = {
   "Access-Control-Allow-Origin": "*",
@@ -12,6 +12,7 @@ export const handler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, headers, body: JSON.stringify({ error: "Method not allowed" }) };
   }
+  connectLambda(event);
   try {
     const library = event.body ?? "[]";
     JSON.parse(library); // validate
