@@ -116,7 +116,21 @@ export function parseContextFacts(context: string): { chain?: string[]; giantNam
   const abbrevMap: Record<string,string> = {simple:"Simple Cannon",double:"Double Cannon",triple:"Triple Cannon",tank:"Tank","golden jet":"Golden Jet"};
 
   // ── EVOLUTION CHAIN ──
-  // Priority 1: Arrow notation (Simple→Double→Triple) — take the LAST one found (user correction wins)
+  // Priority 0: "X upgrades to Y" pairs — most specific pattern, chains pairs together
+  const upgradePairPattern = /(simple|double|triple|tank)\s*(?:cannon\s*)?upgrades?\s+to\s+(simple|double|triple|tank)/gi;
+  const upgradePairs = [...context.matchAll(upgradePairPattern)].map(m => [abbrevMap[m[1].toLowerCase()], abbrevMap[m[2].toLowerCase()]]);
+  if (upgradePairs.length > 0) {
+    const chain = [upgradePairs[0][0]];
+    for (const pair of upgradePairs) {
+      if (chain[chain.length - 1] === pair[0]) chain.push(pair[1]);
+      else if (!chain.includes(pair[1])) chain.push(pair[1]);
+    }
+    if (chain.length >= 2) result.chain = chain;
+  }
+
+  // Priority 1: Arrow notation (only if Priority 0 found nothing)
+  if (!result.chain) {
+  // Arrow notation (Simple→Double→Triple) — take the LAST one found (user correction wins)
   const arrowPattern = /\b(simple|double|triple|tank|golden jet)\s*(?:cannon\s*)?(?:\u2192|->|>|to)\s*(?:cannon\s*)?(simple|double|triple|tank|golden jet)(?:\s*(?:cannon\s*)?(?:\u2192|->|>|to)\s*(?:cannon\s*)?(simple|double|triple|tank|golden jet))?(?:\s*(?:cannon\s*)?(?:\u2192|->|>|to)\s*(?:cannon\s*)?(simple|double|triple|tank|golden jet))?/gi;
   const arrowMatches = [...context.matchAll(arrowPattern)];
   if (arrowMatches.length > 0) {
@@ -126,6 +140,7 @@ export function parseContextFacts(context: string): { chain?: string[]; giantNam
       .map(p => abbrevMap[p.trim().toLowerCase()])
       .filter(Boolean);
     if (chain.length >= 2) result.chain = chain;
+  }
   }
 
   // Priority 2: Full cannon tier names in left-to-right order (only if no arrow chain)

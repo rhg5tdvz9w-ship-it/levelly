@@ -433,6 +433,44 @@ function SpendTagger({ entry, onSave, lib }: { entry: DNAEntry; onSave: (fields:
   );
 }
 
+// ─── Frame Description Toggle (analysis report) ─────────────────────────────
+function FrameDescriptionToggle({ frames, keyEvents }: { frames: FrameExtraction[]; keyEvents?: any[] }) {
+  const [showAll, setShowAll] = React.useState(false);
+  return (
+    <div style={{ marginTop: 6 }}>
+      {keyEvents && keyEvents.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column" as const, gap: 2, marginBottom: 6 }}>
+          {keyEvents.map((ev: any, i: number) => {
+            const sigColor: Record<string,string> = { hook: D.red, upgrade: D.green, container: D.green, gate: D.blue, swarm: D.gold, almost_fail: "#f472b6", almost_win: "#34d399", loss: D.red, boss_death: D.gold, boss_appear: D.purple, boss_damage: "#f472b6" };
+            const color = sigColor[ev.event_type] || D.textDim;
+            return (
+              <div key={i} style={{ fontSize: 10, padding: "3px 8px", background: D.surface, borderRadius: 4, display: "flex", gap: 8 }}>
+                <span style={{ fontWeight: 500, color: D.blue, minWidth: 28, flexShrink: 0 }}>{ev.timestamp_seconds}s</span>
+                <span style={{ color: D.text, flex: 1 }}>{ev.description}</span>
+                <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 10, background: `${color}22`, color, border: `0.5px solid ${color}44`, flexShrink: 0 }}>{(ev.event_type||"").replace("_"," ")}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <button onClick={()=>setShowAll(p=>!p)} style={{ background:"none",border:`0.5px solid ${D.border2}`,borderRadius:6,color:showAll?D.blue:D.textMuted,cursor:"pointer",fontFamily:"inherit",fontSize:10,fontWeight:500,padding:"3px 10px" }}>
+        {showAll ? "▲ Hide all frames" : `▼ Show all frames (${frames.length})`}
+      </button>
+      {showAll && (
+        <div style={{ display: "flex", flexDirection: "column" as const, gap: 2, marginTop: 4 }}>
+          {frames.map((f, fi) => (
+            <div key={fi} style={{ fontSize: 10, padding: "3px 8px", background: D.surface2, borderRadius: 4, display: "flex", gap: 8 }}>
+              <span style={{ fontWeight: 500, color: D.blue, minWidth: 28, flexShrink: 0 }}>{f.timestamp_seconds}s</span>
+              <span style={{ color: D.textMuted, flex: 1 }}>{f.description}</span>
+              {f.significance !== "filler" && <span style={{ fontSize: 9, color: D.textDim, flexShrink: 0 }}>{f.significance}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Re-upload Modal ──────────────────────────────────────────────────────────
 function ReuploadModal({ entry, onConfirm, onCancel }: {
   entry: DNAEntry;
@@ -774,6 +812,18 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
               </>
             );
           })()}
+          {(() => {
+            const reanalyzing = reanalyzingIds.has(d.id);
+            const hasFrames = (d.auto_frames||[]).some(f => f.image_data);
+            return hasFrames ? (
+              <button style={{ ...btnSec, fontSize:10, padding:"4px 9px", cursor:reanalyzing?"not-allowed":"pointer", opacity:reanalyzing?0.5:1, background: D.greenBg, color: D.green, border: `0.5px solid ${D.greenBdr}` }}
+                disabled={reanalyzing}
+                onClick={e=>{ e.stopPropagation(); handleReanalyzeSingle(d); }}
+                title="Re-run analysis on existing frames — no video needed">
+                {reanalyzing ? "⟳ Analyzing…" : "⟳ Re-analyze"}
+              </button>
+            ) : null;
+          })()}
           <button
             onClick={async()=>{
               try {
@@ -863,14 +913,35 @@ ${d.creative_gaps?`<div style="margin-bottom:12px"><div style="font-size:9px;col
             </div>
           )}
 
-          {d.auto_frames && d.auto_frames.length > 0 && (
+          {d.auto_frames && d.auto_frames.length > 0 && (() => {
+            const keyEvents = (d as any).key_events as any[] | undefined;
+            const [showAllFrames, setShowAllFrames] = React.useState(false);
+            return (
             <div style={{ marginBottom: 10 }}>
-              <span style={labelStyle}>Timeline</span>
+              {keyEvents && keyEvents.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <span style={labelStyle}>Key events ({keyEvents.length})</span>
+                  <div style={{ display: "flex", flexDirection: "column" as const, gap: 2 }}>
+                    {keyEvents.map((ev: any, i: number) => {
+                      const sigColor: Record<string,string> = { hook: D.red, upgrade: D.green, container: D.green, gate: D.blue, swarm: D.gold, almost_fail: "#f472b6", almost_win: "#34d399", loss: D.red, boss_death: D.gold, boss_appear: D.purple, boss_damage: "#f472b6" };
+                      const color = sigColor[ev.event_type] || D.textDim;
+                      return (
+                        <div key={i} style={{ fontSize: 11, padding: "4px 8px", background: D.surface, borderRadius: 5, display: "flex", gap: 8, alignItems: "flex-start" }}>
+                          <span style={{ fontWeight: 600, color: D.blue, minWidth: 28, flexShrink: 0 }}>{ev.timestamp_seconds}s</span>
+                          <span style={{ color: D.text, flex: 1, lineHeight: 1.4 }}>{ev.description}</span>
+                          <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 10, background: `${color}22`, color, border: `0.5px solid ${color}44`, flexShrink: 0, alignSelf: "center" }}>{(ev.event_type||"").replace("_"," ")}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              <button onClick={()=>setShowAllFrames(p=>!p)} style={{ background:"none",border:`0.5px solid ${D.border2}`,borderRadius:6,color:showAllFrames?D.blue:D.textMuted,cursor:"pointer",fontFamily:"inherit",fontSize:10,fontWeight:500,padding:"3px 10px",marginBottom:4 }}>
+                {showAllFrames ? "▲ Hide all frames" : `▼ Show all frames (${d.auto_frames.length})`}
+              </button>
+              {showAllFrames && (
               <div style={{ display: "flex", flexDirection: "column" as const, gap: 2 }}>
                 {d.auto_frames.map((f, i) => {
-                  const emotionMap: Record<number,string> = {};
-                  (d as any).frame_emotions?.forEach((e: any) => { if (typeof e?.timestamp_seconds === "number") emotionMap[e.timestamp_seconds] = e.emotion; });
-                  const emotion = emotionMap[f.timestamp_seconds];
                   const sigColor: Record<string,string> = { hook: D.red, upgrade: D.green, container: D.green, gate: D.blue, swarm: D.gold, almost_fail: "#f472b6", almost_win: "#34d399", fail: D.red, boss_death: D.gold, battle: "#f472b6" };
                   const color = sigColor[f.significance] || D.textDim;
                   return (
@@ -878,13 +949,14 @@ ${d.creative_gaps?`<div style="margin-bottom:12px"><div style="font-size:9px;col
                       <span style={{ fontWeight: 600, color: D.blue, minWidth: 28, flexShrink: 0 }}>{f.timestamp_seconds}s</span>
                       <span style={{ color: D.text, flex: 1, lineHeight: 1.4 }}>{f.description}</span>
                       {f.significance && f.significance !== "filler" && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 10, background: `${color}22`, color, border: `0.5px solid ${color}44`, flexShrink: 0, alignSelf: "center" }}>{f.significance.replace("_"," ")}</span>}
-                      {emotion && <span style={{ fontSize: 9, color: D.textDim, fontStyle: "italic", flexShrink: 0, alignSelf: "center" }}>{emotion}</span>}
                     </div>
                   );
                 })}
               </div>
+              )}
             </div>
-          )}
+            );
+          })()}
 
           {d.gate_sequence?.length > 0 && (
             <div style={{ marginBottom: 10 }}>
@@ -922,40 +994,10 @@ ${d.creative_gaps?`<div style="margin-bottom:12px"><div style="font-size:9px;col
             </div>
           )}
 
-          {d.creative_gaps_structured && (
-            <div style={{ marginBottom: 10 }}>
-              <span style={labelStyle}>Creative gaps</span>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-                {[
-                  { l: "Hook strength", v: d.creative_gaps_structured.hook_strength },
-                  { l: "Mechanic clarity", v: d.creative_gaps_structured.mechanic_clarity },
-                  { l: "Emotional payoff", v: d.creative_gaps_structured.emotional_payoff },
-                  { l: "Tension arc", v: (d.creative_gaps_structured as any).tension_arc },
-                  { l: "Rewatch factor", v: (d.creative_gaps_structured as any).rewatch_factor },
-                ].map(({ l, v }) => (
-                  <div key={l} style={{ padding: "7px 9px", background: D.goldBg, borderRadius: 7, border: `0.5px solid ${D.goldBdr}` }}>
-                    <div style={{ fontSize: 9, fontWeight: 600, color: D.gold, textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 2 }}>{l}</div>
-                    <p style={{ margin: 0, fontSize: 10, color: "#c9a227" }}>{v}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {d.strategic_notes && (
-            <div style={{ marginBottom: 10 }}>
-              <span style={labelStyle}>Strategic notes</span>
-              <p style={{ margin: 0, fontSize: 11, color: D.blue, lineHeight: 1.5 }}>{d.strategic_notes}</p>
-            </div>
-          )}
-
           {[
             { l: "Key mechanic", v: d.key_mechanic },
             { l: "Emotional arc", v: d.emotional_arc },
             { l: "Why it works", v: d.why_it_works },
-            { l: "Why it fails", v: d.why_it_fails },
-            { l: "Frame gaps", v: d.frame_extraction_gaps },
-            { l: "Replication instructions", v: d.replication_instructions },
           ].filter(x => x.v).map(({ l, v }) => (
             <div key={l} style={{ marginBottom: 10 }}>
               <span style={labelStyle}>{l}</span>
@@ -1134,11 +1176,31 @@ export default function App() {
   const importLibrary=(e: React.ChangeEvent<HTMLInputElement>)=>{ const file=e.target.files?.[0]; if(!file) return; const reader=new FileReader(); reader.onload=()=>{ try { const p=JSON.parse(reader.result as string); if(!Array.isArray(p)) throw new Error(); const m=[...lib]; p.forEach((entry: DNAEntry)=>{ if(!m.find(x=>x.id===entry.id)) m.push(sanitizeDNA(entry) as DNAEntry); }); saveLib(m); } catch { alert("Import failed."); } }; reader.readAsText(file); e.target.value=""; };
 
   const reanalyzeSingle=async(entry: DNAEntry): Promise<DNAEntry>=>{
-    // Strip image_data from auto_frames before sending — base64 images bloat the prompt and cause JSON parse errors
-    const stripped = { ...entry, auto_frames: entry.auto_frames?.map(f => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance })) };
-    const corrected=sanitizeDNA(await callGeminiDirect(reanalysisSystem(stripped),[{text:`Re-analyze: ${entry.title}`}]));
-    // Preserve image_data from original entry — re-analysis doesn't re-extract frames
-    return {...entry,...corrected,id:entry.id,reanalyzed:true,added_at:entry.added_at,file_name:entry.file_name,tier:entry.tier,ad_type:entry.ad_type,auto_frames:entry.auto_frames};
+    // Build frame image parts from stored auto_frames (IndexedDB)
+    const framesWithImages = (entry.auto_frames||[]).filter(f => f.image_data);
+    const duration = Math.max(...(entry.auto_frames||[]).map(f=>f.timestamp_seconds), 30);
+    const hasRefsAvailable = MOC_REFERENCES.some(r=>!r.base64.startsWith("REPLACE_"));
+
+    if (framesWithImages.length > 0) {
+      // Full re-analysis with stored frame images
+      const frameParts = framesWithImages.flatMap(f => [
+        {text: `[FRAME at ${f.timestamp_seconds}s]`},
+        {inlineData: {mimeType: "image/jpeg", data: f.image_data!}}
+      ]);
+      const cfg = {tier: entry.tier, ad_type: entry.ad_type, context: entry.upload_context||"", manual_frames: [] as File[]};
+      const rawDna = await callGeminiDirect(
+        analyzeSystem(lib, cfg, entry.auto_frames||[], duration, true, hasRefsAvailable),
+        [...frameParts, {text: "INSTRUCTION: Analyze only the extracted frame images above. DO NOT infer events between frames. Base every finding on visible frame evidence only."}]
+      );
+      const consistentDna = await enforceConsistency(rawDna, frameParts, entry.upload_context||"");
+      const dna = sanitizeDNA(consistentDna);
+      return {...entry,...dna, id:entry.id, reanalyzed:true, added_at:entry.added_at, file_name:entry.file_name, tier:entry.tier, ad_type:entry.ad_type, auto_frames:entry.auto_frames};
+    } else {
+      // Fallback: text-only re-analysis if no frame images stored
+      const stripped = { ...entry, auto_frames: entry.auto_frames?.map(f => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance })) };
+      const corrected = sanitizeDNA(await callGeminiDirect(reanalysisSystem(stripped),[{text:`Re-analyze: ${entry.title}`}]));
+      return {...entry,...corrected, id:entry.id, reanalyzed:true, added_at:entry.added_at, file_name:entry.file_name, tier:entry.tier, ad_type:entry.ad_type, auto_frames:entry.auto_frames};
+    }
   };
   const handleReanalyzeSingle=async(entry: DNAEntry)=>{
     setReanalyzingIds(p=>new Set(p).add(entry.id));
@@ -1919,16 +1981,8 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                           </div>
                         ))}
                       </div>
-                      {/* Frame descriptions */}
-                      <div style={{ display: "flex", flexDirection: "column" as const, gap: 2, marginTop: 6 }}>
-                        {entry.auto_frames.map((f, fi) => (
-                          <div key={fi} style={{ fontSize: 10, padding: "3px 8px", background: D.surface2, borderRadius: 4, display: "flex", gap: 8 }}>
-                            <span style={{ fontWeight: 500, color: D.blue, minWidth: 28, flexShrink: 0 }}>{f.timestamp_seconds}s</span>
-                            <span style={{ color: D.textMuted, flex: 1 }}>{f.description}</span>
-                            {f.significance !== "filler" && <span style={{ fontSize: 9, color: D.textDim, flexShrink: 0 }}>{f.significance}</span>}
-                          </div>
-                        ))}
-                      </div>
+                      {/* Frame descriptions — collapsed by default */}
+                      <FrameDescriptionToggle frames={entry.auto_frames} keyEvents={(entry as any).key_events} />
                     </div>
                   )}
 
@@ -1972,21 +2026,6 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                     </div>
                   )}
 
-                  {/* Creative gaps */}
-                  {entry.creative_gaps_structured && (
-                    <div style={{ marginBottom: 14 }}>
-                      <span style={labelStyle}>Creative gaps</span>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-                        {[{l:"Hook strength",v:entry.creative_gaps_structured.hook_strength},{l:"Mechanic clarity",v:entry.creative_gaps_structured.mechanic_clarity},{l:"Emotional payoff",v:entry.creative_gaps_structured.emotional_payoff},{l:"Tension arc",v:(entry.creative_gaps_structured as any).tension_arc},{l:"Rewatch factor",v:(entry.creative_gaps_structured as any).rewatch_factor}].filter(x=>x.v).map(({l,v})=>(
-                          <div key={l} style={{ padding:"7px 9px",background:D.goldBg,borderRadius:7,border:`0.5px solid ${D.goldBdr}` }}>
-                            <div style={{ fontSize:9,fontWeight:600,color:D.gold,textTransform:"uppercase" as const,letterSpacing:"0.07em",marginBottom:2 }}>{l}</div>
-                            <p style={{ margin:0,fontSize:10,color:"#c9a227" }}>{v}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
                   {/* Why it works */}
                   {entry.why_it_works && (
                     <div style={{ marginBottom: 10 }}>
@@ -1995,13 +2034,6 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                     </div>
                   )}
 
-                  {/* Replication instructions */}
-                  {entry.replication_instructions && (
-                    <div>
-                      <span style={labelStyle}>Replication instructions</span>
-                      <p style={{ margin: 0, fontSize: 11, color: D.textMuted, lineHeight: 1.6 }}>{entry.replication_instructions}</p>
-                    </div>
-                  )}
                 </div>
               </div>
             );
