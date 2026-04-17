@@ -3,7 +3,7 @@ import { buildReferenceContext } from "./refImages";
 
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 export const BIOME_GUIDE = `BIOMES: Foggy Forest(grey/white atmospheric fog,dark pines,grey road—NOT snow), Desert(tan sand,blue sky), Water(grey bridge over blue water), Bunker(grey concrete tunnel,pipes,industrial), Cyber-City(grey metal,orange/blue neon), Volcanic(red/orange lava,black rocks), Snow(white snow ground), Toxic(purple paths,green slime), Meadow(green hills,grey brick bridge)`;
-export const CHAMPION_GUIDE = `CHAMPIONS (ONLY these exist in Mob Control): Captain Kaboom(blue round mob, green hat with yellow brim, fires 3 golden streams), Gold Golem(LARGE golden muscular humanoid), Caveman(blue-skin muscular humanoid, blonde hair, club), Mobzilla(green dinosaur/T-Rex, pink spines, red mouth, cartoonish), Nexus(blue/white/orange mech, orange sword), Red Hulk(large red humanoid), Kraken(red octopus), Femme Zombie(crawling female zombie boss), Yellow Normie(LARGE HUMANOID giant, bright yellow skin, bald round head, simple chunky body like a cartoon yellow man/golem, stands upright on 2 legs, arms raised in attack pose, RED HP bar above head — NOT a blob, NOT a sphere, IS a humanoid figure. IMPORTANT: Yellow Normie temporarily flashes white or blue when hit by mobs — this is a HIT EFFECT VFX, NOT a new boss. Do not report a "White Giant" or "Blue Giant" — it is always Yellow Normie with hit flash effects. There is NO White Giant, Blue Giant, or colour-variant giant in Mob Control.), Unknown(generic enemy tower). Enemy tower = red/grey fortified block structure with HP number. NEVER invent champion appearances. NAMING RULE: Match what you see to the list above by APPEARANCE, not by colour variation. If you see a large humanoid giant — check if it has YELLOW SKIN. If yes → Yellow Normie. If skin is any other colour (red, white, grey, blue) → still check: is it just a VFX flash on Yellow Normie? Yellow Normie flashes white/red/blue when hit. If in doubt → "Unknown". FORBIDDEN NAMES (do not use under any circumstances): "Red Normie", "White Normie", "Blue Normie", "Stone Normie", "Fire Giant", "Shadow Giant" — none of these exist in MOC.`;
+export const CHAMPION_GUIDE = `BOSSES: Track by appearance order — Boss 1, Boss 2, etc. If user names them in GROUND TRUTH (e.g. "Yellow Normie"), use those names. Otherwise use generic labels. Enemy tower = red/grey fortified block structure with HP number. Count boss appearances, damage thresholds, and kills — don't try to identify which character model it is. When a boss flashes different colours (white, blue, red) while being hit, it's the SAME boss with hit VFX, not a new boss.`;
 export const MOC_EVENTS_GUIDE = `MOC-SPECIFIC EVENTS TO HUNT FOR (timestamp ALL of these if present):
 - CONTAINER DESTRUCTION: The MOB SWARM destroys a breakable container/obstacle. Report it with HP number visible. CRITICAL — containers have two types:
   * UPGRADE CONTAINER: Has a cannon/unit icon visible ON TOP of the container. Destroying this one upgrades the cannon tier. Use: "Upgrade container (HP:20, cannon icon) destroyed — cannon upgrades to next tier".
@@ -53,6 +53,18 @@ gate_sequence FIELD: Include ALL gate passes — both xN gates AND +N gates. For
 export const HOOK_GUIDE = `HOOK: EXACT SECOND thumb stops scrolling. NEVER 0 unless frame-0 drama. hook_timing_seconds=REAL SECOND (2,4,8) NEVER fraction.`;
 export const TIMESTAMP_RULES = `TIMESTAMPS: Real seconds only (0,2,5,8,14,22). NEVER fractions (0.03,0.28). 30s video midpoint=15.`;
 
+export const UNIVERSAL_EVENTS_GUIDE = `UNIVERSAL KEY EVENTS (for any mobile game ad):
+- HOOK: First dramatic visual that stops scrolling (boss, danger, impressive moment)
+- POWER UP: Player gets stronger — unit merge, upgrade, ability unlock, army grows
+- ENEMY APPEAR: New threat visible — boss, enemy wave, obstacle
+- ENEMY DAMAGE: Enemy takes significant damage (HP thresholds: 75%, 50%, 25%, near-zero)
+- ENEMY DEFEAT: Enemy/boss destroyed or defeated
+- PEAK ACTION: Maximum intensity — largest army, most units on screen, biggest explosion
+- NEAR LOSS: Player almost fails — army nearly wiped, health critical
+- LOSS/WIN: Final outcome — defeat screen, victory screen
+- TRANSITION: Scene change, camera shift, new level segment
+Track each event with timestamp and brief description of what happened. Focus on PROGRESSION: what changed from the previous state.`;
+
 export const frameExtractionSystem = () => `Precise video timestamp analyst for Mob Control ads.
 
 YOUR ONLY JOB: identify WHICH SECONDS contain a performance-relevant visual event. Extract dense coverage (18-24 timestamps) but EVERY timestamp must have a real reason — do not add timestamps where nothing changes.
@@ -88,7 +100,7 @@ GATE DESTRUCTION: ONLY timestamp if gate is present in one frame and completely 
 
 +N GATE: always timestamp. Description: "+[N] gate: cannon count +[N]".
 
-CHAMPION NAMING: Yellow skin = "Yellow Normie". White/blue flash on Yellow Normie = hit VFX, still "Yellow Normie". Different entity = "Unknown giant". NEVER invent names.
+BOSS NAMING: Label bosses by appearance order (Boss 1, Boss 2). If user names them in context, use those names. Same boss flashing colours = hit VFX, still same boss.
 
 CANNON UPGRADES: Only timestamp if cannon shape visually changes. Floating "+1" near cannon = count increase, NOT tier upgrade.
 
@@ -287,14 +299,8 @@ The cannon chain ONLY grows when a container WITH A CANNON ICON ON TOP is physic
 RULE 3 — GATE DESTRUCTION:
 Only report if you have frame N (gate present) + frame N+1 (gate completely absent). Giant proximity = NOT evidence. If uncertain — omit entirely.
 
-RULE 4 — SECOND GIANT NAMING:
-If GROUND TRUTH names 1 giant (e.g. "Yellow Normie") and a second HP bar appears after the first is confirmed dead at HP:0 — call the second one "Second Yellow Normie" if it's the same boss type, or "Unknown" if it's a different entity. NEVER add a colour prefix (no "White Normie", "Red Normie"). White/blue colour on Yellow Normie = hit VFX, same giant.
-
-RULE 4b — DUAL HP BARS IN ONE FRAME:
-If you see TWO HP bars simultaneously in one frame, they belong to TWO different giants. Describe both: "First giant (HP:[X]). Second giant (HP:[Y]) appears." Do NOT write that one giant's HP "jumped" or "reset" — a sudden HP jump from a low value to a much higher value always means a second giant spawned, not an HP update on the first giant.
-
-RULE 5 — WHITE/BLUE/RED NORMIE DOES NOT EXIST:
-Yellow Normie flashes white and blue when hit. This is always Yellow Normie with hit VFX. If you see white/pale/blue humanoid — it IS Yellow Normie. Write "Yellow Normie (HP:[X], taking heavy damage)" not a new giant name.
+RULE 4 — BOSS TRACKING:
+Track bosses by appearance order: Boss 1, Boss 2, etc. If GROUND TRUTH names them, use those names. Otherwise use generic labels. A boss flashing different colours when hit = same boss (hit VFX), not a new boss. If HP suddenly jumps UP dramatically, a second boss spawned — label it Boss 2. Two HP bars in one frame = two different bosses.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -316,14 +322,14 @@ CONSISTENCY CHECK: Every upgrade in unit_evolution_chain must have a matching up
 AD TYPE:${config.ad_type} TIER:${config.tier} DURATION:${duration}s
 ${hasRefs?buildReferenceContext():""}
 ${!hasFrameImages?`TIMESTAMP MAP (significance tags only):\n${frames.length>0?frames.map(f=>`[${f.timestamp_seconds}s] (${f.significance})`).join("\n"):"none"}`:"FRAME IMAGES PROVIDED — primary source of truth. Use frame images only."}
-CANNON TIER NAMING: Use ONLY tier names from locked unit_evolution_chain. If chain is locked, those are the only valid names.
-UNIT EVOLUTION CHAIN: If PRE-LOCKED — use exactly. If not locked: ONLY add a tier when a frame shows (a) upgrade container with cannon icon destroyed AND (b) cannon shape change in next frame. Default: ["Simple Cannon"].
 ${TIMESTAMP_RULES}
 ${HOOK_GUIDE}
+${config.ad_type==="moc"?`CANNON TIERS: Count upgrade events and map to standard MOC names: starting cannon = Simple Cannon, after 1st upgrade = Double Cannon, after 2nd = Triple Cannon, after 3rd = Tank. Always use these exact names in unit_evolution_chain. If GROUND TRUTH provides a chain, use it exactly.
+UNIT EVOLUTION CHAIN: If PRE-LOCKED — use exactly. If not locked: ONLY add a tier when a frame shows (a) upgrade container with cannon icon destroyed AND (b) cannon shape change in next frame. Default: ["Simple Cannon"].
 ${GATE_GUIDE}
 ${MOC_EVENTS_GUIDE}
 ${BIOME_GUIDE}
-${CHAMPION_GUIDE}
+${CHAMPION_GUIDE}`:`${UNIVERSAL_EVENTS_GUIDE}`}
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
 Return ONLY JSON — key_events FIRST, then DNA fields:
 {"key_events":[{"timestamp_seconds":number,"event_type":"hook|gate|upgrade|boss_appear|boss_damage|boss_death|container|swarm|almost_fail|almost_win|loss","description":string,"frame_evidence":string}],"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string,"tension_arc":string,"rewatch_factor":string},"frame_extraction_gaps":string}`;
