@@ -1476,7 +1476,7 @@ For each description above:
     try {
       const refNote = briefRef ? `User visual reference: "${briefRef.name}"` : undefined;
       const trimmedLib = lib
-        .filter(d => d.tier === "winner" && d.creative_status !== "fatigued")
+        .filter(d => d.tier === "winner" && d.ad_type !== "competitor" && d.creative_status !== "fatigued")
         .map(d => ({
           id: d.creative_id||null,
           biome: d.biome,

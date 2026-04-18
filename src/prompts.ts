@@ -235,7 +235,7 @@ export function parseContextFacts(context: string): { chain?: string[]; giantNam
 
 export const analyzeSystem = (lib: DNAEntry[], config: UploadConfig, frames: FrameExtraction[], duration: number, hasFrameImages: boolean, hasRefs: boolean) =>
   `${(() => {
-    const facts = parseContextFacts(config.context || "");
+    const facts = config.ad_type !== "competitor" ? parseContextFacts(config.context || "") : ({} as ReturnType<typeof parseContextFacts>);
     const lockedFields: string[] = [];
     if (facts.chain) {
       const chain = facts.chain;
@@ -331,8 +331,9 @@ ${MOC_EVENTS_GUIDE}
 ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}`:`${UNIVERSAL_EVENTS_GUIDE}`}
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
+${config.ad_type==="competitor"?"COMPETITOR MODE: Strip MOC vocabulary (Yellow Normie, Tank/Simple/Double/Triple Cannon, named Mob Control champions). Describe units generically: small unit, large unit, boss 1, boss 2. Fill moc_inspiration field with 1-2 sentences translating this ad s core mechanic or hook into a concrete testable Mob Control concept.":""}
 Return ONLY JSON — key_events FIRST, then DNA fields:
-{"key_events":[{"timestamp_seconds":number,"event_type":"hook|gate|upgrade|boss_appear|boss_damage|boss_death|container|swarm|almost_fail|almost_win|loss","description":string,"frame_evidence":string}],"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string,"tension_arc":string,"rewatch_factor":string},"frame_extraction_gaps":string}`;
+{"key_events":[{"timestamp_seconds":number,"event_type":"hook|gate|upgrade|boss_appear|boss_damage|boss_death|container|swarm|almost_fail|almost_win|loss","description":string,"frame_evidence":string}],"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string,"tension_arc":string,"rewatch_factor":string},"frame_extraction_gaps":string${config.ad_type==="competitor"?",\"moc_inspiration\":string":""}}`;
 // Field groups for surgical refinement — each group maps to specific concept fields
 export const REFINE_FIELD_GROUPS = {
   visual: ["visual_identity","biome_visual_notes"],
