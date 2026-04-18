@@ -706,7 +706,7 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
             : <span style={{ fontSize: 14, fontWeight: 600, color: D.textMuted }}>{d.title}</span>}
           <span style={pill(TIER_STYLE[d.tier].bg, TIER_STYLE[d.tier].text, TIER_STYLE[d.tier].border)}>{d.tier}</span>
           {statusSt && <span style={pill(statusSt.bg, statusSt.text, statusSt.border)}>{statusSt.label}</span>}
-          {d.ad_type !== "moc" && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)}>{d.ad_type}</span>}
+          {d.ad_type !== "moc" && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)}>{d.ad_type === "competitor" && d.core_fantasy ? d.core_fantasy : d.ad_type}</span>}
           {d.is_compound && <span style={pill(D.goldBg, D.gold, D.goldBdr)}>compound</span>}
           {d.reanalyzed && <span style={pill(D.greenBg, D.green, D.greenBdr)}>re-analyzed</span>}
         </div>
@@ -1072,6 +1072,8 @@ export default function App() {
   const [briefCtx, setBriefCtx] = useState(""); const [segment, setSegment] = useState("Whale");
   const [iterateFrom, setIterateFrom] = useState("");
   const [briefRef, setBriefRef] = useState<{ base64: string; mimeType: string; name: string } | null>(null);
+  const [lastCompetitorEntry, setLastCompetitorEntry] = useState<DNAEntry | null>(null);
+  const [competitorExpanded, setCompetitorExpanded] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [briefErr, setBriefErr] = useState("");
   const [briefProgress, setBriefProgress] = useState("");
@@ -1469,12 +1471,105 @@ For each description above:
     finally { setAnalyzing(false); setUploadConfig(null); if(fileRef.current) fileRef.current.value=""; }
   },[lib,uploadConfig]);
 
+  const analyzeCompetitorForBrief = async (ref: { base64: string; mimeType: string; name: string }): Promise<DNAEntry | null> => {
+    try {
+      const rawB64 = ref.base64.includes(",") ? ref.base64.split(",")[1] : ref.base64;
+      const byteChars = atob(rawB64);
+      const bytes = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+      const file = new File([bytes], ref.name, { type: ref.mimeType });
+      let videoPart: any;
+      if (file.size > 4 * 1024 * 1024) {
+        const { fileUri, mimeType } = await uploadToGeminiFileAPI(file, () => {});
+        videoPart = { fileData: { mimeType, fileUri } };
+      } else {
+        videoPart = { inlineData: { mimeType: file.type, data: await fileToBase64(file) } };
+      }
+      let autoFrames: FrameExtraction[] = [];
+      let duration = 30;
+      try {
+        const fr = await callGeminiDirect(frameExtractionSystem("competitor"), [
+          { text: "Extract 20-24 key frames from this competitor ad — focus on gameplay moments, mechanics, transformations:" },
+          videoPart,
+        ]);
+        autoFrames = Array.isArray(fr?.frames) ? fr.frames : [];
+        duration = typeof fr?.duration_seconds === "number" ? fr.duration_seconds : 30;
+      } catch (err: any) { console.warn("Competitor frame extraction failed:", err?.message); }
+      let extractedFrameParts: any[] = [];
+      try {
+        const timestamps = autoFrames.map(f => f.timestamp_seconds).filter(t => typeof t === "number").sort((a, b) => a - b);
+        if (timestamps.length > 0) extractedFrameParts = await extractFramesFromVideo(file, timestamps, duration);
+      } catch (err: any) { console.warn("Canvas extraction failed for competitor:", err?.message); }
+      const cfg: UploadConfig = { tier: "inspiration", ad_type: "competitor", context: "", manual_frames: [] };
+      const hasRefsAvailable = MOC_REFERENCES.some(r => !r.base64.startsWith("REPLACE_"));
+      const rawDna = await callGeminiDirect(
+        analyzeSystem(lib, cfg, autoFrames, duration, extractedFrameParts.length > 0, hasRefsAvailable),
+        [...extractedFrameParts, { text: "INSTRUCTION: Analyze only the extracted frame images above. DO NOT infer events between frames. Base every finding on visible frame evidence only." }]
+      );
+      const dna = sanitizeDNA(rawDna);
+      const frameImageMap: Record<number, string> = {};
+      for (let pi = 0; pi < extractedFrameParts.length - 1; pi += 2) {
+        const label = extractedFrameParts[pi]?.text ?? "";
+        const match = label.match(/\[FRAME at ([\d.]+)s\]/);
+        const imgData = extractedFrameParts[pi + 1]?.inlineData?.data;
+        if (match && imgData) {
+          const ts = parseFloat(match[1]);
+          frameImageMap[ts] = imgData;
+          frameImageMap[Math.round(ts)] = imgData;
+        }
+      }
+      const autoFramesWithImages: FrameExtraction[] = autoFrames.map(f =>
+        frameImageMap[f.timestamp_seconds] ?? frameImageMap[Math.round(f.timestamp_seconds)]
+          ? { ...f, image_data: frameImageMap[f.timestamp_seconds] ?? frameImageMap[Math.round(f.timestamp_seconds)] }
+          : f
+      );
+      return {
+        ...dna,
+        id: Date.now() + Math.random(),
+        tier: "inspiration",
+        ad_type: "competitor",
+        upload_context: "",
+        file_name: ref.name,
+        added_at: new Date().toISOString(),
+        auto_frames: autoFramesWithImages,
+        manual_frames: [],
+      } as DNAEntry;
+    } catch (err: any) {
+      console.warn("analyzeCompetitorForBrief failed:", err?.message);
+      return null;
+    }
+  };
+
   const handleGenerateBrief = async () => {
     if (!briefCtx.trim()) { setBriefErr("Enter a brief context first."); return; }
     if (lib.length === 0) { setBriefErr("Add at least one ad first."); return; }
-    setGenerating(true); setBriefErr(""); setBriefProgress("Starting brief generation…"); setConcepts([]); setBriefAnalysis(null);
+    setGenerating(true); setBriefErr(""); setBriefProgress("Starting brief generation…"); setConcepts([]); setBriefAnalysis(null); setLastCompetitorEntry(null);
     try {
-      const refNote = briefRef ? `User visual reference: "${briefRef.name}"` : undefined;
+      let competitorContext: { core_fantasy?: string; moc_inspiration?: string; transferable_elements?: string[]; title?: string } | undefined = undefined;
+      let refNote: string | undefined = undefined;
+      if (briefRef) {
+        const isVideo = briefRef.mimeType.startsWith("video/");
+        if (isVideo) {
+          setBriefProgress("Analyzing competitor video…");
+          const newEntry = await analyzeCompetitorForBrief(briefRef);
+          if (newEntry) {
+            saveLib([...lib, newEntry]);
+            setLastCompetitorEntry(newEntry);
+            competitorContext = {
+              title: newEntry.title,
+              core_fantasy: newEntry.core_fantasy,
+              moc_inspiration: newEntry.moc_inspiration,
+              transferable_elements: newEntry.transferable_elements || [],
+            };
+            setBriefProgress("Competitor saved to library. Generating briefs…");
+            setBriefRef(null);
+          } else {
+            refNote = `User visual reference: "${briefRef.name}" (analysis failed)`;
+          }
+        } else {
+          refNote = `User visual reference: "${briefRef.name}"`;
+        }
+      }
       const trimmedLib = lib
         .filter(d => d.tier === "winner" && d.ad_type !== "competitor" && d.creative_status !== "fatigued")
         .map(d => ({
@@ -1491,7 +1586,7 @@ For each description above:
           spend_networks: d.spend_networks||[],
           cannon_count_log: d.cannon_count_log||null,
         }));
-      const systemPrompt = briefSystem(trimmedLib, briefCtx, "Whale+Dolphin", iterateFrom.trim()||undefined, refNote);
+      const systemPrompt = briefSystem(trimmedLib, briefCtx, "Whale+Dolphin", iterateFrom.trim()||undefined, refNote, competitorContext);
       const jobId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
       // Start background job (returns immediately, Claude runs async)
@@ -2220,6 +2315,36 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
             </div>
           )}
 
+          {(!libPanelOpen&&!analysePanelOpen)&&lastCompetitorEntry&&concepts.length>0&&(
+            <div style={{ background:D.surface,border:`1.5px solid ${D.purpleBdr}`,borderRadius:10,padding:"12px 16px",marginBottom:14 }}>
+              <div style={{ display:"flex",alignItems:"center",gap:10,cursor:"pointer",userSelect:"none" }} onClick={()=>setCompetitorExpanded(!competitorExpanded)}>
+                <span style={{ fontSize:10,color:D.purple,textTransform:"uppercase",letterSpacing:".08em",fontWeight:600 }}>Competitor Inspiration</span>
+                <span style={pill(D.purpleBg,D.purple,D.purpleBdr)}>{lastCompetitorEntry.core_fantasy||"competitor"}</span>
+                <span style={{ flex:1 }} />
+                <span style={{ fontSize:11,color:D.textDim }}>{competitorExpanded?"▾ Hide":"▸ Show"} details</span>
+              </div>
+              {competitorExpanded&&(
+                <div style={{ marginTop:12,paddingTop:12,borderTop:`0.5px solid ${D.border}` }}>
+                  <div style={{ fontSize:13,fontWeight:500,color:D.text,marginBottom:8 }}>{lastCompetitorEntry.title}</div>
+                  {lastCompetitorEntry.moc_inspiration&&(
+                    <div style={{ marginBottom:10 }}>
+                      <span style={labelStyle}>MOC inspiration</span>
+                      <p style={{ margin:0,fontSize:11,color:D.textMuted,lineHeight:1.6 }}>{lastCompetitorEntry.moc_inspiration}</p>
+                    </div>
+                  )}
+                  {lastCompetitorEntry.transferable_elements&&lastCompetitorEntry.transferable_elements.length>0&&(
+                    <div style={{ marginBottom:8 }}>
+                      <span style={labelStyle}>Transferable elements</span>
+                      <ul style={{ margin:"4px 0 0",paddingLeft:16,fontSize:11,color:D.textMuted,lineHeight:1.6 }}>
+                        {lastCompetitorEntry.transferable_elements.map((el,i)=>(<li key={i} style={{ marginBottom:4 }}>{el}</li>))}
+                      </ul>
+                    </div>
+                  )}
+                  <div style={{ fontSize:10,color:D.textDim,marginTop:8 }}>Saved to library as inspiration/competitor</div>
+                </div>
+              )}
+            </div>
+          )}
           {(!libPanelOpen&&!analysePanelOpen)&&concepts.map((c,ci)=>(
             <div key={ci} style={{ background:expandedConcept===ci?"#161f2e":D.surface,border:`0.5px solid ${(c as any).is_experimental?"#9d174d":D.border}`,borderRadius:10,padding:0,marginBottom:10,overflow:"hidden",transition:"background .15s,box-shadow .15s,border-color .15s",boxShadow:expandedConcept===ci?`0 0 0 2px ${D.blueBg}`:"none",borderLeft:`3px solid ${expandedConcept===ci?D.blue:"transparent"}`,animation:`slideIn .2s ease-out ${ci*0.05}s both` }}>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",cursor:"pointer",padding:"14px 16px" }} onClick={()=>setExpandedConcept(expandedConcept===ci?null:ci)}>
