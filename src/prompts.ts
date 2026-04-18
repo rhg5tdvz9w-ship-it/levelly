@@ -65,7 +65,7 @@ export const UNIVERSAL_EVENTS_GUIDE = `UNIVERSAL KEY EVENTS (for any mobile game
 - TRANSITION: Scene change, camera shift, new level segment
 Track each event with timestamp and brief description of what happened. Focus on PROGRESSION: what changed from the previous state.`;
 
-export const frameExtractionSystem = () => `Precise video timestamp analyst for Mob Control ads.
+export const frameExtractionSystem = (adType: string = "moc") => `Precise video timestamp analyst for ${adType === "competitor" ? "mobile game ads (any game)" : "Mob Control ads"}.
 
 YOUR ONLY JOB: identify WHICH SECONDS contain a performance-relevant visual event. Extract dense coverage (18-24 timestamps) but EVERY timestamp must have a real reason — do not add timestamps where nothing changes.
 
@@ -106,7 +106,7 @@ CANNON UPGRADES: Only timestamp if cannon shape visually changes. Floating "+1" 
 
 ${TIMESTAMP_RULES}
 
-Return ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":number,"description":string,"significance":"hook|gate|upgrade|boss_death|boss_damage|container|swarm|almost_fail|almost_win|loss|win|fail|transition|filler"}]}`;
+Return ONLY JSON: {"duration_seconds":number,"frames":[{"timestamp_seconds":number,"description":string,"significance":"hook|gate|power_up|boss_death|boss_damage|obstacle|peak|almost_fail|almost_win|loss|win|fail|transition|filler"}]}`;
 export const hookDetectionSystem = () => `Expert mobile ad hook analyst for Mob Control mobile game ads.
 You will receive extracted frame images and their timestamps. Identify the HOOK — the exact second a thumb would stop scrolling.
 
@@ -307,7 +307,7 @@ Track bosses by appearance order: Boss 1, Boss 2, etc. If GROUND TRUTH names the
 ANALYSIS — TWO STEPS IN ONE OUTPUT:
 
 STEP 1 — OBSERVE: Scan all frames and list 8-12 KEY EVENTS only. Each event must be visible in at least one frame.
-KEY EVENT TYPES: hook (first dramatic visual), gate (xN or +N pass with value), upgrade (container destroyed + cannon shape change), boss_appear (giant first visible with HP), boss_damage (HP crosses 75%/50%/25%/near-zero), boss_death (HP:0 visible or body absent), container (obstacle destroyed), swarm (max mobs), almost_fail (mob count critical), almost_win (tower HP critical), loss (FAILED screen).
+KEY EVENT TYPES: hook (first dramatic visual), gate (checkpoint/multiplier pass with value), power_up (unit upgrade/evolution/ability gained), boss_appear (antagonist first visible with HP), boss_damage (HP crosses 75%/50%/25%/near-zero), boss_death (HP:0 visible or body absent), obstacle (destructible barrier/container destroyed), peak (maximum scale — most units/mobs/power on screen), almost_fail (player critical), almost_win (objective nearly complete), loss (FAIL/LOST screen).
 DO NOT add events you cannot see in a frame. If unsure — omit. 8-12 events total, not one per second.
 
 STEP 2 — BUILD DNA: Derive every field FROM your key_events. If no key_event supports a value, leave it empty/null.
@@ -331,9 +331,9 @@ ${MOC_EVENTS_GUIDE}
 ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}`:`${UNIVERSAL_EVENTS_GUIDE}`}
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
-${config.ad_type==="competitor"?"COMPETITOR MODE: Strip MOC vocabulary (Yellow Normie, Tank/Simple/Double/Triple Cannon, named Mob Control champions). Describe units generically: small unit, large unit, boss 1, boss 2. Fill moc_inspiration field with 1-2 sentences translating this ad s core mechanic or hook into a concrete testable Mob Control concept.":""}
+${config.ad_type==="competitor"?"COMPETITOR MODE: Strip ALL MOC-specific vocabulary (Yellow Normie, Tank/Simple/Double/Triple Cannon, named Mob Control champions, MOC-specific biomes). Describe units generically: small unit, large unit, boss 1, boss 2. Use universal event tags only (hook, gate, power_up, obstacle, peak, etc). REQUIRED competitor-only fields — fill all three precisely: (1) core_fantasy: the emotional or mechanical fantasy this ad sells in 3-8 words (e.g. "idle reward compounding", "delayed gratification payoff", "progress wipeout anxiety"). (2) transferable_elements: array of 3-5 concrete testable hypotheses for MOC — each must be ACTIONABLE (what to change/add in MOC and what it tests). Bad example: "use bigger numbers". Good example: "Escalating +N gate values (5 → 50 → 500 → 5000) instead of static +1/+3 — tests whether numerical progression itself drives engagement independent of power gain". (3) moc_inspiration: 1-2 sentence high-level summary of how this ad maps to MOC strategy.":""}
 Return ONLY JSON — key_events FIRST, then DNA fields:
-{"key_events":[{"timestamp_seconds":number,"event_type":"hook|gate|upgrade|boss_appear|boss_damage|boss_death|container|swarm|almost_fail|almost_win|loss","description":string,"frame_evidence":string}],"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string,"tension_arc":string,"rewatch_factor":string},"frame_extraction_gaps":string${config.ad_type==="competitor"?",\"moc_inspiration\":string":""}}`;
+{"key_events":[{"timestamp_seconds":number,"event_type":"hook|gate|power_up|boss_appear|boss_damage|boss_death|obstacle|peak|almost_fail|almost_win|loss","description":string,"frame_evidence":string}],"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Timer|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string,"tension_arc":string,"rewatch_factor":string},"frame_extraction_gaps":string${config.ad_type==="competitor"?",\"moc_inspiration\":string,\"core_fantasy\":string,\"transferable_elements\":[string]":""}}`;
 // Field groups for surgical refinement — each group maps to specific concept fields
 export const REFINE_FIELD_GROUPS = {
   visual: ["visual_identity","biome_visual_notes"],

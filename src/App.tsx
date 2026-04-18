@@ -1312,7 +1312,7 @@ For each description above:
         const chainHint = facts.chain ? `CONTEXT: Starting cannon is "${facts.chain[0]}" — DO NOT identify it as a different tier from visual appearance. Chain: ${facts.chain.join(" → ")}.\n` : "";
         const giantKillHint = facts.giantKillSeconds != null ? `CONTEXT: Giant is killed at approximately ${facts.giantKillSeconds}s.\n` : "";
         const upgradeHint = facts.upgradeSeconds != null ? `CONTEXT: Cannon upgrade happens at approximately ${facts.upgradeSeconds}s.\n` : "";
-        const fr=await callGeminiDirect(frameExtractionSystem(),[{text:`${chainHint}${giantKillHint}${upgradeHint}Extract 20-24 key frames — prioritise every second with a visible change, fill gaps between events:`},videoPart]);
+        const fr=await callGeminiDirect(frameExtractionSystem(entry.ad_type),[{text:`${chainHint}${giantKillHint}${upgradeHint}Extract 20-24 key frames — prioritise every second with a visible change, fill gaps between events:`},videoPart]);
         autoFrames=Array.isArray(fr?.frames)?fr.frames:[]; duration=typeof fr?.duration_seconds==="number"?fr.duration_seconds:30;
       } catch(frameErr: any){ console.warn("Frame extraction failed:",frameErr?.message); }
       let extractedFrameParts: any[]=[];
@@ -1402,7 +1402,7 @@ For each description above:
           const uploadChainHint = uploadFacts.chain ? `CONTEXT: Starting cannon is "${uploadFacts.chain[0]}" — do NOT name it differently based on visual appearance. Chain: ${uploadFacts.chain.join(" → ")}.\n` : "";
           const uploadGiantHint = uploadFacts.giantKillSeconds != null ? `CONTEXT: Giant is killed at approximately ${uploadFacts.giantKillSeconds}s.\n` : "";
           const uploadUpgradeHint = uploadFacts.upgradeSeconds != null ? `CONTEXT: Cannon upgrade happens at approximately ${uploadFacts.upgradeSeconds}s.\n` : "";
-          const fr=await callGeminiDirect(frameExtractionSystem(),[{text:`${uploadChainHint}${uploadGiantHint}${uploadUpgradeHint}Extract 20-24 key frames:`},videoPart]);
+          const fr=await callGeminiDirect(frameExtractionSystem(cfg.ad_type),[{text:`${uploadChainHint}${uploadGiantHint}${uploadUpgradeHint}Extract 20-24 key frames:`},videoPart]);
           autoFrames=Array.isArray(fr?.frames)?fr.frames:[]; duration=typeof fr?.duration_seconds==="number"?fr.duration_seconds:30;
         } catch(frameErr: any){ console.warn("Frame extraction failed:",frameErr?.message); }
 
@@ -2035,6 +2035,35 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                     <div style={{ marginBottom: 10 }}>
                       <span style={labelStyle}>Why it works</span>
                       <p style={{ margin: 0, fontSize: 11, color: D.textMuted, lineHeight: 1.6 }}>{entry.why_it_works}</p>
+                    </div>
+                  )}
+
+                  {/* Competitor Intelligence — only for competitor ad_type */}
+                  {entry.ad_type === "competitor" && (entry.core_fantasy || entry.moc_inspiration || (entry.transferable_elements && entry.transferable_elements.length > 0)) && (
+                    <div style={{ marginTop: 14, paddingTop: 12, borderTop: "0.5px dashed " + D.border, borderLeft: "2px solid " + D.purple, paddingLeft: 10 }}>
+                      <div style={{ fontSize: 10, color: D.purple, textTransform: "uppercase", letterSpacing: ".08em", fontWeight: 600, marginBottom: 8 }}>Competitor Intelligence</div>
+                      {entry.core_fantasy && (
+                        <div style={{ marginBottom: 8 }}>
+                          <span style={labelStyle}>Core fantasy</span>
+                          <p style={{ margin: 0, fontSize: 11, color: D.text, lineHeight: 1.5, fontWeight: 500 }}>{entry.core_fantasy}</p>
+                        </div>
+                      )}
+                      {entry.moc_inspiration && (
+                        <div style={{ marginBottom: 8 }}>
+                          <span style={labelStyle}>MOC inspiration</span>
+                          <p style={{ margin: 0, fontSize: 11, color: D.textMuted, lineHeight: 1.6 }}>{entry.moc_inspiration}</p>
+                        </div>
+                      )}
+                      {entry.transferable_elements && entry.transferable_elements.length > 0 && (
+                        <div>
+                          <span style={labelStyle}>Transferable elements</span>
+                          <ul style={{ margin: "4px 0 0", paddingLeft: 16, fontSize: 11, color: D.textMuted, lineHeight: 1.6 }}>
+                            {entry.transferable_elements.map((el, i) => (
+                              <li key={i} style={{ marginBottom: 4 }}>{el}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   )}
 
