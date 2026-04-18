@@ -376,9 +376,10 @@ ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}
 Return CORRECTED full JSON with all original fields.`;
 
-export const briefSystem = (lib: any[], ctx: string, seg: string, iterateFrom?: string, refNote?: string) => {
+export const briefSystem = (lib: any[], ctx: string, seg: string, iterateFrom?: string, refNote?: string, competitorContext?: { core_fantasy?: string; moc_inspiration?: string; transferable_elements?: string[]; title?: string }) => {
   const refBlock = iterateFrom ? `\nITERATE FROM: "${iterateFrom}" — creative starting point.\n` : "";
   const visualRefBlock = refNote ? `\nVISUAL REF: ${refNote}. Inspiration only — DNA is primary.\n` : "";
+  const competitorBlock = competitorContext ? `\nCOMPETITOR INSPIRATION (the user uploaded a competitor ad and wants you to lift specific elements from it):\n- Source: ${competitorContext.title || "competitor ad"}\n- Core fantasy: ${competitorContext.core_fantasy || "unspecified"}\n- High-level mapping to MOC: ${competitorContext.moc_inspiration || "unspecified"}\n- Transferable elements (concrete testable ideas): ${(competitorContext.transferable_elements || []).map((e, i) => `\n  ${i+1}. ${e}`).join("")}\nThe user brief context above may name which element(s) to lift (e.g. lift the escalating gate values). Apply competitor inspiration to 1-2 concepts only — the remaining concepts stay pure MOC-native from the library. For each competitor-inspired concept: set is_experimental:true, add experimental_note explaining which element was lifted and how it translates to MOC mechanics (cannons, gates, giants, biomes). Never copy competitor visuals directly — translate the mechanic into MOC vocabulary.\n` : "";
   return `MOC Lead Creative Producer. Ground concepts in proven spend data.
 
 DNA LIBRARY (${lib.length} winners):
@@ -386,7 +387,7 @@ ${JSON.stringify(lib, null, 2)}
 
 BRIEF: ${ctx} | SEGMENT: ${seg}
 AUDIENCE PROFILE:
-${seg==="Whale"?"Whale: Age 45-59 (68%), male, USA. Completionist mindset — #1 motivation is unlocking all elements. Opens game to RELAX (46%). 217 avg active days. Almost-win hook = incompleteness anxiety (so close to unlocking), not competitive pressure.":"Dolphin: Age 35-44, male, USA. Mix of completionist + competitive. 170 avg active days. Responds to clear progression path and almost-win tension."}${refBlock}${visualRefBlock}
+${seg==="Whale"?"Whale: Age 45-59 (68%), male, USA. Completionist mindset — #1 motivation is unlocking all elements. Opens game to RELAX (46%). 217 avg active days. Almost-win hook = incompleteness anxiety (so close to unlocking), not competitive pressure.":"Dolphin: Age 35-44, male, USA. Mix of completionist + competitive. 170 avg active days. Responds to clear progression path and almost-win tension."}${refBlock}${visualRefBlock}${competitorBlock}
 
 MOC MECHANICS TO UNDERSTAND BEFORE GENERATING:
 MOC MECHANICS — READ CAREFULLY, THESE ARE EXACT RULES:
