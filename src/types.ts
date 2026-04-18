@@ -31,6 +31,7 @@ export interface DNAEntry {
   frame_extraction_gaps: string | null; replication_instructions: string;
   auto_frames?: FrameExtraction[]; manual_frames?: string[];
   is_compound?: boolean; segments?: DNASegment[]; transition_type?: string;
+  moc_inspiration?: string;
 }
 export interface FrameExtraction { timestamp_seconds: number; description: string; significance: string; image_data?: string; }
 export interface UploadConfig {
