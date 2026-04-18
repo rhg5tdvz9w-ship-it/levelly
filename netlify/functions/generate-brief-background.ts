@@ -92,7 +92,7 @@ async function generateConceptWithRetry(
   const startTime = Date.now();
   let rawText = "";
   try {
-    rawText = await callClaudeWithTimeout(system, def.prompt, apiKey, def.maxTokens, 90_000);
+    rawText = await callClaudeWithTimeout(system, def.prompt, apiKey, def.maxTokens, 200_000);
     const elapsed = Date.now() - startTime;
     console.log(`brief-background: concept ${def.num} attempt ${attempt} — got ${rawText.length} chars in ${elapsed}ms`);
 

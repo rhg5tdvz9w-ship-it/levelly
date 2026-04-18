@@ -1009,6 +1009,31 @@ ${d.creative_gaps?`<div style="margin-bottom:12px"><div style="font-size:9px;col
             </div>
           ))}
 
+          {d.ad_type === "competitor" && (d.core_fantasy || d.moc_inspiration || (d.transferable_elements && d.transferable_elements.length > 0)) && (
+            <div style={{ marginTop: 10, padding: "10px 12px", borderLeft: "2px solid " + D.purple, background: D.purpleBg + "40", borderRadius: 6 }}>
+              <div style={{ fontSize: 10, color: D.purple, textTransform: "uppercase", letterSpacing: ".08em", fontWeight: 600, marginBottom: 8 }}>Competitor Intelligence</div>
+              {d.core_fantasy && (
+                <div style={{ marginBottom: 8 }}>
+                  <span style={labelStyle}>Core fantasy</span>
+                  <p style={{ margin: 0, fontSize: 11, color: D.text, lineHeight: 1.5, fontWeight: 500 }}>{d.core_fantasy}</p>
+                </div>
+              )}
+              {d.moc_inspiration && (
+                <div style={{ marginBottom: 8 }}>
+                  <span style={labelStyle}>MOC inspiration</span>
+                  <p style={{ margin: 0, fontSize: 11, color: D.textMuted, lineHeight: 1.6 }}>{d.moc_inspiration}</p>
+                </div>
+              )}
+              {d.transferable_elements && d.transferable_elements.length > 0 && (
+                <div>
+                  <span style={labelStyle}>Transferable elements</span>
+                  <ul style={{ margin: "4px 0 0", paddingLeft: 16, fontSize: 11, color: D.textMuted, lineHeight: 1.6 }}>
+                    {d.transferable_elements.map((el, i) => (<li key={i} style={{ marginBottom: 4 }}>{el}</li>))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
           {d.is_compound && d.segments && d.segments.length > 0 && (
             <div style={{ marginBottom: 10 }}>
               <span style={labelStyle}>Segments ({d.segments.length})</span>
@@ -1074,6 +1099,7 @@ export default function App() {
   const [briefRef, setBriefRef] = useState<{ base64: string; mimeType: string; name: string } | null>(null);
   const [lastCompetitorEntry, setLastCompetitorEntry] = useState<DNAEntry | null>(null);
   const [competitorExpanded, setCompetitorExpanded] = useState(false);
+  const [liftIntent, setLiftIntent] = useState("");
   const [generating, setGenerating] = useState(false);
   const [briefErr, setBriefErr] = useState("");
   const [briefProgress, setBriefProgress] = useState("");
@@ -1560,9 +1586,11 @@ For each description above:
               core_fantasy: newEntry.core_fantasy,
               moc_inspiration: newEntry.moc_inspiration,
               transferable_elements: newEntry.transferable_elements || [],
+              lift_intent: liftIntent.trim() || undefined,
             };
             setBriefProgress("Competitor saved to library. Generating briefs…");
             setBriefRef(null);
+            setLiftIntent("");
           } else {
             refNote = `User visual reference: "${briefRef.name}" (analysis failed)`;
           }
@@ -2264,7 +2292,19 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
               </div>
               {/* ── #8 Reference + iterate from (merged) ── */}
               <div style={{ padding:"0 16px 8px" }}>
-                <ReferenceDropZone onRef={setBriefRef} currentRef={briefRef} onClear={() => setBriefRef(null)} iterateFrom={iterateFrom} onIterateFrom={setIterateFrom} />
+                <ReferenceDropZone onRef={setBriefRef} currentRef={briefRef} onClear={() => { setBriefRef(null); setLiftIntent(""); }} iterateFrom={iterateFrom} onIterateFrom={setIterateFrom} />
+                {briefRef && briefRef.mimeType.startsWith("video/") && (
+                  <div style={{ marginTop:8,padding:"8px 10px",background:D.purpleBg,border:`0.5px solid ${D.purpleBdr}`,borderRadius:7 }}>
+                    <div style={{ fontSize:10,color:D.purple,textTransform:"uppercase",letterSpacing:".06em",fontWeight:600,marginBottom:5 }}>What to lift from this ref</div>
+                    <textarea
+                      value={liftIntent}
+                      onChange={e => setLiftIntent(e.target.value)}
+                      placeholder="e.g. the escalating gate values — use 5, 50, 500 instead of static +1 / lift the boss kick hook / use the lane layout"
+                      style={{ width:"100%",boxSizing:"border-box",fontSize:12,padding:"6px 8px",background:"transparent",border:`0.5px solid ${D.border}`,borderRadius:6,minHeight:42,resize:"vertical",outline:"none",fontFamily:"inherit",color:D.text,lineHeight:1.5 } as React.CSSProperties}
+                    />
+                    <div style={{ fontSize:10,color:D.textDim,marginTop:4 }}>Optional. If empty, Levelly uses the full competitor intelligence as general inspiration.</div>
+                  </div>
+                )}
               </div>
               <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderTop:`0.5px solid ${D.border}` }}>
                 {generating && briefProgress
