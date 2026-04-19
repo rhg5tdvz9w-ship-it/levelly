@@ -542,21 +542,19 @@ export const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"
     scene: laneDesign
       ? `OPENING SCENE — 3/4 top-down view of the full lane from above:
 - Single ${unitAtScene} cannon at BOTTOM CENTER. ${CANNON_VISUALS[unitAtScene]||unitAtScene}. NOT a military tank, NOT a truck.
-- 6-10 ${vi.player_mob_color} round blob mobs near the cannon — very sparse
-- LANE DESIGN (follow this exactly): ${laneDesign}
+- MOB SPATIAL RULE (STRICT): player mobs (${vi.player_mob_color}) appear ONLY in front of cannon (between cannon and enemies), streaming UPWARD from cannon mouth. 6-10 blob mobs in a tight cone in FRONT of cannon. NEVER behind cannon, NEVER beside it. Mobs are projectiles — they come OUT of the cannon moving forward.
+- LANE DESIGN (SOURCE OF TRUTH — respect this exactly; 1-lane, 2-lane, or asymmetric layouts are all valid — do NOT force 3 sub-lanes if lane_design says otherwise): ${laneDesign}
 - Gate values to use: ${(vi.gate_values||[]).join(", ") || "+1 gates and x3 gates"}
-- Enemy tower at very TOP of lane: health bar 100% full
+- ENEMY PROXIMITY (STRICT): enemies are visibly close to the cannon, not distant. Cluster 4-6 enemy mobs (${vi.enemy_mob_color || "red"}) in the danger zone roughly 30-45% down from the top of the frame, similar size to player mobs. Distance creates tension, not irrelevance — if enemies are too far or too small, the ad loses its threat.
+- Enemy tower at very TOP of lane: 100% health bar, visibly large and impending (not a distant speck).
 - Production script opening: ${Array.isArray(concept.production_script)&&concept.production_script[0] ? concept.production_script[0].visual_cue || concept.production_script[0].action : ""}
 - Biome environment fills both sides of the road`
       : `OPENING SCENE — 3/4 top-down view of the full lane from above:
 - Single ${unitAtScene} cannon at BOTTOM CENTER. Cannon looks EXACTLY like the reference images: small rounded barrel body on 4 small black wheels. Cartoon 3D. Blue/grey color. NOT a military tank, NOT a truck, NOT a realistic vehicle.
-- 6-10 ${vi.player_mob_color} round blob mobs near the cannon — very sparse
-- CRITICAL — THE ROAD HAS 3 PARALLEL SUB-PATHS SIDE BY SIDE (same road width, divided into 3 lanes):
-  * LEFT LANE: 4-6 identical Bright BLUE "+N" gate panels ALL showing the SAME "+1" value (or use the +N values from gate_values if specified: ${(vi.gate_values||[]).filter(g=>g.startsWith("+")).join(", ")||"+1"}) — they fill the ENTIRE left third of the road
-  * CENTER LANE: Main driving path — purple/pink xN gate panel + red enemy mob cluster ahead
-  * RIGHT LANE: ${upgradeTriggers.length > 0 ? `Breakable upgrade obstacles as described: ${upgradeTriggers[0]}` : `3-4 breakable upgrade containers stacked in order. Container style: ${{"Foggy Forest":"blue wooden crate","Desert":"sandstone/clay block","Bunker":"metal ammo crate","Volcanic":"obsidian rock block","Snow":"ice block","Cyber-City":"glowing tech console","Meadow":"hay bale/wooden box"}[vi.environment||"Foggy Forest"]||"blue wooden crate"}. Each container has a CANNON UPGRADE ICON on top.`}
-  * ALL THREE sub-paths are visible simultaneously in this top-down view — player can see all options
-- Enemy tower at very TOP of lane: health bar 100% full
+- MOB SPATIAL RULE (STRICT): player mobs (${vi.player_mob_color}) appear ONLY in front of cannon (between cannon and enemies), streaming UPWARD from cannon mouth. 6-10 blob mobs in a tight cone in FRONT of cannon. NEVER behind cannon, NEVER beside it.
+- DEFAULT LANE STRUCTURE (used when concept.lane_design is empty — this is a loose default, not a mandate): the road shows distinct zones — +N gates on LEFT side (4-6 blue panels with values ${(vi.gate_values||[]).filter(g=>g.startsWith("+")).join(", ")||"+1"}), xN gate + enemy mobs in CENTER (purple/pink), breakable upgrade containers on RIGHT (${upgradeTriggers.length > 0 ? upgradeTriggers[0] : `3-4 stacked containers, cannon icon on top, biome-matched material like ${{"Foggy Forest":"blue wooden crate","Desert":"sandstone block","Bunker":"metal ammo crate","Volcanic":"obsidian rock","Snow":"ice block","Cyber-City":"tech console","Meadow":"wooden box"}[vi.environment||"Foggy Forest"]||"blue wooden crate"}`}). The road does NOT have to be strictly 3 parallel sub-lanes — 2-lane, 1-lane with sequenced elements, or asymmetric layouts are all valid if the scene reads clearly.
+- ENEMY PROXIMITY (STRICT): enemies are visibly close to the cannon, not distant. Cluster 4-6 enemy mobs (${vi.enemy_mob_color || "red"}) in the danger zone roughly 30-45% down from the top, similar size to player mobs. Distance creates tension, not irrelevance.
+- Enemy tower at very TOP of lane: 100% health bar, visibly large and impending.
 - Biome environment fills both sides of the road`,
 
     hook_a: `GAMEPLAY BOSS HOOK — 9:16 cinematic close-up, NOT top-down gameplay:
@@ -572,7 +570,8 @@ CRITICAL ART STYLE — THIS IS A CASUAL MOBILE GAME:
 - Use the EXACT same 3D cartoon art style as the reference images. Low-poly, bright saturated colours, simple rounded shapes.
 - DO NOT create a realistic, photorealistic, or cinematic version of this champion. NO realistic skin textures, NO cinematic lighting rigs, NO hyper-detailed anatomy.
 - The champion must look like it came from the same game as the cannon reference image — simple, cartoonish, friendly-threatening.
-- If a champion reference image is provided above, match its appearance EXACTLY — same body shape, colours, proportions, style.`,
+- If a champion reference image is provided above, match its appearance EXACTLY — same body shape, colours, proportions, style.
+- If NO champion reference image is provided above (e.g. producer context named a non-canonical character or the ref is missing), DO NOT invent a specific creature design. Render a GENERIC MOC-style cartoon boss that visually matches the game's established art language: low-poly 3D, bright saturated colours, rounded cartoonish shapes, friendly-menacing proportions matching the cannon and gate reference style. Err on the side of visual consistency with the MOC aesthetic rather than creative invention — an off-brand creature breaks immersion worse than a generic canonical shape.`,
 
     hook_b: `UGC HOOK — native TikTok-style photo-realistic shot of a real person, 9:16 vertical:
 ${concept.hook_b_description || "Real person reacting to a mobile game moment"}
@@ -584,8 +583,9 @@ COMPOSITION RULES:
 - Archetype framing (POV / stopwatch / rage / before-after / discovery / pro-tip) ALSO as specified in the description above
 - The MOC game is NOT rendered. A phone may appear in frame but its screen content is out of focus, glare, or angled away from camera.
 - Authentic TikTok/Reels amateur feel — slight imperfection is a feature (natural framing, candid pose)
-- NO text, captions, or UI overlays in the render — the producer adds text in post-production
-- GOAL: look and feel like organic user-generated content on TikTok — stop the scroll because it feels HUMAN, not because it looks marketed.
+- NO text, captions, numbers, timers, buttons, labels, logos, or UI overlays ANYWHERE in the frame — not on phone screens, not on watches, not on monitors, not on apps, not on notifications. Any screen visible in the frame MUST be: blank, powered OFF, covered by glare/reflection, angled away from camera, or shown at low enough contrast to be unreadable. Gemini hallucinates garbled text when asked to render readable UI — so simply don't render any readable surface.
+- HAND QUALITY GUARD: avoid tight close-ups of fingers holding objects. If a phone is shown, hold it at arm's length or rest it on a surface — do NOT do extreme finger close-ups (Gemini renders finger count and detail unreliably at close range). Prefer medium shots where hands are in natural positions.
+- GOAL: look and feel like organic user-generated content on TikTok — stop the scroll because it feels HUMAN, not because it looks marketed. Text-free + clean hands = no hallucination tell-tales.
 CRITICAL — THIS HOOK DOES NOT USE MOC CARTOON STYLE:
 - Do NOT reference the MOC lane scene for style, lighting, or colour palette. UGC is a completely separate visual register.
 - Do NOT draw cannons, mobs, champions, or any MOC characters in the frame.
