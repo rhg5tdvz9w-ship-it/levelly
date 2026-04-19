@@ -36,6 +36,7 @@ export interface DNAEntry {
   moc_inspiration?: string;
   core_fantasy?: string;
   transferable_elements?: string[];
+  levelly_brief_title?: string;
 }
 export interface FrameExtraction { timestamp_seconds: number; description: string; significance: string; image_data?: string; }
 export interface UploadConfig {
@@ -43,6 +44,7 @@ export interface UploadConfig {
   ad_type: "moc" | "competitor" | "compound";
   context: string; manual_frames: File[];
   creative_id?: string; parent_id?: string;
+  levelly_brief_title?: string;
 }
 export interface VisualIdentity { environment: string; lighting: string; player_champion: string; enemy_champion: string; player_mob_color: string; enemy_mob_color: string; gate_values: string[]; cannon_type: string; mood_notes: string; }
 export interface ScriptStep { time: string; action: string; visual_cue: string; audio_cue: string; }

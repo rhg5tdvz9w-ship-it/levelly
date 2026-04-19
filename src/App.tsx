@@ -230,6 +230,7 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
   const [manualFrames, setManualFrames] = useState<File[]>([]);
   const [creativeId, setCreativeId] = useState("");
   const [parentId, setParentId] = useState("");
+  const [levellyBriefTitle, setLevellyBriefTitle] = useState("");
   const frameRef = useRef<HTMLInputElement>(null);
   const refCount = MOC_REFERENCES.filter(r => !r.base64.startsWith("REPLACE_")).length;
   const pv = parentValidation(parentId, creativeId, lib);
@@ -248,6 +249,10 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
             <input style={{ ...inputStyle,fontSize:12,borderColor:pv?pv.border:D.border2 }} placeholder="e.g. CT43" value={parentId} onChange={e=>setParentId(e.target.value)} />
             {pv&&<div style={{ marginTop:4,fontSize:10,color:pv.color,background:pv.bg,border:`0.5px solid ${pv.border}`,borderRadius:4,padding:"2px 7px" }}>{pv.msg}</div>}
           </div>
+        </div>
+        <div style={{ marginBottom:14,padding:"10px 12px",background:D.surface2,borderRadius:8,border:`0.5px solid ${D.border}` }}>
+          <span style={labelStyle}>Levelly brief reference <span style={{ color:D.textDim,fontWeight:400,textTransform:"none",letterSpacing:0 }}>(if this creative was produced from a Levelly brief)</span></span>
+          <input style={{ ...inputStyle,fontSize:12 }} placeholder="e.g. Desert Skeleton Hook v2" value={levellyBriefTitle} onChange={e=>setLevellyBriefTitle(e.target.value)} />
         </div>
         <div style={{ marginBottom:14 }}>
           <span style={labelStyle}>Ad type</span>
@@ -357,7 +362,7 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
                   if(finalGiantSurvives==="no") parts.push("final giant is killed");
                   if(context.trim()) parts.push(context.trim());
                   const fullContext = parts.join(", ");
-                  onConfirm({ tier,ad_type:adType,context:fullContext,manual_frames:manualFrames,creative_id:creativeId.trim()||undefined,parent_id:parentId.trim()||undefined });
+                  onConfirm({ tier,ad_type:adType,context:fullContext,manual_frames:manualFrames,creative_id:creativeId.trim()||undefined,parent_id:parentId.trim()||undefined,levelly_brief_title:levellyBriefTitle.trim()||undefined });
                 }}>Choose video →</button>
         </div>
       </div>
@@ -716,6 +721,7 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
           {statusSt && <span style={pill(statusSt.bg, statusSt.text, statusSt.border)}>{statusSt.label}</span>}
           {d.ad_type !== "moc" && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)}>{d.ad_type === "competitor" && d.core_fantasy ? d.core_fantasy : d.ad_type}</span>}
           {d.is_compound && <span style={pill(D.goldBg, D.gold, D.goldBdr)}>compound</span>}
+          {d.levelly_brief_title && <span style={pill(D.blueBg, D.blue, D.blueDark)} title={`Levelly brief: ${d.levelly_brief_title}`}>⎇ Levelly</span>}
           {d.reanalyzed && <span style={pill(D.greenBg, D.green, D.greenBdr)}>re-analyzed</span>}
         </div>
 
@@ -1062,7 +1068,7 @@ ${d.creative_gaps?`<div style="margin-bottom:12px"><div style="font-size:9px;col
 // Principle: producer always wins when they disagree with Gemini/Claude.
 function ValidationCard({ entry: d, lib, saveLib }: { entry: DNAEntry; lib: DNAEntry[]; saveLib: (updated: DNAEntry[]) => void }) {
   const TIER_OPTIONS = ["Simple Cannon", "Double Cannon", "Triple Cannon", "Tank"];
-  const LOSS_OPTIONS = ["None", "Wrong Gate", "Boss Overwhelm", "Timer", "Death Gate", "Enemy Overwhelm"];
+  const LOSS_OPTIONS = ["None", "Wrong Gate", "Boss Overwhelm", "Obstacle Hit", "Death Gate", "Enemy Overwhelm"];
 
   const parseDestructions = (seq: string[]) => seq
     .filter(s => s.toLowerCase().includes("destroyed"))
@@ -1186,7 +1192,7 @@ function ValidationCard({ entry: d, lib, saveLib }: { entry: DNAEntry; lib: DNAE
 
       {/* 4. loss event */}
       <div style={rowStyle}>
-        <div style={fieldLabel}>Loss event</div>
+        <div style={fieldLabel}>Fail (final)</div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <select value={lossType} onChange={e => setLossType(e.target.value)} style={inputStyle}>
             {LOSS_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
@@ -1271,6 +1277,26 @@ export default function App() {
   const [concepts, setConcepts] = useState<Concept[]>([]);
   const [briefAnalysis, setBriefAnalysis] = useState<BriefAnalysis|null>(null);
   const [expandedConcept, setExpandedConcept] = useState<number|null>(null);
+  const [feedbackSessionId, setFeedbackSessionId] = useState<string>("");
+  const [conceptVotes, setConceptVotes] = useState<Record<number, "up" | "down">>({});
+  const [conceptNotes, setConceptNotes] = useState<Record<number, string>>({});
+  const submitFeedback = useCallback(async (ci: number, conceptTitle: string, vote: "up" | "down", note: string) => {
+    try {
+      await fetch("/api/brief-feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: feedbackSessionId,
+          concept_index: ci,
+          concept_title: conceptTitle,
+          vote,
+          note: note.trim() || undefined,
+          segment,
+          iterate_from: iterateFrom.trim() || undefined,
+        }),
+      });
+    } catch { /* fire-and-forget */ }
+  }, [feedbackSessionId]);
   const [refineTexts, setRefineTexts] = useState<Record<number,string>>({});
   const [refineTargetScene, setRefineTargetScene] = useState<Record<number,string>>({});
   const [copiedConcept, setCopiedConcept] = useState<number|null>(null);
@@ -1653,7 +1679,7 @@ For each description above:
             : f
         );
         const newId = Date.now() + Math.random();
-        saveLib([...lib,{...dna,id:newId,tier:cfg.tier,ad_type:cfg.ad_type,upload_context:cfg.context,file_name:file.name,added_at:new Date().toISOString(),creative_id:cfg.creative_id,parent_id:cfg.parent_id,auto_frames:autoFramesWithImages,manual_frames:cfg.manual_frames.map(f=>f.name)}]);
+        saveLib([...lib,{...dna,id:newId,tier:cfg.tier,ad_type:cfg.ad_type,upload_context:cfg.context,file_name:file.name,added_at:new Date().toISOString(),creative_id:cfg.creative_id,parent_id:cfg.parent_id,levelly_brief_title:cfg.levelly_brief_title,auto_frames:autoFramesWithImages,manual_frames:cfg.manual_frames.map(f=>f.name)}]);
         uploadCompletedRef.current = true;
         setLastAnalyzedId(newId);
         setAnalyzeStep("");
@@ -1735,6 +1761,7 @@ For each description above:
     if (!briefCtx.trim()) { setBriefErr("Enter a brief context first."); return; }
     if (lib.length === 0) { setBriefErr("Add at least one ad first."); return; }
     setGenerating(true); setBriefErr(""); setBriefProgress("Starting brief generation…"); setConcepts([]); setBriefAnalysis(null); setLastCompetitorEntry(null);
+    setConceptVotes({}); setConceptNotes({}); setFeedbackSessionId(Date.now().toString(36) + Math.random().toString(36).slice(2, 10));
     try {
       let competitorContext: { core_fantasy?: string; moc_inspiration?: string; transferable_elements?: string[]; title?: string } | undefined = undefined;
       let refNote: string | undefined = undefined;
@@ -2596,6 +2623,37 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                     }} style={{ fontSize:11,padding:"4px 10px",borderRadius:6,background:copiedConcept===-(ci+1)?D.greenBg:D.surface2,color:copiedConcept===-(ci+1)?D.green:D.textMuted,border:`0.5px solid ${copiedConcept===-(ci+1)?D.greenBdr:D.border2}`,fontWeight:500,cursor:"pointer",whiteSpace:"nowrap" as const,transition:"background .2s,color .2s,border-color .2s" }} title="Plain text — works in Miro, stays under character limit">{copiedConcept===-(ci+1)?"✓ Copied!":"⎘ Miro"}</div>
                   </div>
                 </div>
+              </div>
+              <div style={{ borderTop:`0.5px solid ${D.border}`,padding:"8px 16px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" as const,background:conceptVotes[ci]?D.surface2:"transparent" }} onClick={e=>e.stopPropagation()}>
+                <span style={{ fontSize:10,color:D.textDim,letterSpacing:".05em",textTransform:"uppercase" as const }}>Rate:</span>
+                <button
+                  onClick={()=>{
+                    const newVote: "up"|"down"|null = conceptVotes[ci]==="up" ? null : "up";
+                    setConceptVotes(prev=>{ const n={...prev}; if(newVote) n[ci]=newVote; else delete n[ci]; return n; });
+                    if(newVote) submitFeedback(ci, c.title, newVote, conceptNotes[ci]||"");
+                  }}
+                  style={{ fontSize:11,padding:"3px 10px",borderRadius:14,cursor:"pointer",border:`0.5px solid ${conceptVotes[ci]==="up"?D.greenBdr:D.border2}`,background:conceptVotes[ci]==="up"?D.greenBg:"transparent",color:conceptVotes[ci]==="up"?D.green:D.textMuted,fontFamily:"inherit",fontWeight:500,transition:"all .15s" }}
+                  title="Good concept — would produce"
+                >👍 Good</button>
+                <button
+                  onClick={()=>{
+                    const newVote: "up"|"down"|null = conceptVotes[ci]==="down" ? null : "down";
+                    setConceptVotes(prev=>{ const n={...prev}; if(newVote) n[ci]=newVote; else delete n[ci]; return n; });
+                    if(newVote) submitFeedback(ci, c.title, newVote, conceptNotes[ci]||"");
+                  }}
+                  style={{ fontSize:11,padding:"3px 10px",borderRadius:14,cursor:"pointer",border:`0.5px solid ${conceptVotes[ci]==="down"?"#6e2020":D.border2}`,background:conceptVotes[ci]==="down"?D.redBg:"transparent",color:conceptVotes[ci]==="down"?D.red:D.textMuted,fontFamily:"inherit",fontWeight:500,transition:"all .15s" }}
+                  title="Not good — skip this"
+                >👎 Not quite</button>
+                {conceptVotes[ci]&&(
+                  <input
+                    type="text"
+                    placeholder="What's off? (optional)"
+                    value={conceptNotes[ci]||""}
+                    onChange={e=>setConceptNotes(prev=>({...prev,[ci]:e.target.value}))}
+                    onBlur={()=>{ const v=conceptVotes[ci]; const n=conceptNotes[ci]||""; if(v&&n.trim()) submitFeedback(ci, c.title, v, n); }}
+                    style={{ flex:1,minWidth:180,fontSize:11,padding:"3px 8px",borderRadius:5,border:`0.5px solid ${D.border2}`,background:D.surface,color:D.text,fontFamily:"inherit" }}
+                  />
+                )}
               </div>
               {expandedConcept===ci&&(
                 <div style={{ padding:"0 16px 16px",borderTop:`0.5px solid ${D.border}`,paddingTop:16 }}>
