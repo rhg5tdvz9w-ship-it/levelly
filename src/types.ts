@@ -1,5 +1,6 @@
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface EmotionalBeat { timestamp_seconds: number; event: string; emotion: string; }
+export interface GiantKill { timestamp_seconds: number; giant_name: string; note: string; }
 export interface DNASegment {
   segment_index: number; biome: string; biome_visual_notes: string;
   start_seconds: number; end_seconds: number; hook_type: string;
@@ -23,6 +24,7 @@ export interface DNAEntry {
   hook_description: string; gate_sequence: string[];
   swarm_peak_moment_seconds: number | null; loss_event_type: string;
   loss_event_timing_seconds: number | null; unit_evolution_chain: string[];
+  giant_kills?: GiantKill[];
   emotional_arc: string; emotional_beats: EmotionalBeat[]; biome: string;
   biome_visual_notes: string; champions_visible: string[]; pacing: string;
   key_mechanic: string; why_it_works: string; why_it_fails: string | null;

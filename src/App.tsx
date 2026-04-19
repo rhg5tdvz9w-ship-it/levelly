@@ -704,7 +704,15 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
           {displayId
             ? <span style={{ fontSize: 20, fontWeight: 700, color: D.text, letterSpacing: "0.01em", lineHeight: 1 }}>{displayId}</span>
             : <span style={{ fontSize: 14, fontWeight: 600, color: D.textMuted }}>{d.title}</span>}
-          <span style={pill(TIER_STYLE[d.tier].bg, TIER_STYLE[d.tier].text, TIER_STYLE[d.tier].border)}>{d.tier}</span>
+          <select
+            value={d.tier}
+            onChange={e => { e.stopPropagation(); saveLib(lib.map(x => x.id === d.id ? { ...x, tier: e.target.value as DNAEntry["tier"] } : x)); }}
+            onClick={e => e.stopPropagation()}
+            title="Click to change tier"
+            style={{ fontSize: 10, fontWeight: 500, padding: "2px 18px 2px 8px", borderRadius: 20, background: TIER_STYLE[d.tier].bg, color: TIER_STYLE[d.tier].text, border: `0.5px solid ${TIER_STYLE[d.tier].border}`, cursor: "pointer", appearance: "none", WebkitAppearance: "none", MozAppearance: "none", backgroundImage: `linear-gradient(45deg, transparent 50%, ${TIER_STYLE[d.tier].text} 50%), linear-gradient(135deg, ${TIER_STYLE[d.tier].text} 50%, transparent 50%)`, backgroundPosition: "calc(100% - 9px) 50%, calc(100% - 5px) 50%", backgroundSize: "4px 4px, 4px 4px", backgroundRepeat: "no-repeat", fontFamily: "inherit" }}
+          >
+            {TIERS.map(t => <option key={t} value={t} style={{ background: D.surface2, color: D.text }}>{t}</option>)}
+          </select>
           {statusSt && <span style={pill(statusSt.bg, statusSt.text, statusSt.border)}>{statusSt.label}</span>}
           {d.ad_type !== "moc" && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)}>{d.ad_type === "competitor" && d.core_fantasy ? d.core_fantasy : d.ad_type}</span>}
           {d.is_compound && <span style={pill(D.goldBg, D.gold, D.goldBdr)}>compound</span>}
@@ -796,20 +804,11 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
           </div>
         )}
 
-        {/* Row 5: Footer — filename + date left, tier dropdown right */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        {/* Row 5: Footer — filename + date (tier edit moved to pill in Row 1) */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 10, color: D.textDim }}>
             {d.file_name} · {new Date(d.added_at).toLocaleDateString()}
           </span>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-            <select
-              value={d.tier}
-              onChange={e => { e.stopPropagation(); saveLib(lib.map(x => x.id === d.id ? { ...x, tier: e.target.value as DNAEntry["tier"] } : x)); }}
-              style={{ fontSize: 10, padding: "3px 6px", borderRadius: 6, border: `0.5px solid ${D.border2}`, background: D.surface2, color: D.text, cursor: "pointer" }}
-            >
-              {TIERS.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
         </div>
       </div>
 
@@ -915,6 +914,8 @@ ${d.creative_gaps?`<div style="margin-bottom:12px"><div style="font-size:9px;col
           background: D.surface2,
           borderLeft: "none", // accent is on parent already
         }}>
+          {/* Producer correction card — audit + override hallucinated fields */}
+          <ValidationCard entry={d} lib={lib} saveLib={saveLib} />
           {/* SpendTagger moved to bottom — see end of expanded section */}
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 5, marginTop: 14, marginBottom: 10 }}>
@@ -1054,6 +1055,170 @@ ${d.creative_gaps?`<div style="margin-bottom:12px"><div style="font-size:9px;col
 }
 
 
+
+
+// ─── ValidationCard ──────────────────────────────────────────────────────────
+// Post-analysis producer review panel. Direct-override mode — no Gemini re-run.
+// Principle: producer always wins when they disagree with Gemini/Claude.
+function ValidationCard({ entry: d, lib, saveLib }: { entry: DNAEntry; lib: DNAEntry[]; saveLib: (updated: DNAEntry[]) => void }) {
+  const TIER_OPTIONS = ["Simple Cannon", "Double Cannon", "Triple Cannon", "Tank"];
+  const LOSS_OPTIONS = ["None", "Wrong Gate", "Boss Overwhelm", "Timer", "Death Gate", "Enemy Overwhelm"];
+
+  const parseDestructions = (seq: string[]) => seq
+    .filter(s => s.toLowerCase().includes("destroyed"))
+    .map(s => {
+      const m = s.match(/^(x\d+|\+\d+)\s+destroyed by\s+(.+?)\s+at\s+(\d+)s/i);
+      return m ? { xn: m[1], giant: m[2], seconds: m[3] } : { xn: "x2", giant: "Unknown", seconds: "0" };
+    });
+
+  const [chain, setChain] = React.useState<string[]>(d.unit_evolution_chain ?? []);
+  const [killCount, setKillCount] = React.useState<number>((d.giant_kills ?? []).length);
+  const [destructions, setDestructions] = React.useState<{ xn: string; giant: string; seconds: string }[]>(parseDestructions(d.gate_sequence ?? []));
+  const [lossType, setLossType] = React.useState<string>(d.loss_event_type ?? "None");
+  const [lossTiming, setLossTiming] = React.useState<string>(d.loss_event_timing_seconds != null ? String(d.loss_event_timing_seconds) : "");
+  const [compound, setCompound] = React.useState<boolean>(!!d.is_compound);
+  const [applying, setApplying] = React.useState(false);
+
+  const originalDestructions = parseDestructions(d.gate_sequence ?? []);
+  const isDirty =
+    JSON.stringify(chain) !== JSON.stringify(d.unit_evolution_chain ?? []) ||
+    killCount !== (d.giant_kills ?? []).length ||
+    JSON.stringify(destructions) !== JSON.stringify(originalDestructions) ||
+    lossType !== (d.loss_event_type ?? "None") ||
+    lossTiming !== (d.loss_event_timing_seconds != null ? String(d.loss_event_timing_seconds) : "") ||
+    compound !== !!d.is_compound;
+
+  const apply = async () => {
+    setApplying(true);
+    try {
+      const currentKills = d.giant_kills ?? [];
+      let newKills = currentKills.slice(0, killCount);
+      while (newKills.length < killCount) {
+        newKills = [...newKills, { timestamp_seconds: 0, giant_name: "Unknown", note: "Producer correction — details missing" }];
+      }
+
+      // Rebuild gate_sequence: keep non-destructions, merge edited destructions, sort by timestamp
+      const nonDestructions = (d.gate_sequence ?? []).filter(s => !s.toLowerCase().includes("destroyed"));
+      const newDestructionStrings = destructions
+        .filter(r => r.xn.trim() && r.giant.trim() && r.seconds.trim())
+        .map(r => `${r.xn} destroyed by ${r.giant} at ${r.seconds}s`);
+      const newGateSequence = [...nonDestructions, ...newDestructionStrings].sort((a, b) => {
+        const ta = parseInt((a.match(/at (\d+)s/) || [])[1] || "0", 10);
+        const tb = parseInt((b.match(/at (\d+)s/) || [])[1] || "0", 10);
+        return ta - tb;
+      });
+
+      const corrected: DNAEntry = {
+        ...d,
+        unit_evolution_chain: chain.filter(c => c.trim().length > 0),
+        giant_kills: newKills,
+        gate_sequence: newGateSequence,
+        loss_event_type: lossType,
+        loss_event_timing_seconds: lossTiming.trim() === "" ? null : Number(lossTiming),
+        is_compound: compound,
+        reanalyzed: true,
+      };
+
+      saveLib(lib.map(x => x.id === d.id ? corrected : x));
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const cardStyle: React.CSSProperties = { padding: "12px 14px", background: D.surface, borderRadius: 8, border: `0.5px solid ${D.blueDark}`, borderLeft: `3px solid ${D.blue}`, marginBottom: 14 };
+  const rowStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "110px 1fr", gap: 10, alignItems: "start", marginBottom: 10 };
+  const fieldLabel: React.CSSProperties = { fontSize: 10, color: D.textDim, textTransform: "uppercase" as const, letterSpacing: ".08em", paddingTop: 4 };
+  const inputStyle: React.CSSProperties = { fontSize: 11, padding: "3px 7px", borderRadius: 5, border: `0.5px solid ${D.border2}`, background: D.surface2, color: D.text, fontFamily: "inherit" };
+  const ghostBtn: React.CSSProperties = { fontSize: 10, padding: "2px 8px", borderRadius: 5, background: "transparent", color: D.blue, border: `0.5px dashed ${D.blue}`, cursor: "pointer", fontFamily: "inherit" };
+  const removeBtn: React.CSSProperties = { background: "transparent", border: "none", color: D.red, cursor: "pointer", fontSize: 12, padding: "0 3px", fontFamily: "inherit" };
+
+  return (
+    <div style={cardStyle}>
+      <div style={{ fontSize: 10, color: D.blue, letterSpacing: ".08em", fontWeight: 600, marginBottom: 10, textTransform: "uppercase" }}>
+        ⚐ Producer review — correct hallucinated fields
+      </div>
+
+      {/* 1. unit_evolution_chain */}
+      <div style={rowStyle}>
+        <div style={fieldLabel}>Unit chain</div>
+        <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 4, alignItems: "center" }}>
+          {chain.map((step, i) => (
+            <span key={i} style={{ display: "flex", alignItems: "center", gap: 2 }}>
+              <select value={TIER_OPTIONS.includes(step) ? step : TIER_OPTIONS[0]} onChange={e => setChain(chain.map((c, ci) => ci === i ? e.target.value : c))} style={{ ...inputStyle, fontSize: 10 }}>
+                {TIER_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <button onClick={() => setChain(chain.filter((_, ci) => ci !== i))} style={removeBtn} title="Remove tier">✕</button>
+              {i < chain.length - 1 && <span style={{ color: D.textDim, fontSize: 10 }}>→</span>}
+            </span>
+          ))}
+          <button onClick={() => setChain([...chain, TIER_OPTIONS[0]])} style={ghostBtn}>+ tier</button>
+        </div>
+      </div>
+
+      {/* 2. giant_kills count */}
+      <div style={rowStyle}>
+        <div style={fieldLabel}>Giant kills</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <input type="number" min="0" max="10" value={killCount} onChange={e => setKillCount(Math.max(0, parseInt(e.target.value || "0", 10)))} style={{ ...inputStyle, width: 50 }} />
+          <span style={{ fontSize: 10, color: D.textDim }}>kills total in this ad</span>
+        </div>
+      </div>
+
+      {/* 3. gate destruction moments */}
+      <div style={rowStyle}>
+        <div style={fieldLabel}>Gate destructions</div>
+        <div style={{ display: "flex", flexDirection: "column" as const, gap: 4 }}>
+          {destructions.length === 0 && <span style={{ fontSize: 10, color: D.textDim, fontStyle: "italic" }}>None recorded</span>}
+          {destructions.map((row, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" as const }}>
+              <input value={row.xn} onChange={e => setDestructions(destructions.map((r, ri) => ri === i ? { ...r, xn: e.target.value } : r))} placeholder="x4" style={{ ...inputStyle, width: 46 }} />
+              <span style={{ fontSize: 10, color: D.textDim }}>by</span>
+              <input value={row.giant} onChange={e => setDestructions(destructions.map((r, ri) => ri === i ? { ...r, giant: e.target.value } : r))} placeholder="Yellow Normie" style={{ ...inputStyle, flex: 1, minWidth: 90 }} />
+              <span style={{ fontSize: 10, color: D.textDim }}>at</span>
+              <input type="number" min="0" value={row.seconds} onChange={e => setDestructions(destructions.map((r, ri) => ri === i ? { ...r, seconds: e.target.value } : r))} style={{ ...inputStyle, width: 46 }} />
+              <span style={{ fontSize: 10, color: D.textDim }}>s</span>
+              <button onClick={() => setDestructions(destructions.filter((_, ri) => ri !== i))} style={removeBtn} title="Remove">✕</button>
+            </div>
+          ))}
+          <button onClick={() => setDestructions([...destructions, { xn: "x2", giant: "", seconds: "0" }])} style={{ ...ghostBtn, alignSelf: "flex-start" }}>+ destruction</button>
+        </div>
+      </div>
+
+      {/* 4. loss event */}
+      <div style={rowStyle}>
+        <div style={fieldLabel}>Loss event</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <select value={lossType} onChange={e => setLossType(e.target.value)} style={inputStyle}>
+            {LOSS_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+          <span style={{ fontSize: 10, color: D.textDim }}>at</span>
+          <input type="number" min="0" value={lossTiming} onChange={e => setLossTiming(e.target.value)} placeholder="—" style={{ ...inputStyle, width: 50 }} disabled={lossType === "None"} />
+          <span style={{ fontSize: 10, color: D.textDim }}>s</span>
+        </div>
+      </div>
+
+      {/* 5. compound toggle */}
+      <div style={rowStyle}>
+        <div style={fieldLabel}>Compound ad</div>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 11, color: D.text }}>
+          <input type="checkbox" checked={compound} onChange={e => setCompound(e.target.checked)} style={{ cursor: "pointer" }} />
+          <span>Mark as compound (multiple ads stitched together)</span>
+        </label>
+      </div>
+
+      {/* Apply */}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8, gap: 8 }}>
+        <button
+          onClick={apply}
+          disabled={!isDirty || applying}
+          style={{ fontSize: 11, padding: "5px 14px", borderRadius: 6, background: isDirty ? D.blue : D.surface2, color: isDirty ? "#fff" : D.textDim, border: "none", cursor: isDirty && !applying ? "pointer" : "not-allowed", fontWeight: 500, fontFamily: "inherit" }}
+        >
+          {applying ? "Applying…" : isDirty ? "Apply corrections" : "No changes"}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 
 // ─── App ──────────────────────────────────────────────────────────────────────
