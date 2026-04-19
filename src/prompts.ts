@@ -1,6 +1,61 @@
 import type { DNAEntry, UploadConfig, FrameExtraction, Concept, ScriptStep } from "./types";
 import { buildReferenceContext } from "./refImages";
 
+// ─── Deploy A: Diversity constants + shuffle helper ─────────────────────────
+// Canonical MOC champion roster. Concepts 1-2 default to these (soft rule);
+// concepts 3-4 may invent. Mobs (Caveman, Alien, Chicken, Bat, etc.) are a
+// separate looser concept captured via player_mob_color / enemy_mob_color —
+// no canonical mob list enforced.
+export const MOC_CANONICAL_CHAMPIONS = [
+  "Yellow Normie", "Mobzilla", "Captain Kaboom", "Kraken", "Nexus",
+  "Skeleton", "Knight", "Femme Zombie", "Red Hulk"
+];
+
+// Wild-card biome pool for concept 4. Shuffled per-generation to kill LLM
+// position bias (previously "Clockwork Factory" won ~every time as last item).
+export const WILD_BIOMES = [
+  "Space", "Tunnel", "Underwater Ruins", "Crystal Caverns", "Overgrown City",
+  "Floating Islands", "Ancient Temple", "Frozen Tundra", "Swamp", "Cloud Kingdom",
+  "Bamboo Forest", "Canyon", "Underground Mine", "Coral Reef", "Haunted Castle",
+  "Sky Bridge", "Shipwreck Bay", "Glacier", "Jungle Canopy", "Sandstorm",
+  "Mushroom Grove", "Clockwork Factory"
+];
+
+// Hook type taxonomy — shuffled per-generation. Rule: 4 concepts = 4 different types.
+export const HOOK_TYPES = ["Challenge", "Satisfying", "Loss Aversion", "Story", "FOMO", "Tutorial"];
+
+// UGC archetype menu (hook_b). Shuffled per-generation; Claude assigns 4 different across 4 concepts.
+export const UGC_ARCHETYPES = [
+  "POV reaction — close face of a player, shocked or hyped expression, phone visible in corner of frame. 'POV: you just discovered the most addictive cannon game'",
+  "Stopwatch challenge — person with visible stopwatch or phone timer, tense concentrated face. 'Can you beat this boss in 30 seconds?'",
+  "Rage / relatable — visibly frustrated player, slightly exaggerated reaction. 'When the boss is at 1HP and I STILL lose'",
+  "Before / after — same person shown twice (side-by-side or cut), two emotional states. 'Day 1 vs day 30 playing this game'",
+  "Discovery / duet — person pointing at their phone screen, wide-eyed, leaning into camera. 'You HAVE to try this'",
+  "Pro tip / tutorial — person mid-explanation, gesturing with hands, leaning into camera as if sharing a secret. 'The trick that changed everything'"
+];
+
+// UGC persona menu (hook_b). Grounded in MOC audience portrait:
+// Whale 45-59 M USA relaxation/completionist, Dolphin 35-44 M USA competitive/completionist (85.7% of revenue).
+// Shuffled independently of archetypes; Claude assigns 4 different personas across 4 concepts.
+export const UGC_PERSONAS = [
+  "Relaxed completionist — man 45-59, casual shirt, home setting (couch or armchair), evening/warm light, calm focused face. Matches Whale relaxation profile.",
+  "Focused competitor — man 35-44, bright daylight, home office or gaming chair, alert intensity, casual t-shirt. Matches Dolphin competitive profile.",
+  "Analytical optimizer — man 30-55, neutral indoor setting, thoughtful body language, maybe second screen or notebook visible in frame. Works-out-the-pattern vibe.",
+  "Surprised discoverer — any adult 30-55, any gender, close-up as first-timer, leaning toward camera, wide eyes and raised brows, natural light. Entry-point energy.",
+  "Social / couch companion — man 40-60 with partner or family visible in the background, casual evening living-room setting. 'Even my wife wants a turn' social-proof framing.",
+  "Wife / partner / spouse — woman 30-55, casual home setting (kitchen, couch, bedroom), phone in hand, playful or focused expression. Off-target-but-relatable, classic 'your wife will play this too' angle."
+];
+
+// Fisher-Yates shuffle. Pure, creates a new array. Used for per-generation randomization.
+export function shuffle<T>(arr: T[]): T[] {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 export const BIOME_GUIDE = `BIOMES: Foggy Forest(grey/white atmospheric fog,dark pines,grey road—NOT snow), Desert(tan sand,blue sky), Water(grey bridge over blue water), Bunker(grey concrete tunnel,pipes,industrial), Cyber-City(grey metal,orange/blue neon), Volcanic(red/orange lava,black rocks), Snow(white snow ground), Toxic(purple paths,green slime), Meadow(green hills,grey brick bridge)`;
 export const CHAMPION_GUIDE = `BOSSES: Track by appearance order — Boss 1, Boss 2, etc. If user names them in GROUND TRUTH (e.g. "Yellow Normie"), use those names. Otherwise use generic labels. Enemy tower = red/grey fortified block structure with HP number. Count boss appearances, damage thresholds, and kills — don't try to identify which character model it is. When a boss flashes different colours (white, blue, red) while being hit, it's the SAME boss with hit VFX, not a new boss.`;
@@ -396,7 +451,17 @@ MOC MECHANICS — READ CAREFULLY, THESE ARE EXACT RULES:
 - xN GATES (Danger zone): Multiply the NUMBER OF MOBS already flowing in the lane. x3 triples the mobs currently passing through. Cannon count is UNAFFECTED by xN gates. NEVER write "cannons multiply via x gate". xN gates are dangerous because enemy mobs also surge in.
 - LANE ARCHITECTURE: Every MOC ad has 3 structural elements arranged spatially on the road so ALL are visible simultaneously from the top-down camera: (1) INVESTMENT PATH — +N gate panels that grow cannon count; (2) UPGRADE PATH — breakable obstacles (red block, barrel, crate, turret cluster) that trigger cannon tier upgrade when destroyed; (3) DANGER ZONE — xN gates + enemy mobs that multiply mob count with risk. DEFAULT spatial arrangement: +N gates on LEFT sub-lane, xN danger zone in CENTER main lane, upgrade obstacle on RIGHT. Lanes CAN swap — specify the exact arrangement in lane_design if different. The lane_design field must describe: (a) which element is on which side, (b) what obstacle or mechanic blocks access to each element, (c) what tension this creates for the player. This description will be used directly to generate scene renders.
 - PHYSICAL MOVEMENT: The cannon does move forward along the road in some ads, but the structural lane elements (investment/upgrade/danger) must ALWAYS be described and shown. Movement does not remove structure.
-- CHAMPIONS: Use ONLY these exact names (null if not present): Captain Kaboom, Gold Golem, Caveman, Mobzilla, Nexus, Red Hulk, Kraken, Femme Zombie. Set enemy_champion to "Enemy Tower" for the standard tower, or a named boss if specified by the user. NEVER invent a new champion name. NEVER use "Boss Golem", "Stone Guardian", "Iron Guardian", or any unlisted name.
+- CAMERA FRAMING (pick one per concept — note the choice in production_script opening action):
+  * FRAMING A (cannon-moves-forward): cannon drives forward UP the lane, world is static behind it. Rarer in ads but cinematic. Lean this way for AppLovin / Google / custom-side-cam / skeleton-knight hook concepts.
+  * FRAMING B (world-scrolls-down): cannon fixed at bottom, slides LEFT/RIGHT horizontally to dodge/align. Enemies and lane content scroll DOWN toward cannon. More common in ads. Lean this way for Facebook / TikTok / default-cam concepts.
+  * Structural lane elements (+N / upgrade / xN) described and rendered identically in both framings — only the camera behaviour differs.
+- CHAMPIONS (SOFT RULE — producer context always wins):
+  * CANONICAL MOC ROSTER: ${MOC_CANONICAL_CHAMPIONS.join(", ")}. Use for player_champion and enemy_champion in DATA-BACKED concepts (1-2) by default — these are the characters that actually exist in the game.
+  * CONCEPTS 3-4 (is_experimental:true) MAY INVENT new champions. Invention is encouraged for experimental slots — describe the invented champion vividly in the concept.
+  * Enemy Tower = the standard red/grey fortified tower with HP bar. Use "Enemy Tower" for the final enemy base unless a named boss is specified.
+  * If the producer context names a non-canonical champion explicitly (e.g. "use skeleton as hook"), respect that — producer intent overrides the canonical default.
+  * Mobs (small blob creatures like Caveman, Alien, Chicken, Bat) are a separate concept from champions — captured via player_mob_color / enemy_mob_color fields. Do not list mobs in champions_visible.
+  * NEVER use removed/non-existent names: "Gold Golem", "Boss Golem", "Stone Guardian", "Iron Guardian".
 
 NETWORK RULES: AppLovin=custom side cam+skeleton/knight hook+blue+3+ evolution steps. Facebook=default cam+almost-win 1-5HP+colour/biome swap. Google=almost-win+foggy forest/water.
 HOOK CHARACTERS: The skeleton and knight are ENEMY boss hook characters that appear at 0s. The SKELETON is a large realistic human skeleton (bone-white, full ribcage, skull head) that physically blocks or kicks the cannon. The KNIGHT is a large armored enemy boss that challenges the cannon. They are NOT player avatars, NOT champions — they are the antagonist hook. Do not confuse them with player units.
@@ -411,15 +476,28 @@ BIOME SELECTION: If user specifies a biome in their prompt, use EXACTLY that bio
 9-STEP CURVE (required for every concept — map each beat to a specific timestamp/mechanic):
 Pressure(0-2s: threat visible) → Investment(2-6s: +N gates, cannon count grows) → Validate(6-8s: first upgrade, swarm power up) → Investment2(8-12s: more +N gates, mob multiply) → Payoff(12-15s: giant defeated or upgrade complete) → FalseSafety(15-18s: second threat appears) → Pressure++(18-22s: almost-fail, mobs depleted) → AlmostWin(22-24s: final push, last few mobs) → Fail(24-26s: BATTLE FAILED screen)
 Each concept MUST fill the nine_step_curve JSON field with a 1-sentence description of what happens at that beat for that specific concept.
-BIOME TIERS: Concepts 1-2 use PROVEN biomes (Desert, Foggy Forest, Water, Bunker, Meadow) with is_experimental:false. Concept 3 uses an ADJACENT biome — a creative twist on a proven biome (e.g. "Desert at Night", "Flooded Bunker", "Autumn Forest", "Foggy Forest in Rain", "Snow Meadow"), is_experimental:true with experimental_note explaining the twist. Concept 4 is a WILD CARD — a completely original environment from a diverse pool (Underwater Ruins, Crystal Caverns, Overgrown City, Floating Islands, Ancient Temple, Frozen Tundra, Swamp, Cloud Kingdom, Bamboo Forest, Canyon, Underground Mine, Coral Reef, Haunted Castle, Sky Bridge, Shipwreck Bay, Glacier, Jungle Canopy, Sandstorm, Mushroom Grove, Clockwork Factory), is_experimental:true. Each concept MUST use a different biome — never repeat across the 4.
+BIOME TIERS:
+- Concepts 1-2: PROVEN biomes (Desert, Foggy Forest, Water, Bunker, Meadow), is_experimental:false.
+- Concept 3: ADJACENT biome — creative twist on a proven biome (e.g. "Desert at Night", "Flooded Bunker", "Autumn Forest", "Foggy Forest in Rain", "Snow Meadow"), is_experimental:true with experimental_note explaining the twist.
+- Concept 4: WILD CARD — pick ONE from this RANDOMIZED shortlist (changes every brief): ${shuffle(WILD_BIOMES).slice(0, 8).join(", ")}. is_experimental:true. Do NOT default to "Clockwork Factory" — rotate.
+- Each concept MUST use a different biome — never repeat across the 4.
+
+HOOK TYPE DIVERSITY: The 4 concepts in this brief MUST pick 4 DIFFERENT hook_type values (never repeat across concepts). Pick from this RANDOMIZED shortlist (order changes every brief — vary your selection over time): ${shuffle(HOOK_TYPES).join(", ")}.
 
 THREE HOOK CONCEPTS — every concept must generate all three. Each becomes a rendered image using the lane scene as visual reference:
-hook_a_description: GAMEPLAY BOSS HOOK — cinematic, thumb-stopping, boss-forward. Describe: which enemy boss (Yellow Normie, Gold Golem, Skeleton, etc.), what threat they pose at first frame, how the player cannon appears dwarfed/threatened, exact composition (boss fills 60-70% of frame, cannon tiny at bottom). Must feel HIGH STAKES. Be specific enough to generate a great image. Different boss/scenario from other concepts.
-hook_b_description: COMEDY/NARRATIVE HOOK — humorous sketch or absurd MOC situation. Can be gameplay-comedy (cannon panicking, mobs celebrating too early), UGC-style (a "player" reacting to losing), or absurd scenario (Yellow Normie looking confused at a tiny cannon). Must be visually funny without text. Describe: scene, characters, expressions, what makes it laugh-worthy. Different scenario from Hook A.
-hook_c_description: STOPWATCH/VIRAL HOOK — urgency-driven concept (market-informed slot, placeholder until market research feature). Based on the highest-tension moment in this concept's arc: what visual creates maximum "I NEED to see what happens next" feeling. Describe the composition for urgency. Will be enriched with competitor analysis data when the market feature launches.
+hook_a_description: GAMEPLAY BOSS HOOK — cinematic, thumb-stopping, boss-forward. Describe: which enemy boss (pick from canonical roster for concepts 1-2; concepts 3-4 MAY invent), what threat they pose at first frame, how the player cannon appears dwarfed/threatened, exact composition (boss fills 60-70% of frame, cannon tiny at bottom). Must feel HIGH STAKES. Be specific enough to generate a great image. Different boss/scenario from other concepts.
+hook_b_description: UGC HOOK (TikTok-native photo-realistic shot of a real person, NOT MOC art style). Two RANDOMIZED shortlists per generation — assign one archetype + one persona to each concept, all 4 different:
+UGC ARCHETYPES (shuffle, assign first 4 — one per concept, all different):
+${shuffle(UGC_ARCHETYPES).slice(0, 4).map((a, i) => `  ${i+1}. ${a}`).join("\n")}
+UGC PERSONAS (shuffle, assign first 4 — one per concept, all different):
+${shuffle(UGC_PERSONAS).slice(0, 4).map((p, i) => `  ${i+1}. ${p}`).join("\n")}
+Describe the hook_b_description as a CONCRETE UGC SHOT: specify persona (age/setting/lighting/body-language from the assigned persona), archetype framing (POV/stopwatch/rage/etc from the assigned archetype), and a 1-sentence TikTok-style caption the producer can overlay in post. The UGC shot is about the PERSON — the MOC game itself is NOT rendered (phone may appear but screen content is not described). The hook should still feel RELEVANT to the concept's gameplay (e.g. stopwatch archetype + time-pressure concept). Never reuse archetype or persona across concepts in the same brief.
+hook_c_description: STOPWATCH / VIRAL / COMPETITOR-INFORMED HOOK — urgency-driven stylized tension hook, 9:16 MOC cartoon 3D art style.
+${competitorContext ? `COMPETITOR SOURCING (ACTIVE — use this as primary inspiration for hook_c): This concept has access to competitor intelligence above. When writing hook_c_description for this concept, lift the competitor hook mechanic and translate it into MOC visual vocabulary. Specifically: (a) if competitor uses a stopwatch/timer/countdown mechanic → show MOC cannon with a visible countdown overlay or ticking visual tension; (b) if competitor uses a number-escalation mechanic → show MOC gate values exploding upward (1 → 10 → 100 → 1000); (c) if competitor uses a dramatic reveal → show an MOC equivalent reveal (tiny mobs facing massive boss, or a sudden gate multiplier); (d) otherwise translate the CORE FANTASY into an MOC visual. Reference the specific lifted mechanic in this concept's experimental_note. This applies only to the competitor-inspired concept(s) — other concepts use the fallback below.` : ""}
+Default (no competitor active, or for non-competitor-inspired concepts): Based on the highest-tension moment in THIS concept's 9-step curve (typically AlmostWin or Pressure++) — describe a stylized visual that screams "I need to see what happens next." Common patterns: tiny mob count facing massive boss, massive swarm about to crush a giant, cannon on 1HP with huge enemy closing. Must be visually distinct from hook_a (different composition, different tension type).
 
 Return ONLY valid JSON — be concise, no padding or elaboration:
-{"analysis":{"patterns_used":string,"dna_sources":[string],"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"is_experimental":boolean,"experimental_note":string|null,"objective":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"hook_timing_seconds":number,"hook_description":string,"hook_a_description":string,"hook_b_description":string,"hook_c_description":string,"unit_evolution_chain":[string],"cannon_count_progression":string,"lane_design":string,"upgrade_triggers":[string],"tension_moments":[string],"network_adaptations":{"AppLovin":string,"Facebook":string,"Google":string},"engagement_hooks":string,"production_script":[{"time":string,"action":string,"visual_cue":string,"audio_cue":string}],"nine_step_curve":{"Pressure":string,"Investment":string,"Validate":string,"Investment2":string,"Payoff":string,"FalseSafety":string,"PressurePlus":string,"AlmostWin":string,"Fail":string},"quality_score":{"pattern_fidelity":number,"moc_dna":number,"emotional_arc":number,"visual_clarity":number,"segment_fit":number,"overall":number,"notes":string}}]}`;
+{"analysis":{"patterns_used":string,"dna_sources":[string],"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"is_experimental":boolean,"experimental_note":string|null,"objective":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"hook_timing_seconds":number,"hook_description":string,"hook_a_description":string,"hook_b_description":string,"hook_c_description":string,"unit_evolution_chain":[string],"cannon_count_progression":string,"lane_design":string,"upgrade_triggers":[string],"tension_moments":[string],"network_adaptations":{"AppLovin":string,"Facebook":string,"Google":string},"engagement_hooks":string,"production_script":[{"time":string,"action":string,"visual_cue":string,"audio_cue":string}],"nine_step_curve":{"Pressure":string,"Investment":string,"Validate":string,"Investment2":string,"Payoff":string,"FalseSafety":string,"PressurePlus":string,"AlmostWin":string,"Fail":string}}]}`;
 };
 
 export const CANNON_VISUALS: Record<string, string> = {
@@ -496,18 +574,22 @@ CRITICAL ART STYLE — THIS IS A CASUAL MOBILE GAME:
 - The champion must look like it came from the same game as the cannon reference image — simple, cartoonish, friendly-threatening.
 - If a champion reference image is provided above, match its appearance EXACTLY — same body shape, colours, proportions, style.`,
 
-    hook_b: `COMEDY/NARRATIVE HOOK — humorous sketch or absurd MOC moment, 9:16:
-${concept.hook_b_description || "Absurd or funny situation involving the cannon or mobs"}
+    hook_b: `UGC HOOK — native TikTok-style photo-realistic shot of a real person, 9:16 vertical:
+${concept.hook_b_description || "Real person reacting to a mobile game moment"}
 COMPOSITION RULES:
-- Scene composition: character-forward, expressive, readable at a glance
-- Can be side view, 3/4 view, or any angle that serves the joke — not locked to top-down
-- Characters: Yellow Normie, mobs, cannon — exaggerated expressions and body language
-- NO TEXT OVERLAYS — the humor must be purely visual, no captions or labels
-- GOAL: make a viewer laugh or share this image immediately
-CRITICAL ART STYLE — THIS IS A CASUAL MOBILE GAME:
-- Use the EXACT same 3D cartoon art style as the reference images. Low-poly, bright saturated colours, simple rounded shapes.
-- DO NOT create a realistic, photorealistic, or cinematic version of any character. Match the simple cartoon style of the cannon and mob reference images exactly.
-- If a champion reference image is provided above, match its appearance EXACTLY.`,
+- PHOTO-REALISTIC phone-cam aesthetic — NOT cartoon, NOT low-poly, NOT MOC art style
+- Vertical 9:16 frame, natural everyday home setting (couch, bedroom, kitchen, home office)
+- Natural or practical lighting — window light, lamp, phone-screen glow on face
+- Real human subject: age, appearance, setting, and body language EXACTLY as specified in the description above (persona is pre-assigned, do not swap it)
+- Archetype framing (POV / stopwatch / rage / before-after / discovery / pro-tip) ALSO as specified in the description above
+- The MOC game is NOT rendered. A phone may appear in frame but its screen content is out of focus, glare, or angled away from camera.
+- Authentic TikTok/Reels amateur feel — slight imperfection is a feature (natural framing, candid pose)
+- NO text, captions, or UI overlays in the render — the producer adds text in post-production
+- GOAL: look and feel like organic user-generated content on TikTok — stop the scroll because it feels HUMAN, not because it looks marketed.
+CRITICAL — THIS HOOK DOES NOT USE MOC CARTOON STYLE:
+- Do NOT reference the MOC lane scene for style, lighting, or colour palette. UGC is a completely separate visual register.
+- Do NOT draw cannons, mobs, champions, or any MOC characters in the frame.
+- Do NOT apply 3D cartoon rendering. Use photographic realism throughout.`,
 
     hook_c: `STOPWATCH/VIRAL HOOK — urgency and tension composition, 9:16:
 ${concept.hook_c_description || "Maximum tension moment — player nearly losing, giant nearly dead, critical decision"}

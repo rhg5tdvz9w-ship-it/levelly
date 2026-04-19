@@ -62,7 +62,8 @@ export interface Concept {
   tension_moments?: string[];
   visual_identity: VisualIdentity; layout: string;
   production_script: ScriptStep[]; performance_hooks: PerformanceHook[];
-  engagement_hooks: string; quality_score: QualityScore;
+  engagement_hooks: string;
+  quality_score?: QualityScore; // Deploy A: optional — no longer generated, kept for graceful handling of legacy in-session briefs
   network_adaptations?: NetworkAdaptations;
   visual_scene?: string; visual_start?: string; // visual_start kept for backward compat
   visual_hook_a?: string; visual_hook_b?: string; visual_hook_c?: string;

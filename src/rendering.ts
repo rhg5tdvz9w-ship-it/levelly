@@ -3,6 +3,9 @@ import { MOC_REFERENCES } from "./refImages";
 
 // ─── Ref image helpers ────────────────────────────────────────────────────────
 export function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string, lib?: any[], scene?: string): any[] {
+  // Deploy A: hook_b is UGC (TikTok-native photo-realistic shot of a real person).
+  // No MOC visual refs — they would contaminate the photorealistic render with cartoon style.
+  if (scene === "hook_b") return [];
   const biome = vi.environment?.toLowerCase() || "";
   const populated = MOC_REFERENCES.filter(r => !r.base64.startsWith("REPLACE_"));
   if (populated.length === 0) return [];
