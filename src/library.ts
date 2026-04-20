@@ -1,6 +1,6 @@
 import type { DNAEntry, SortMode } from "./types";
 
-const SPEND_RANK: Record<string, number> = { "1M": 5, "500K": 4, "300K": 3, "100K": 2, "sub100K": 1 };
+export const SPEND_RANK: Record<string, number> = { "1M": 5, "500K": 4, "300K": 3, "100K": 2, "sub100K": 1 };
 
 
 export function velocityPerDay(tier: string, days: number | null | undefined): string | null {

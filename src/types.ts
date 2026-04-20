@@ -32,6 +32,7 @@ export interface DNAEntry {
   creative_gaps_structured?: { hook_strength: string; mechanic_clarity: string; emotional_payoff: string; tension_arc?: string; rewatch_factor?: string; };
   frame_extraction_gaps: string | null; replication_instructions: string;
   auto_frames?: FrameExtraction[]; manual_frames?: string[];
+  cloud_thumbnail?: string; // Deploy E: 150px @ q65 base64 JPEG, synced to cloud for cross-browser thumbnail visibility
   is_compound?: boolean; segments?: DNASegment[]; transition_type?: string;
   moc_inspiration?: string;
   core_fantasy?: string;

@@ -4,7 +4,7 @@ import { MOC_REFERENCES } from "./refImages";
 import type { DNAEntry, FrameExtraction, UploadConfig, Concept, BriefAnalysis, SortMode } from "./types";
 import { frameExtractionSystem, hookDetectionSystem, parseContextFacts, analyzeSystem, refinementSystem, reanalysisSystem, briefSystem, imagePromptFn } from "./prompts";
 import { saveFramesToIDB, mergeFramesFromIDB } from "./storage";
-import { velocityPerDay, sanitizeDNA, buildLineageChain, parentValidation, sortLib } from "./library";
+import { velocityPerDay, sanitizeDNA, buildLineageChain, parentValidation, sortLib, SPEND_RANK } from "./library";
 import { GEMINI_IMAGE_URL, callGeminiDirect, parseDataURI, callImageDirect, uploadToGeminiFileAPI, fileToBase64, extractFramesFromVideo } from "./analysis";
 import { enhanceText } from "./briefing";
 import { pickRelevantRefs } from "./rendering";
@@ -697,16 +697,43 @@ function ReuploadModal({ entry, onConfirm, onCancel }: {
 
 // ─── Library Card ─────────────────────────────────────────────────────────────
 
+// ─── Deploy E: Generate 150px thumbnail (q65 JPEG) from existing 480px image_data base64 ────
+async function generateCloudThumbnail(base64: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        const aspectRatio = img.height / img.width;
+        const targetWidth = 150;
+        const targetHeight = Math.round(targetWidth * aspectRatio);
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return reject(new Error("Canvas context unavailable"));
+        ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.65);
+        const b64 = dataUrl.split(",")[1];
+        if (!b64) return reject(new Error("Empty data URL"));
+        resolve(b64);
+      } catch (err) { reject(err); }
+    };
+    img.onerror = () => reject(new Error("Image load failed"));
+    img.src = `data:image/jpeg;base64,${base64}`;
+  });
+}
+
 // ─── Deploy C: Grid thumbnail card (entry in library grid) ──────────────────
 function LibraryCardGrid({ d, index, onClick }: {
   d: DNAEntry; index: number; onClick: () => void;
 }) {
-  // Deploy C.1 fix: manual_frames stores filenames (strings like "frame.png"), not base64 data.
-  // Use only auto_frames with image_data for thumbnails.
+  // Deploy E: thumbnail priority — local IDB first frame > cloud_thumbnail (cross-browser fallback) > "No preview"
   const firstAutoFrame = d.auto_frames?.find(f => f.image_data);
   const thumbnail = firstAutoFrame?.image_data
     ? `data:image/jpeg;base64,${firstAutoFrame.image_data}`
-    : null;
+    : d.cloud_thumbnail
+      ? `data:image/jpeg;base64,${d.cloud_thumbnail}`
+      : null;
   const [imgFailed, setImgFailed] = React.useState(false);
   const tierStyle = TIER_STYLE[d.tier];
   const statusSt = CREATIVE_STATUS.find(s => s.value === d.creative_status);
@@ -1414,29 +1441,34 @@ function AppInner() {
   const [lastOpenPanel, setLastOpenPanel] = useState<"brief"|"analyse"|"lib"|null>(null);
   const [expandedDNA, setExpandedDNA] = useState<number|null>(null);
   const [libSort, setLibSort] = useState<SortMode>("all");
-  // Deploy D: deep link — read ?entry=N from URL on mount, open that entry's modal
+  // Deploy E (Bug 1 fix): deep link — closure-trap-free rewrite
+  // Old version polled with setInterval but captured stale lib from closure.
+  // New version re-runs on lib.length changes, so closure refreshes when lib actually populates.
+  // Ref guard prevents re-opening modal on subsequent lib changes (e.g., after user adds an entry).
+  const deepLinkProcessedRef = React.useRef(false);
   React.useEffect(() => {
+    if (deepLinkProcessedRef.current) return;
     try {
       const params = new URLSearchParams(window.location.search);
       const entryId = params.get("entry");
-      if (entryId !== null) {
-        const id = parseInt(entryId, 10);
-        if (!isNaN(id)) {
-          // Wait for library to load (run on next tick so lib state is populated)
-          const tryOpen = () => {
-            const found = lib.find(e => e.id === id);
-            if (found) { setLibPanelOpen(true); setLibModalId(id); return true; }
-            return false;
-          };
-          if (!tryOpen()) {
-            const interval = setInterval(() => { if (tryOpen()) clearInterval(interval); }, 200);
-            setTimeout(() => clearInterval(interval), 5000); // give up after 5s
-          }
-        }
+      if (entryId === null) { deepLinkProcessedRef.current = true; return; }
+      const id = parseInt(entryId, 10);
+      if (isNaN(id)) { deepLinkProcessedRef.current = true; return; }
+      // Wait for both flags before searching (lib.length > 0 catches the IDB merge timing)
+      if (!libraryLoaded) return;
+      const found = lib.find(e => e.id === id);
+      if (found) {
+        setLibPanelOpen(true);
+        setLibModalId(id);
+        deepLinkProcessedRef.current = true;
+      } else if (lib.length > 0) {
+        // Library is loaded with content but entry not found — give up (e.g., shared link to deleted entry)
+        deepLinkProcessedRef.current = true;
       }
-    } catch { /* SSR safety, never throws */ }
+      // else: lib still empty post-load (cloud miss?), wait for next render
+    } catch { deepLinkProcessedRef.current = true; }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [libraryLoaded]);
+  }, [libraryLoaded, lib.length]);
   // Deploy C: library search + multi-filter + fullscreen modal state
   const [libSearch, setLibSearch] = useState("");
   const [libFilters, setLibFilters] = useState<{ ad_types: string[]; statuses: string[]; spend_tiers: string[]; biomes: string[] }>({ ad_types: [], statuses: [], spend_tiers: [], biomes: [] });
@@ -1804,6 +1836,39 @@ For each description above:
   },[lib]);
   const handleReanalyzeAll=async()=>{ if(!confirm(`Re-analyze all ${lib.length} entries?`)) return; setReanalyzingAll(true); let updated=[...lib]; for(let i=0;i<lib.length;i++){ setReanalysisProgress(`Re-analyzing ${i+1}/${lib.length}: ${lib[i].title}…`); try { const c=await reanalyzeSingle(lib[i]); updated=updated.map(x=>x.id===lib[i].id?c:x); saveLib(updated); } catch(err){ console.warn(`Failed: ${lib[i].title}`,err); } await new Promise(r=>setTimeout(r,1000)); } setReanalyzingAll(false); setReanalysisProgress(""); };
 
+  // Deploy E: bulk-sync cloud thumbnails for entries missing them (one-time migration helper)
+  const [syncingThumbs, setSyncingThumbs] = React.useState(false);
+  const [syncProgress, setSyncProgress] = React.useState("");
+  const handleSyncThumbnails = async () => {
+    const candidates = lib.filter(e => !e.cloud_thumbnail && e.auto_frames?.some(f => f.image_data));
+    if (candidates.length === 0) {
+      const alreadyHave = lib.filter(e => e.cloud_thumbnail).length;
+      const noFrames = lib.filter(e => !e.auto_frames?.some(f => f.image_data)).length;
+      alert(`Nothing to sync.\n\n• ${alreadyHave} entries already have cloud thumbnails.\n• ${noFrames} entries have no frames in this browser to generate from (re-upload needed).`);
+      return;
+    }
+    if (!confirm(`Generate cloud thumbnails for ${candidates.length} entries? This is safe — only adds thumbnails, no other changes.`)) return;
+    setSyncingThumbs(true);
+    let updated = [...lib];
+    let success = 0;
+    for (let i = 0; i < candidates.length; i++) {
+      const entry = candidates[i];
+      setSyncProgress(`Syncing ${i+1}/${candidates.length}…`);
+      try {
+        const firstFrame = entry.auto_frames?.find(f => f.image_data);
+        if (firstFrame?.image_data) {
+          const thumb = await generateCloudThumbnail(firstFrame.image_data);
+          updated = updated.map(x => x.id === entry.id ? { ...x, cloud_thumbnail: thumb } : x);
+          success++;
+        }
+      } catch (err) { console.warn(`Thumbnail gen failed for ${entry.title}:`, err); }
+    }
+    saveLib(updated);
+    setSyncingThumbs(false);
+    setSyncProgress("");
+    alert(`✓ Synced ${success}/${candidates.length} thumbnails. They are now visible to other browsers after the next page reload.`);
+  };
+
   const handleModalConfirm=(cfg: UploadConfig)=>{ setUploadConfig(cfg); setShowModal(false); fileRef.current?.click(); };
   const handleUpload=useCallback(async(e: React.ChangeEvent<HTMLInputElement>)=>{
     const files=Array.from(e.target.files??[]); if(!files.length) return;
@@ -1881,7 +1946,15 @@ For each description above:
             : f
         );
         const newId = Date.now() + Math.random();
-        saveLib([...lib,{...dna,id:newId,tier:cfg.tier,ad_type:cfg.ad_type,upload_context:cfg.context,file_name:file.name,added_at:new Date().toISOString(),creative_id:cfg.creative_id,parent_id:cfg.parent_id,levelly_brief_title:cfg.levelly_brief_title,auto_frames:autoFramesWithImages,manual_frames:cfg.manual_frames.map(f=>f.name)}]);
+        // Deploy E: generate cloud thumbnail (150px @ q65) from first auto_frame for cross-browser visibility
+        let cloudThumbnail: string | undefined;
+        try {
+          const firstFrameWithData = autoFramesWithImages.find((f: any) => f.image_data);
+          if (firstFrameWithData?.image_data) {
+            cloudThumbnail = await generateCloudThumbnail(firstFrameWithData.image_data);
+          }
+        } catch (err) { console.warn("Could not generate cloud thumbnail (non-fatal):", err); }
+        saveLib([...lib,{...dna,id:newId,tier:cfg.tier,ad_type:cfg.ad_type,upload_context:cfg.context,file_name:file.name,added_at:new Date().toISOString(),creative_id:cfg.creative_id,parent_id:cfg.parent_id,levelly_brief_title:cfg.levelly_brief_title,auto_frames:autoFramesWithImages,manual_frames:cfg.manual_frames.map(f=>f.name),cloud_thumbnail:cloudThumbnail}]);
         uploadCompletedRef.current = true;
         setLastAnalyzedId(newId);
         setAnalyzeStep("");
@@ -2369,7 +2442,11 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
     let result: DNAEntry[] = sortedLib;
     if (libFilters.ad_types.length) result = result.filter((d: DNAEntry) => libFilters.ad_types.includes(d.ad_type));
     if (libFilters.statuses.length) result = result.filter((d: DNAEntry) => d.creative_status && libFilters.statuses.includes(d.creative_status));
-    if (libFilters.spend_tiers.length) result = result.filter((d: DNAEntry) => d.spend_tier && libFilters.spend_tiers.includes(d.spend_tier));
+    if (libFilters.spend_tiers.length) {
+      // Deploy E Bug 6: hierarchical filter — selecting "500K" includes 1M (rank ≥ selected min)
+      const minSelectedRank = Math.min(...libFilters.spend_tiers.map((t: string) => SPEND_RANK[t] || 0));
+      result = result.filter((d: DNAEntry) => d.spend_tier && (SPEND_RANK[d.spend_tier] || 0) >= minSelectedRank);
+    }
     if (libFilters.biomes.length) result = result.filter((d: DNAEntry) => libFilters.biomes.includes(d.biome));
     const q = libSearch.trim().toLowerCase();
     if (q) {
@@ -2733,7 +2810,7 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                 )}
               </div>
               <div style={{ display:"flex",gap:6,padding:"8px 16px",borderBottom:`0.5px solid ${D.border}`,flexWrap:"wrap" as const }}>
-                {lib.length>0&&(<><button style={btnSec} onClick={e=>{ e.stopPropagation(); handleReanalyzeAll(); }} disabled={reanalyzingAll||analyzing}>{reanalyzingAll?"Re-analyzing…":"Re-analyze all"}</button><button style={btnSec} onClick={e=>{ e.stopPropagation(); exportLibrary(); }}>Export</button><button style={btnSec} onClick={e=>{ e.stopPropagation(); if(confirm("Clear library?")) saveLib([]); }}>Clear</button></>)}
+                {lib.length>0&&(<><button style={btnSec} onClick={e=>{ e.stopPropagation(); handleReanalyzeAll(); }} disabled={reanalyzingAll||analyzing}>{reanalyzingAll?"Re-analyzing…":"Re-analyze all"}</button><button style={btnSec} onClick={e=>{ e.stopPropagation(); exportLibrary(); }}>Export</button><button style={btnSec} onClick={e=>{ e.stopPropagation(); handleSyncThumbnails(); }} disabled={syncingThumbs||reanalyzingAll||analyzing} title="Generate 150px thumbnails for entries missing them — visible on other browsers">{syncingThumbs?(syncProgress||"Syncing…"):"☁ Sync thumbnails"}</button><button style={btnSec} onClick={e=>{ e.stopPropagation(); if(confirm("Clear library?")) saveLib([]); }}>Clear</button></>)}
                 <button style={btnSec} onClick={e=>{ e.stopPropagation(); importRef.current?.click(); }}>Import</button>
                 <button style={btnPri} onClick={e=>{ e.stopPropagation(); setLibPanelOpen(false); setShowModal(true); }} disabled={analyzing||reanalyzingAll}>{analyzing?"Analyzing…":"+ Upload"}</button>
               </div>
@@ -3258,7 +3335,7 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes slideIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes cardFadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        @keyframes cardFadeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes modalBackdrop { from { opacity: 0; } to { opacity: 1; } }
         @keyframes modalSlideUp { from { opacity: 0; transform: translateY(20px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
         * { box-sizing: border-box; }

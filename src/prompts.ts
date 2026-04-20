@@ -549,8 +549,8 @@ export const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"
     scene: laneDesign
       ? `OPENING SCENE — 3/4 top-down view of the full lane from above:
 - Single ${unitAtScene} cannon at BOTTOM CENTER. ${CANNON_VISUALS[unitAtScene]||unitAtScene}. NOT a military tank, NOT a truck.
+- ABSOLUTE NO ENEMY MOBS RULE (CRITICAL — read carefully): Render ZERO red enemy mobs anywhere on the road or in the lane. The reference frames provided to you DO show enemy mobs (because they were screenshots of older real ads) — IGNORE the enemy mobs in the references and render an EMPTY lane with no red mob figures. The boss/tower at the top is the ONLY threat in the frame. If you render even one red enemy mob in the lane, the output is wrong.
 - PLAYER MOBS (sparse): 4-6 ${vi.player_mob_color} blob mobs in a small cone directly IN FRONT of the cannon. They appear as projectiles streaming upward from the cannon mouth. NEVER behind, NEVER beside the cannon. Keep them sparse — the level structure is the hero, not the mob count.
-- NO ENEMY MOBS in the lane scene (the threat is conveyed by the enemy tower / boss at the top — enemy mobs in the lane add visual noise without value).
 - LANE DESIGN (SOURCE OF TRUTH — respect this exactly; 1-lane, 2-lane, or asymmetric layouts are all valid — do NOT force 3 sub-lanes if lane_design says otherwise): ${laneDesign}
 - Gate values to use: ${(vi.gate_values||[]).join(", ") || "+1 gates and x3 gates"}
 - Enemy tower at very TOP of lane: visibly large and impending (not a distant speck), with a 100% red health bar above it. Keep the boss/tower as the dominant threat — looming, threatening, but not distracting from the lane mechanics below.
@@ -560,8 +560,8 @@ export const imagePromptFn = (concept: Concept, scene: "hook"|"start"|"middle"|"
 - Biome environment fills both sides of the road`
       : `OPENING SCENE — 3/4 top-down view of the full lane from above:
 - Single ${unitAtScene} cannon at BOTTOM CENTER. Cannon looks EXACTLY like the reference images: small rounded barrel body on 4 small black wheels. Cartoon 3D. Blue/grey color. NOT a military tank, NOT a truck, NOT a realistic vehicle.
+- ABSOLUTE NO ENEMY MOBS RULE (CRITICAL — read carefully): Render ZERO red enemy mobs anywhere on the road. Reference frames provided DO show enemy mobs in lanes — IGNORE them and render an EMPTY lane. The boss/tower at the top is the ONLY threat. Any rendered red enemy mob is a deploy failure.
 - PLAYER MOBS (sparse): 4-6 ${vi.player_mob_color} blob mobs in a small cone directly IN FRONT of the cannon. NEVER behind, NEVER beside.
-- NO ENEMY MOBS in the lane scene (threat is conveyed by enemy tower / boss at top).
 - DEFAULT LANE STRUCTURE (used when concept.lane_design is empty — loose default, not mandate): road shows distinct zones — +N gates on LEFT (2-4 panels with VARIETY in values, mixing ${(vi.gate_values||[]).filter(g=>g.startsWith("+")).join(", ")||"+1, +2"} rather than identical repetition), xN gate in CENTER (purple/pink), breakable upgrade containers on RIGHT (${upgradeTriggers.length > 0 ? upgradeTriggers[0] : `3-4 stacked containers, cannon icon on top, biome-matched material like ${{"Foggy Forest":"blue wooden crate","Desert":"sandstone block","Bunker":"metal ammo crate","Volcanic":"obsidian rock","Snow":"ice block","Cyber-City":"tech console","Meadow":"wooden box"}[vi.environment||"Foggy Forest"]||"blue wooden crate"}`}). Asymmetric layouts (1-lane, 2-lane) are valid if scene reads clearly.
 - Enemy tower at very TOP: visibly large and impending, 100% red HP bar. Boss/tower is the dominant threat.
 - ALLOWED gameplay UI: HP bars, gate numbers (+1, x3), upgrade icons on containers.
