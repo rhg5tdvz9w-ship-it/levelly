@@ -666,13 +666,129 @@ function ReuploadModal({ entry, onConfirm, onCancel }: {
 }
 
 // ─── Library Card ─────────────────────────────────────────────────────────────
-function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanalyzingIds, handleReanalyzeSingle, onZoomFrame, isReanalyzing, onReupload }: {
+
+// ─── Deploy C: Grid thumbnail card (entry in library grid) ──────────────────
+function LibraryCardGrid({ d, index, onClick }: {
+  d: DNAEntry; index: number; onClick: () => void;
+}) {
+  const thumbnail = d.manual_frames?.[0]
+    ? `data:image/jpeg;base64,${d.manual_frames[0]}`
+    : d.auto_frames?.find(f => f.image_data)?.image_data
+      ? `data:image/jpeg;base64,${d.auto_frames.find(f => f.image_data)!.image_data}`
+      : null;
+  const tierStyle = TIER_STYLE[d.tier];
+  const statusSt = CREATIVE_STATUS.find(s => s.value === d.creative_status);
+  const isFatigued = d.creative_status === "fatigued";
+  const accentColor = isFatigued ? "#8957e5" : TIER_ACCENT[d.tier] ?? D.border2;
+  const displayId = d.creative_id?.trim() || d.title;
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        background: D.surface,
+        border: `0.5px solid ${D.border}`,
+        borderTop: `3px solid ${accentColor}`,
+        borderRadius: 8,
+        overflow: "hidden",
+        cursor: "pointer",
+        opacity: isFatigued ? 0.75 : 1,
+        animation: `cardFadeIn .3s ease-out ${Math.min(index, 20) * 0.02}s both`,
+        transition: "transform .15s ease-out, box-shadow .15s ease-out",
+      }}
+      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)"; (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 12px rgba(0,0,0,0.35)"; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(0)"; (e.currentTarget as HTMLElement).style.boxShadow = "none"; }}
+    >
+      <div style={{ aspectRatio: "9/16", background: thumbnail ? "transparent" : D.surface2, position: "relative" as const, overflow: "hidden" }}>
+        {thumbnail ? (
+          <img src={thumbnail} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+        ) : (
+          <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: D.textDim, fontSize: 11, fontStyle: "italic" as const }}>No preview</div>
+        )}
+        {d.is_compound && <span style={{ position: "absolute" as const, top: 6, right: 6, ...pill(D.goldBg, D.gold, D.goldBdr), fontSize: 8, padding: "1px 5px" }}>compound</span>}
+      </div>
+      <div style={{ padding: "8px 10px 10px" }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: D.text, lineHeight: 1.3, marginBottom: 3, overflow: "hidden" as const, textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{displayId}</div>
+        {d.creative_id && d.title && <div style={{ fontSize: 10, color: D.textMuted, lineHeight: 1.3, marginBottom: 6, overflow: "hidden" as const, textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{d.title}</div>}
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" as const, marginBottom: 5 }}>
+          {tierStyle && <span style={{ ...pill(tierStyle.bg, tierStyle.text, tierStyle.border), fontSize: 9, padding: "1px 6px" }}>{d.tier}</span>}
+          {statusSt && <span style={{ ...pill(statusSt.bg, statusSt.text, statusSt.border), fontSize: 9, padding: "1px 6px" }}>{statusSt.label}</span>}
+          {d.ad_type !== "moc" && <span style={{ ...pill(D.purpleBg, D.purple, D.purpleBdr), fontSize: 9, padding: "1px 6px" }}>{d.ad_type}</span>}
+        </div>
+        {d.biome && <div style={{ fontSize: 9, color: D.textDim, overflow: "hidden" as const, textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{d.biome}</div>}
+      </div>
+    </div>
+  );
+}
+
+// ─── Deploy C: Fullscreen modal wrapping LibraryCard expanded view ──────────
+function LibraryModal(props: {
+  entry: DNAEntry; di: number; lib: DNAEntry[]; saveLib: (l: DNAEntry[]) => void;
+  expandedDNA: number; setExpandedDNA: (n: number|null) => void;
+  reanalyzingIds: Set<number>; handleReanalyzeSingle: (e: DNAEntry) => void;
+  onZoomFrame: (src: string, list?: string[], index?: number) => void;
+  isReanalyzing: boolean;
+  onReupload?: (entry: DNAEntry, file: File, manualFrameFiles?: File[], context?: string) => void;
+  onClose: () => void;
+}) {
+  React.useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") props.onClose(); };
+    document.addEventListener("keydown", h);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.removeEventListener("keydown", h); document.body.style.overflow = prev; };
+  }, [props]);
+  return (
+    <div
+      onClick={props.onClose}
+      style={{
+        position: "fixed" as const, top: 0, left: 0, right: 0, bottom: 0,
+        background: "rgba(0,0,0,0.72)", zIndex: 1000,
+        display: "flex", justifyContent: "center", alignItems: "flex-start",
+        padding: "40px 20px", overflowY: "auto" as const,
+        animation: "modalBackdrop .18s ease-out",
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: D.surface, borderRadius: 12, maxWidth: 760, width: "100%",
+          position: "relative" as const, animation: "modalSlideUp .22s ease-out",
+          border: `1px solid ${D.border2}`, overflow: "hidden",
+        }}
+      >
+        <button
+          onClick={props.onClose}
+          aria-label="Close"
+          style={{
+            position: "absolute" as const, top: 10, right: 10, zIndex: 10,
+            background: "rgba(0,0,0,0.6)", color: "#fff", border: "none",
+            borderRadius: "50%", width: 28, height: 28, fontSize: 14,
+            cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+            fontFamily: "inherit", lineHeight: 1,
+          }}
+        >✕</button>
+        <LibraryCard
+          d={props.entry} di={props.di}
+          expandedDNA={props.expandedDNA} setExpandedDNA={props.setExpandedDNA}
+          lib={props.lib} saveLib={props.saveLib}
+          reanalyzingIds={props.reanalyzingIds} handleReanalyzeSingle={props.handleReanalyzeSingle}
+          onZoomFrame={props.onZoomFrame}
+          isReanalyzing={props.isReanalyzing} onReupload={props.onReupload}
+          alwaysExpanded={true} inModal={true}
+        />
+      </div>
+    </div>
+  );
+}
+
+function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanalyzingIds, handleReanalyzeSingle, onZoomFrame, isReanalyzing, onReupload, alwaysExpanded, inModal }: {
   d: DNAEntry; di: number; expandedDNA: number|null; setExpandedDNA: (n: number|null) => void;
   lib: DNAEntry[]; saveLib: (l: DNAEntry[]) => void;
   reanalyzingIds: Set<number>; handleReanalyzeSingle: (e: DNAEntry) => void;
   onZoomFrame: (src: string, list?: string[], index?: number) => void;
   isReanalyzing: boolean;
   onReupload?: (entry: DNAEntry, file: File, manualFrameFiles?: File[], context?: string) => void;
+  alwaysExpanded?: boolean; inModal?: boolean;
 }) {
   const [showReuploadModal, setShowReuploadModal] = React.useState(false);
   const [spendOpen, setSpendOpen] = React.useState(false);
@@ -682,7 +798,7 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
   const spendSt = SPEND_TIERS.find(t => t.value === d.spend_tier);
   const statusSt = CREATIVE_STATUS.find(s => s.value === d.creative_status);
   const isFatigued = d.creative_status === "fatigued";
-  const isExpanded = expandedDNA === di;
+  const isExpanded = alwaysExpanded === true || expandedDNA === di;
   const chain = buildLineageChain(d, lib);
   const displayId = d.creative_id?.trim();
   const vel = velocityPerDay(d.spend_tier ?? "", d.spend_window_days);
@@ -828,7 +944,7 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
         background: isExpanded ? "#141920" : D.surface,
       }}>
         <button
-          onClick={() => setExpandedDNA(isExpanded ? null : di)}
+          onClick={() => { if (!inModal) setExpandedDNA(isExpanded ? null : di); }}
           style={{
             ...btnSec,
             fontSize: 11,
@@ -1239,6 +1355,10 @@ export default function App() {
   const [lastOpenPanel, setLastOpenPanel] = useState<"brief"|"analyse"|"lib"|null>(null);
   const [expandedDNA, setExpandedDNA] = useState<number|null>(null);
   const [libSort, setLibSort] = useState<SortMode>("all");
+  // Deploy C: library search + multi-filter + fullscreen modal state
+  const [libSearch, setLibSearch] = useState("");
+  const [libFilters, setLibFilters] = useState<{ ad_types: string[]; statuses: string[]; spend_tiers: string[]; biomes: string[] }>({ ad_types: [], statuses: [], spend_tiers: [], biomes: [] });
+  const [libModalId, setLibModalId] = useState<number|null>(null);
   const [showModal, setShowModal] = useState(false);
   const [uploadConfig, setUploadConfig] = useState<UploadConfig|null>(null);
   const [analyzing, setAnalyzing] = useState(false);
@@ -2153,6 +2273,26 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
   };
 
   const sortedLib = sortLib(lib, libSort);
+  // Deploy C: apply multi-filter + text search on top of sorted list
+  const filteredSortedLib = (() => {
+    let result: DNAEntry[] = sortedLib;
+    if (libFilters.ad_types.length) result = result.filter((d: DNAEntry) => libFilters.ad_types.includes(d.ad_type));
+    if (libFilters.statuses.length) result = result.filter((d: DNAEntry) => d.creative_status && libFilters.statuses.includes(d.creative_status));
+    if (libFilters.spend_tiers.length) result = result.filter((d: DNAEntry) => d.spend_tier && libFilters.spend_tiers.includes(d.spend_tier));
+    if (libFilters.biomes.length) result = result.filter((d: DNAEntry) => libFilters.biomes.includes(d.biome));
+    const q = libSearch.trim().toLowerCase();
+    if (q) {
+      result = result.filter((d: DNAEntry) => {
+        const haystack = [d.creative_id, d.title, d.hook_description, d.biome, d.core_fantasy, ...(d.champions_visible || [])].filter(Boolean).join(" ").toLowerCase();
+        return haystack.includes(q);
+      });
+    }
+    return result;
+  })();
+  const uniqueBiomes = Array.from(new Set(lib.map((d: DNAEntry) => d.biome).filter(Boolean))).sort();
+  const uniqueSpendTiersInLib = Array.from(new Set(lib.map((d: DNAEntry) => d.spend_tier).filter(Boolean))).sort() as string[];
+  const hasActiveFilters = libSearch.trim().length > 0 || libFilters.ad_types.length > 0 || libFilters.statuses.length > 0 || libFilters.spend_tiers.length > 0 || libFilters.biomes.length > 0;
+  const toggleFilter = (group: keyof typeof libFilters, value: string) => setLibFilters(p => ({ ...p, [group]: p[group].includes(value) ? p[group].filter(v => v !== value) : [...p[group], value] }));
   const winners=lib.filter(d=>d.tier==="winner").length;
   const activeWinners=lib.filter(d=>d.tier==="winner"&&d.creative_status!=="fatigued").length;
   const topVel=lib.reduce((best,d)=>{ const v=velocityPerDay(d.spend_tier??"",d.spend_window_days); if(!v) return best; const num=parseInt(v.replace(/[^0-9]/g,"")); return num>best?num:best; },0);
@@ -2443,8 +2583,17 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                   </div>
                 ))}
               </div>
-              {/* Filter + actions */}
-              <div style={{ display:"flex",gap:5,padding:"8px 16px",borderBottom:`0.5px solid ${D.border}`,flexWrap:"wrap" as const,alignItems:"center" }}>
+              {/* Deploy C: Search bar */}
+              <div style={{ display:"flex",gap:8,padding:"10px 16px 6px",alignItems:"center",borderBottom:`0.5px solid ${D.border}` }}>
+                <div style={{ position:"relative" as const,flex:1 }}>
+                  <span style={{ position:"absolute" as const,left:10,top:"50%",transform:"translateY(-50%)",fontSize:12,color:D.textDim,pointerEvents:"none" as const }}>🔍</span>
+                  <input type="text" value={libSearch} onChange={e=>setLibSearch(e.target.value)} onClick={e=>e.stopPropagation()} placeholder="Search by ID, title, hook, champion, biome…" style={{ width:"100%",boxSizing:"border-box" as const,padding:"6px 30px 6px 28px",fontSize:12,background:D.surface2,border:`0.5px solid ${D.border}`,borderRadius:6,color:D.text,outline:"none",fontFamily:"inherit" }} />
+                  {libSearch && <button onClick={e=>{ e.stopPropagation(); setLibSearch(""); }} style={{ position:"absolute" as const,right:6,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:D.textMuted,cursor:"pointer",fontSize:14,padding:"2px 6px",lineHeight:1 }}>×</button>}
+                </div>
+                {hasActiveFilters && <button onClick={e=>{ e.stopPropagation(); setLibSearch(""); setLibFilters({ ad_types:[], statuses:[], spend_tiers:[], biomes:[] }); }} style={{ padding:"5px 10px",fontSize:10,borderRadius:6,cursor:"pointer",fontFamily:"inherit",border:`0.5px solid ${D.border2}`,background:"transparent",color:D.textMuted,whiteSpace:"nowrap" as const }}>Clear all</button>}
+              </div>
+              {/* Tier filter (existing, kept) */}
+              <div style={{ display:"flex",gap:5,padding:"6px 16px",borderBottom:`0.5px solid ${D.border}`,flexWrap:"wrap" as const,alignItems:"center" }}>
                 {(["all","winner","scalable","inspiration","failed"] as SortMode[]).map(s=>(
                   <button key={s} onClick={e=>{ e.stopPropagation(); setLibSort(s); }} style={{ padding:"3px 10px",fontSize:10,borderRadius:20,cursor:"pointer",fontFamily:"inherit",border:`0.5px solid ${libSort===s?(s==="all"?D.border2:TIER_STYLE[s]?.border??D.border2):D.border2}`,background:libSort===s?(s==="all"?D.surface2:TIER_STYLE[s]?.bg??"transparent"):"transparent",color:libSort===s?(s==="all"?D.text:TIER_STYLE[s]?.text??D.text):D.textMuted }}>
                     {s==="all"?"All":s.charAt(0).toUpperCase()+s.slice(1)}
@@ -2452,17 +2601,78 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                 ))}
                 <span style={{ fontSize:10,color:D.textDim,marginLeft:"auto" }}>by spend · fatigued last</span>
               </div>
+              {/* Deploy C: Multi-filter rows (ad_type, status, spend, biome) */}
+              <div style={{ display:"flex",flexDirection:"column" as const,gap:4,padding:"6px 16px 8px",borderBottom:`0.5px solid ${D.border}`,background:D.surface2 }}>
+                {/* ad_type */}
+                <div style={{ display:"flex",gap:4,flexWrap:"wrap" as const,alignItems:"center" }}>
+                  <span style={{ fontSize:9,color:D.textDim,marginRight:4,minWidth:40 }}>type</span>
+                  {(["moc","competitor","compound"] as const).map(v => {
+                    const active = libFilters.ad_types.includes(v);
+                    return <button key={v} onClick={e=>{ e.stopPropagation(); toggleFilter("ad_types",v); }} style={{ padding:"2px 8px",fontSize:9,borderRadius:20,cursor:"pointer",fontFamily:"inherit",border:`0.5px solid ${active?D.purple:D.border2}`,background:active?D.purpleBg:"transparent",color:active?D.purple:D.textMuted }}>{v}</button>;
+                  })}
+                </div>
+                {/* status */}
+                <div style={{ display:"flex",gap:4,flexWrap:"wrap" as const,alignItems:"center" }}>
+                  <span style={{ fontSize:9,color:D.textDim,marginRight:4,minWidth:40 }}>status</span>
+                  {CREATIVE_STATUS.map(s => {
+                    const active = libFilters.statuses.includes(s.value);
+                    return <button key={s.value} onClick={e=>{ e.stopPropagation(); toggleFilter("statuses",s.value); }} style={{ padding:"2px 8px",fontSize:9,borderRadius:20,cursor:"pointer",fontFamily:"inherit",border:`0.5px solid ${active?s.border:D.border2}`,background:active?s.bg:"transparent",color:active?s.text:D.textMuted }}>{s.label}</button>;
+                  })}
+                </div>
+                {/* spend_tier (only if any lib entries have a spend tier set) */}
+                {uniqueSpendTiersInLib.length > 0 && (
+                  <div style={{ display:"flex",gap:4,flexWrap:"wrap" as const,alignItems:"center" }}>
+                    <span style={{ fontSize:9,color:D.textDim,marginRight:4,minWidth:40 }}>spend</span>
+                    {uniqueSpendTiersInLib.map(v => {
+                      const active = libFilters.spend_tiers.includes(v);
+                      const tierStyle = SPEND_TIERS.find(t => t.value === v);
+                      return <button key={v} onClick={e=>{ e.stopPropagation(); toggleFilter("spend_tiers",v); }} style={{ padding:"2px 8px",fontSize:9,borderRadius:20,cursor:"pointer",fontFamily:"inherit",border:`0.5px solid ${active?(tierStyle?.border??D.border2):D.border2}`,background:active?(tierStyle?.bg??"transparent"):"transparent",color:active?(tierStyle?.text??D.text):D.textMuted }}>{tierStyle?.label ?? v}</button>;
+                    })}
+                  </div>
+                )}
+                {/* biome */}
+                {uniqueBiomes.length > 0 && (
+                  <div style={{ display:"flex",gap:4,flexWrap:"wrap" as const,alignItems:"center" }}>
+                    <span style={{ fontSize:9,color:D.textDim,marginRight:4,minWidth:40 }}>biome</span>
+                    {uniqueBiomes.map(v => {
+                      const active = libFilters.biomes.includes(v);
+                      return <button key={v} onClick={e=>{ e.stopPropagation(); toggleFilter("biomes",v); }} style={{ padding:"2px 8px",fontSize:9,borderRadius:20,cursor:"pointer",fontFamily:"inherit",border:`0.5px solid ${active?D.green:D.border2}`,background:active?D.greenBg:"transparent",color:active?D.green:D.textMuted }}>{v}</button>;
+                    })}
+                  </div>
+                )}
+              </div>
               <div style={{ display:"flex",gap:6,padding:"8px 16px",borderBottom:`0.5px solid ${D.border}`,flexWrap:"wrap" as const }}>
                 {lib.length>0&&(<><button style={btnSec} onClick={e=>{ e.stopPropagation(); handleReanalyzeAll(); }} disabled={reanalyzingAll||analyzing}>{reanalyzingAll?"Re-analyzing…":"Re-analyze all"}</button><button style={btnSec} onClick={e=>{ e.stopPropagation(); exportLibrary(); }}>Export</button><button style={btnSec} onClick={e=>{ e.stopPropagation(); if(confirm("Clear library?")) saveLib([]); }}>Clear</button></>)}
                 <button style={btnSec} onClick={e=>{ e.stopPropagation(); importRef.current?.click(); }}>Import</button>
                 <button style={btnPri} onClick={e=>{ e.stopPropagation(); setLibPanelOpen(false); setShowModal(true); }} disabled={analyzing||reanalyzingAll}>{analyzing?"Analyzing…":"+ Upload"}</button>
               </div>
               {reanalysisProgress&&<div style={{ fontSize:11,color:D.blue,background:D.blueBg,border:`0.5px solid ${D.blueDark}`,borderRadius:7,padding:"7px 12px",margin:"8px 16px" }}>{reanalysisProgress}</div>}
-              {/* Library cards */}
-              <div style={{ maxHeight:480,overflowY:"auto" as const,padding:"8px 0" }}>
+              {/* Deploy C: Grid of thumbnail cards */}
+              <div style={{ maxHeight:640,overflowY:"auto" as const,padding:"12px 16px" }}>
                 {lib.length===0&&!analyzing&&libraryLoaded&&<div style={{ padding:"2rem 16px",textAlign:"center" as const }}><p style={{ margin:0,fontSize:12,color:D.textMuted }}>Upload MOC ads to build your Creative DNA library.</p></div>}
-                {sortedLib.map((d,di)=><LibraryCard key={d.id} d={d} di={di} expandedDNA={expandedDNA} setExpandedDNA={setExpandedDNA} lib={lib} saveLib={saveLib} reanalyzingIds={reanalyzingIds} handleReanalyzeSingle={handleReanalyzeSingle} onZoomFrame={(src,list,idx)=>{ setZoomedFrame(src); setZoomedFrameList(list??[src]); setZoomedFrameIndex(idx??0); }} isReanalyzing={reanalyzingEntry === d.id} onReupload={handleReupload} />)}
+                {lib.length>0 && filteredSortedLib.length===0 && (
+                  <div style={{ padding:"2rem 16px",textAlign:"center" as const }}><p style={{ margin:0,fontSize:12,color:D.textMuted }}>No entries match your search / filters.</p></div>
+                )}
+                <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(180px, 1fr))",gap:10 }}>
+                  {filteredSortedLib.map((d, di) => (
+                    <LibraryCardGrid key={d.id} d={d} index={di} onClick={() => setLibModalId(d.id)} />
+                  ))}
+                </div>
               </div>
+              {/* Deploy C: Fullscreen modal for expanded library card */}
+              {libModalId !== null && (() => {
+                const entry = lib.find(e => e.id === libModalId);
+                if (!entry) return null;
+                const di = lib.indexOf(entry);
+                return (
+                  <LibraryModal entry={entry} di={di} lib={lib} saveLib={saveLib}
+                    expandedDNA={di} setExpandedDNA={setExpandedDNA}
+                    reanalyzingIds={reanalyzingIds} handleReanalyzeSingle={handleReanalyzeSingle}
+                    onZoomFrame={(src,list,idx)=>{ setZoomedFrame(src); setZoomedFrameList(list??[src]); setZoomedFrameIndex(idx??0); }}
+                    isReanalyzing={reanalyzingEntry === entry.id} onReupload={handleReupload}
+                    onClose={() => setLibModalId(null)} />
+                );
+              })()}
             </div>
           )}
 
@@ -2957,6 +3167,9 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes slideIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes cardFadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        @keyframes modalBackdrop { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes modalSlideUp { from { opacity: 0; transform: translateY(20px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
         * { box-sizing: border-box; }
         select option { background: #161b22; color: #e6edf3; }
         ::-webkit-scrollbar { width: 5px; }
