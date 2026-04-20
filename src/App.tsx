@@ -9,6 +9,37 @@ import { GEMINI_IMAGE_URL, callGeminiDirect, parseDataURI, callImageDirect, uplo
 import { enhanceText } from "./briefing";
 import { pickRelevantRefs } from "./rendering";
 
+// ─── Deploy D: ErrorBoundary — prevents white screen on uncaught errors ─────
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error("ErrorBoundary caught:", error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: "40px 20px", maxWidth: 720, margin: "60px auto", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif", color: "#c9d1d9", background: "#0d1117", borderRadius: 12, border: "1px solid #6e2020" }}>
+          <h2 style={{ margin: "0 0 16px", fontSize: 18, color: "#f85149" }}>⚠ Something broke</h2>
+          <p style={{ margin: "0 0 12px", fontSize: 14, lineHeight: 1.5 }}>Levelly hit an error and stopped rendering. Your library data is safe — just reload the page.</p>
+          <pre style={{ background: "#161b22", padding: "12px", borderRadius: 8, fontSize: 11, overflow: "auto", color: "#8b949e", whiteSpace: "pre-wrap" as const }}>{this.state.error?.message || "Unknown error"}{"\n\n"}{this.state.error?.stack?.split("\n").slice(0, 5).join("\n") || ""}</pre>
+          <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+            <button onClick={() => window.location.reload()} style={{ padding: "8px 16px", fontSize: 12, background: "#1f6feb", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>Reload page</button>
+            <button onClick={() => this.setState({ hasError: false, error: null })} style={{ padding: "8px 16px", fontSize: 12, background: "transparent", color: "#c9d1d9", border: "0.5px solid #30363d", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}>Dismiss</button>
+          </div>
+          <p style={{ margin: "16px 0 0", fontSize: 11, color: "#6e7681" }}>If this keeps happening, screenshot the message above and send to Dmitriy.</p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 const TIERS = ["winner", "scalable", "failed", "inspiration"] as const;
 const PROVEN_BIOMES = ["Desert", "Foggy Forest", "Water", "Bunker", "Meadow"];
@@ -165,31 +196,30 @@ function ReferenceDropZone({ onRef, currentRef, onClear, iterateFrom, onIterateF
             <button onClick={e => { e.stopPropagation(); onClear(); }} style={{ background: "none", border: "none", color: D.textDim, cursor: "pointer", fontSize: 14, padding: "0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
           </>
         ) : (
-          <>
-            <div style={{ fontSize: 15, opacity: dragging ? 1 : 0.4 }}>🖼</div>
-            <div style={{ fontSize: 11, color: dragging ? D.purple : D.textMuted, fontWeight: 500 }}>
-              {dragging ? "Drop to add visual reference" : "Drop image or video reference"}
+          <div style={{ flex: 1, padding: "14px 8px", border: `2px dashed ${dragging ? D.purple : D.border2}`, borderRadius: 8, textAlign: "center" as const, transition: "border-color .15s, background .15s", background: dragging ? `${D.purpleBg}` : "transparent", display: "flex", flexDirection: "column" as const, alignItems: "center", justifyContent: "center", gap: 4 }}>
+            <div style={{ fontSize: 22, opacity: dragging ? 1 : 0.55 }}>📥</div>
+            <div style={{ fontSize: 12, color: dragging ? D.purple : D.text, fontWeight: 600 }}>
+              {dragging ? "Release to add reference" : "Drag & drop image or video"}
             </div>
-          </>
+            <div style={{ fontSize: 10, color: D.textDim, fontWeight: 400 }}>
+              {dragging ? " " : "or click to browse"}
+            </div>
+          </div>
         )}
       </div>
 
-      {/* Divider + creative ID input */}
+      {/* Divider + creative ID input — Deploy D fix: input always rendered (was vanishing on first keystroke) */}
       <div style={{ borderTop: `0.5px solid ${hasAnyRef ? D.purpleBdr : D.border2}`, padding: "7px 14px", display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: 9, fontWeight: 600, color: D.textDim, letterSpacing: "0.08em", flexShrink: 0 }}>ITERATE FROM</span>
-        {iterateFrom.trim() ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, background: `${D.purpleBdr}22`, border: `0.5px solid ${D.purpleBdr}`, borderRadius: 5, padding: "2px 8px", flex: 1 }}>
-            <span style={{ fontSize: 11, color: D.purple, fontWeight: 500, flex: 1 }}>{iterateFrom.trim()}</span>
-            <button onClick={() => onIterateFrom("")} style={{ background: "none", border: "none", color: D.textDim, cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1 }}>✕</button>
-          </div>
-        ) : (
+        <div style={{ display: "flex", alignItems: "center", flex: 1, gap: 6, background: iterateFrom.trim() ? `${D.purpleBdr}22` : "transparent", border: iterateFrom.trim() ? `0.5px solid ${D.purpleBdr}` : "none", borderRadius: 5, padding: iterateFrom.trim() ? "1px 8px" : 0 }}>
           <input
-            style={{ ...inputStyle, flex: 1, fontSize: 11, padding: "4px 8px", background: "transparent", border: "none", outline: "none" }}
+            style={{ ...inputStyle, flex: 1, fontSize: 11, padding: "4px 0", background: "transparent", border: "none", outline: "none", color: iterateFrom.trim() ? D.purple : D.text, fontWeight: iterateFrom.trim() ? 500 : 400 }}
             placeholder="Library ID, e.g. CT43"
             value={iterateFrom}
             onChange={e => onIterateFrom(e.target.value)}
           />
-        )}
+          {iterateFrom.trim() && <button onClick={() => onIterateFrom("")} style={{ background: "none", border: "none", color: D.textDim, cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1, flexShrink: 0 }}>✕</button>}
+        </div>
       </div>
     </div>
   );
@@ -671,11 +701,13 @@ function ReuploadModal({ entry, onConfirm, onCancel }: {
 function LibraryCardGrid({ d, index, onClick }: {
   d: DNAEntry; index: number; onClick: () => void;
 }) {
-  const thumbnail = d.manual_frames?.[0]
-    ? `data:image/jpeg;base64,${d.manual_frames[0]}`
-    : d.auto_frames?.find(f => f.image_data)?.image_data
-      ? `data:image/jpeg;base64,${d.auto_frames.find(f => f.image_data)!.image_data}`
-      : null;
+  // Deploy C.1 fix: manual_frames stores filenames (strings like "frame.png"), not base64 data.
+  // Use only auto_frames with image_data for thumbnails.
+  const firstAutoFrame = d.auto_frames?.find(f => f.image_data);
+  const thumbnail = firstAutoFrame?.image_data
+    ? `data:image/jpeg;base64,${firstAutoFrame.image_data}`
+    : null;
+  const [imgFailed, setImgFailed] = React.useState(false);
   const tierStyle = TIER_STYLE[d.tier];
   const statusSt = CREATIVE_STATUS.find(s => s.value === d.creative_status);
   const isFatigued = d.creative_status === "fatigued";
@@ -693,14 +725,14 @@ function LibraryCardGrid({ d, index, onClick }: {
         cursor: "pointer",
         opacity: isFatigued ? 0.75 : 1,
         animation: `cardFadeIn .3s ease-out ${Math.min(index, 20) * 0.02}s both`,
-        transition: "transform .15s ease-out, box-shadow .15s ease-out",
+        transition: "transform .2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow .2s ease-out",
       }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(-2px)"; (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 12px rgba(0,0,0,0.35)"; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(0)"; (e.currentTarget as HTMLElement).style.boxShadow = "none"; }}
+      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1.04) translateY(-3px)"; (e.currentTarget as HTMLElement).style.boxShadow = `0 6px 16px rgba(0,0,0,0.4), 0 0 0 1px ${D.blueDark}`; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1) translateY(0)"; (e.currentTarget as HTMLElement).style.boxShadow = "none"; }}
     >
       <div style={{ aspectRatio: "9/16", background: thumbnail ? "transparent" : D.surface2, position: "relative" as const, overflow: "hidden" }}>
-        {thumbnail ? (
-          <img src={thumbnail} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+        {thumbnail && !imgFailed ? (
+          <img src={thumbnail} alt="" onError={() => setImgFailed(true)} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
         ) : (
           <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: D.textDim, fontSize: 11, fontStyle: "italic" as const }}>No preview</div>
         )}
@@ -756,6 +788,26 @@ function LibraryModal(props: {
           border: `1px solid ${D.border2}`, overflow: "hidden",
         }}
       >
+        {/* Deploy D: Share link button */}
+        <button
+          onClick={async () => {
+            try {
+              const shareUrl = `${window.location.origin}${window.location.pathname}?entry=${props.entry.id}`;
+              await navigator.clipboard.writeText(shareUrl);
+              const btn = document.getElementById(`share-btn-${props.entry.id}`);
+              if (btn) { btn.textContent = "✓ copied"; setTimeout(() => { if (btn) btn.textContent = "🔗 share"; }, 1500); }
+            } catch (err) { alert("Could not copy. URL: " + window.location.origin + window.location.pathname + "?entry=" + props.entry.id); }
+          }}
+          id={`share-btn-${props.entry.id}`}
+          aria-label="Share link to this entry"
+          style={{
+            position: "absolute" as const, top: 10, right: 48, zIndex: 10,
+            background: "rgba(0,0,0,0.6)", color: "#fff", border: "none",
+            borderRadius: 14, height: 28, padding: "0 10px", fontSize: 11,
+            cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+            fontFamily: "inherit", lineHeight: 1, gap: 4,
+          }}
+        >🔗 share</button>
         <button
           onClick={props.onClose}
           aria-label="Close"
@@ -943,22 +995,24 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
         borderTop: `0.5px solid ${D.border}`,
         background: isExpanded ? "#141920" : D.surface,
       }}>
-        <button
-          onClick={() => { if (!inModal) setExpandedDNA(isExpanded ? null : di); }}
-          style={{
-            ...btnSec,
-            fontSize: 11,
-            padding: "5px 14px",
-            display: "flex",
-            alignItems: "center",
-            gap: 5,
-            color: isExpanded ? D.blue : D.text,
-            borderColor: isExpanded ? D.blueDark : D.border,
-            background: isExpanded ? D.blueBg : D.surface2,
-          }}
-        >
+        {!inModal && (
+          <button
+            onClick={() => setExpandedDNA(isExpanded ? null : di)}
+            style={{
+              ...btnSec,
+              fontSize: 11,
+              padding: "5px 14px",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              color: isExpanded ? D.blue : D.text,
+              borderColor: isExpanded ? D.blueDark : D.border,
+              background: isExpanded ? D.blueBg : D.surface2,
+            }}
+          >
 {isExpanded ? "▲ Collapse details" : "▼ Expand details"}
-        </button>
+          </button>
+        )}
         <div style={{ display:"flex",gap:6,alignItems:"center" }}>
           {onReupload && (() => {
             const reuploading = reanalyzingIds.has(d.id);
@@ -1344,7 +1398,12 @@ function ValidationCard({ entry: d, lib, saveLib }: { entry: DNAEntry; lib: DNAE
 
 
 // ─── App ──────────────────────────────────────────────────────────────────────
+// ─── Deploy D: Wrap App in ErrorBoundary — uncaught errors show a message instead of white screen ──
 export default function App() {
+  return <ErrorBoundary><AppInner /></ErrorBoundary>;
+}
+
+function AppInner() {
   const [lib, setLib] = useState<DNAEntry[]>([]);
   const [libraryLoaded, setLibraryLoaded] = useState(false);
   const [cloudStatus, setCloudStatus] = useState<"idle"|"saving"|"saved"|"error">("idle");
@@ -1355,6 +1414,29 @@ export default function App() {
   const [lastOpenPanel, setLastOpenPanel] = useState<"brief"|"analyse"|"lib"|null>(null);
   const [expandedDNA, setExpandedDNA] = useState<number|null>(null);
   const [libSort, setLibSort] = useState<SortMode>("all");
+  // Deploy D: deep link — read ?entry=N from URL on mount, open that entry's modal
+  React.useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const entryId = params.get("entry");
+      if (entryId !== null) {
+        const id = parseInt(entryId, 10);
+        if (!isNaN(id)) {
+          // Wait for library to load (run on next tick so lib state is populated)
+          const tryOpen = () => {
+            const found = lib.find(e => e.id === id);
+            if (found) { setLibPanelOpen(true); setLibModalId(id); return true; }
+            return false;
+          };
+          if (!tryOpen()) {
+            const interval = setInterval(() => { if (tryOpen()) clearInterval(interval); }, 200);
+            setTimeout(() => clearInterval(interval), 5000); // give up after 5s
+          }
+        }
+      }
+    } catch { /* SSR safety, never throws */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [libraryLoaded]);
   // Deploy C: library search + multi-filter + fullscreen modal state
   const [libSearch, setLibSearch] = useState("");
   const [libFilters, setLibFilters] = useState<{ ad_types: string[]; statuses: string[]; spend_tiers: string[]; biomes: string[] }>({ ad_types: [], statuses: [], spend_tiers: [], biomes: [] });
@@ -2219,17 +2301,26 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
 
       if (existingImg && refinePrompt) {
         // ── DIRECT IMAGE EDIT MODE (Nano Banana style) ──────────────────────
-        // User's exact instruction + source image only. No brief fields, no extra context.
-        // This is what makes Nano Banana work: clean image + clean instruction.
+        // Deploy D fix: scan refine prompt for canonical champion names; inject matching ref images so Gemini doesn't invent
         const { mimeType, data } = parseDataURI(existingImg);
+        const refineLower = refinePrompt.toLowerCase();
+        const populatedRefs = MOC_REFERENCES.filter((r: any) => !r.base64.startsWith("REPLACE_") && r.category === "champion");
+        const matchedRefs = populatedRefs.filter((r: any) => {
+          const refLabel = (r.label || "").toLowerCase();
+          const refKey = (r.key || "").toLowerCase().replace(/_/g, " ");
+          return refineLower.includes(refKey) || (refLabel.split(" — ")[0] && refineLower.includes(refLabel.split(" — ")[0]));
+        });
+        const editParts: any[] = [{ inlineData: { mimeType, data } }];
+        if (matchedRefs.length > 0) {
+          editParts.push({ text: `MOC CHAMPION REFERENCE${matchedRefs.length>1?"S":""} for the new character${matchedRefs.length>1?"s":""} mentioned in the edit instruction — match ${matchedRefs.length>1?"these":"this"} appearance EXACTLY (same body shape, colours, proportions, expression):` });
+          matchedRefs.forEach((r: any) => {
+            editParts.push({ text: `[CHAMPION]: ${r.label}` });
+            editParts.push({ inlineData: { mimeType: (r as any).mimeType || "image/png", data: r.base64 } });
+          });
+        }
+        editParts.push({ text: `EDIT THIS IMAGE: ${refinePrompt}\n\nKeep everything else identical — same composition, camera angle, art style, road layout, and all unchanged elements. ${matchedRefs.length>0?"For any character swap or addition mentioned, USE THE MOC CHAMPION REFERENCE${matchedRefs.length>1?'S':''} above as the visual source — do NOT invent a new character design.":""} Output 9:16.` });
         const editBody = JSON.stringify({
-          contents: [{
-            role: "user",
-            parts: [
-              { inlineData: { mimeType, data } },
-              { text: `EDIT THIS IMAGE: ${refinePrompt}\n\nKeep everything else identical — same composition, camera angle, art style, road layout, and all unchanged elements. Output 9:16.` },
-            ]
-          }],
+          contents: [{ role: "user", parts: editParts }],
           generationConfig: { responseModalities: ["IMAGE", "TEXT"], imageConfig: { aspectRatio: "9:16" } }
         });
         let url: string | null = null;
