@@ -159,6 +159,57 @@ function AnalysisProgressPanel({ step, fileName, error }: { step: string; fileNa
 }
 
 // ─── #8 Reference Zone (merged: file drop + creative ID) ─────────────────────
+// ─── Deploy F: Refine annotation drop zone — compact horizontal version for inside refine UI ──
+function RefineDropZone({ currentRef, onDrop, onClear }: {
+  currentRef: { base64: string; mimeType: string; name: string } | null;
+  onDrop: (file: File) => void;
+  onClear: () => void;
+}) {
+  const [dragging, setDragging] = React.useState(false);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const processFile = (f: File) => { if (f.type.startsWith("image/")) onDrop(f); };
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <input ref={inputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); e.target.value = ""; }} />
+      <div
+        onDragOver={e => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files?.[0]; if (f) processFile(f); }}
+        onClick={() => !currentRef && inputRef.current?.click()}
+        style={{
+          padding: currentRef ? "8px 12px" : "10px 12px",
+          border: `1.5px dashed ${dragging ? D.blue : currentRef ? D.purpleBdr : D.border2}`,
+          borderRadius: 6,
+          background: dragging ? D.blueBg : currentRef ? D.purpleBg : "transparent",
+          cursor: currentRef ? "default" : "pointer",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          transition: "border-color .15s, background .15s",
+        }}
+      >
+        {currentRef ? (
+          <>
+            <img src={`data:${currentRef.mimeType};base64,${currentRef.base64}`} alt="annotation preview" style={{ width: 32, height: 32, objectFit: "cover" as const, borderRadius: 4, flexShrink: 0, border: `0.5px solid ${D.purpleBdr}` }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 11, color: D.purple, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>📎 {currentRef.name}</div>
+              <div style={{ fontSize: 9, color: D.textDim }}>annotation will guide the edit</div>
+            </div>
+            <button onClick={e => { e.stopPropagation(); onClear(); }} style={{ background: "none", border: "none", color: D.textDim, cursor: "pointer", fontSize: 14, padding: "0 4px", lineHeight: 1, flexShrink: 0 }}>✕</button>
+          </>
+        ) : (
+          <>
+            <span style={{ fontSize: 14, opacity: dragging ? 1 : 0.5 }}>📎</span>
+            <div style={{ fontSize: 11, color: dragging ? D.blue : D.textMuted, fontWeight: 500 }}>
+              {dragging ? "Drop annotation image" : "Optional: drag screenshot/annotation here to guide the edit"}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ReferenceDropZone({ onRef, currentRef, onClear, iterateFrom, onIterateFrom }: {
   onRef: (data: { base64: string; mimeType: string; name: string }) => void;
   currentRef: { base64: string; mimeType: string; name: string } | null;
@@ -754,8 +805,8 @@ function LibraryCardGrid({ d, index, onClick }: {
         animation: `cardFadeIn .3s ease-out ${Math.min(index, 20) * 0.02}s both`,
         transition: "transform .2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow .2s ease-out",
       }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1.04) translateY(-3px)"; (e.currentTarget as HTMLElement).style.boxShadow = `0 6px 16px rgba(0,0,0,0.4), 0 0 0 1px ${D.blueDark}`; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1) translateY(0)"; (e.currentTarget as HTMLElement).style.boxShadow = "none"; }}
+      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = `0 4px 12px rgba(0,0,0,0.35), 0 0 0 1.5px ${D.blue}`; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = "none"; }}
     >
       <div style={{ aspectRatio: "9/16", background: thumbnail ? "transparent" : D.surface2, position: "relative" as const, overflow: "hidden" }}>
         {thumbnail && !imgFailed ? (
@@ -1452,7 +1503,8 @@ function AppInner() {
       const params = new URLSearchParams(window.location.search);
       const entryId = params.get("entry");
       if (entryId === null) { deepLinkProcessedRef.current = true; return; }
-      const id = parseInt(entryId, 10);
+      // Deploy F Bug 3 fix: entry IDs are floats (Date.now() + Math.random() → "1774790686389.984"). parseInt truncates the decimal → never matches. Use parseFloat.
+      const id = parseFloat(entryId);
       if (isNaN(id)) { deepLinkProcessedRef.current = true; return; }
       // Wait for both flags before searching (lib.length > 0 catches the IDB merge timing)
       if (!libraryLoaded) return;
@@ -1532,6 +1584,18 @@ function AppInner() {
     } catch { /* fire-and-forget */ }
   }, [feedbackSessionId]);
   const [refineTexts, setRefineTexts] = useState<Record<number,string>>({});
+  // Deploy F: per-concept annotation reference image for refine — user drops a screenshot/marker, Gemini uses it as visual guidance
+  const [refineRefs, setRefineRefs] = useState<Record<number, { base64: string; mimeType: string; name: string } | null>>({});
+  const handleRefineRefDrop = async (ci: number, file: File) => {
+    if (!file.type.startsWith("image/")) { setRefineErr(p => ({ ...p, [ci]: "Only image files supported as refine annotation" })); return; }
+    try {
+      const base64 = await fileToBase64(file);
+      setRefineRefs(p => ({ ...p, [ci]: { base64, mimeType: file.type, name: file.name } }));
+      setRefineErr(p => ({ ...p, [ci]: "" }));
+    } catch (err: any) {
+      setRefineErr(p => ({ ...p, [ci]: "Failed to read annotation: " + err.message }));
+    }
+  };
   const [refineTargetScene, setRefineTargetScene] = useState<Record<number,string>>({});
   const [copiedConcept, setCopiedConcept] = useState<number|null>(null);
   const [refining, setRefining] = useState<Record<number,boolean>>({});
@@ -2354,7 +2418,7 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
     }
   };
 
-    const handleRenderScene=async(ci: number,scene: "scene"|"hook_a"|"hook_b"|"hook_c", refinePrompt?: string)=>{
+    const handleRenderScene=async(ci: number,scene: "scene"|"hook_a"|"hook_b"|"hook_c", refinePrompt?: string, refineRef?: { base64: string; mimeType: string; name: string } | null)=>{
     const k=`${ci}-${scene}`; setRenderingScene(p=>({...p,[k]:true}));
     // Clear any previous error for this slot only
     setConcepts(p=>p.map((c,i)=>i===ci?{...c,[`render_err_${scene}`]:undefined}:c));
@@ -2391,7 +2455,12 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
             editParts.push({ inlineData: { mimeType: (r as any).mimeType || "image/png", data: r.base64 } });
           });
         }
-        editParts.push({ text: `EDIT THIS IMAGE: ${refinePrompt}\n\nKeep everything else identical — same composition, camera angle, art style, road layout, and all unchanged elements. ${matchedRefs.length>0?"For any character swap or addition mentioned, USE THE MOC CHAMPION REFERENCE${matchedRefs.length>1?'S':''} above as the visual source — do NOT invent a new character design.":""} Output 9:16.` });
+        // Deploy F: user-supplied annotation reference image — guide Gemini to the area being changed
+        if (refineRef) {
+          editParts.push({ text: `USER ANNOTATION REFERENCE — the image below is an annotation/screenshot from the user showing what to focus on or how the result should look. Use it as visual guidance for the edit instruction. Do NOT copy its style verbatim if it looks like a sketch/screenshot/markup — interpret intent (e.g. circled areas = "fix this region", arrows = "move/transform this element", reference look = "match this style").` });
+          editParts.push({ inlineData: { mimeType: refineRef.mimeType, data: refineRef.base64 } });
+        }
+        editParts.push({ text: `EDIT THIS IMAGE: ${refinePrompt}\n\nKeep everything else identical — same composition, camera angle, art style, road layout, and all unchanged elements. ${matchedRefs.length>0?"For any character swap or addition mentioned, USE THE MOC CHAMPION REFERENCE${matchedRefs.length>1?'S':''} above as the visual source — do NOT invent a new character design.":""}${refineRef?" Use the USER ANNOTATION REFERENCE above to interpret the spatial/stylistic intent of the edit.":""} Output 9:16.` });
         const editBody = JSON.stringify({
           contents: [{ role: "user", parts: editParts }],
           generationConfig: { responseModalities: ["IMAGE", "TEXT"], imageConfig: { aspectRatio: "9:16" } }
@@ -2443,9 +2512,23 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
     if (libFilters.ad_types.length) result = result.filter((d: DNAEntry) => libFilters.ad_types.includes(d.ad_type));
     if (libFilters.statuses.length) result = result.filter((d: DNAEntry) => d.creative_status && libFilters.statuses.includes(d.creative_status));
     if (libFilters.spend_tiers.length) {
-      // Deploy E Bug 6: hierarchical filter — selecting "500K" includes 1M (rank ≥ selected min)
-      const minSelectedRank = Math.min(...libFilters.spend_tiers.map((t: string) => SPEND_RANK[t] || 0));
-      result = result.filter((d: DNAEntry) => d.spend_tier && (SPEND_RANK[d.spend_tier] || 0) >= minSelectedRank);
+      // Deploy F Bug 2 fix: spend filter respects label semantics
+      // sub100K (label "<$100K") = exact-match — it's a "less than" bucket, NOT a threshold
+      // 100K, 300K, 500K, 1M (labels ">$X") = hierarchical — selecting ">$500K" includes 1M
+      const exactSelected: string[] = libFilters.spend_tiers.filter((t: string) => t === "sub100K");
+      const hierarchicalSelected: string[] = libFilters.spend_tiers.filter((t: string) => t !== "sub100K");
+      result = result.filter((d: DNAEntry) => {
+        if (!d.spend_tier) return false;
+        // Exact match for sub100K bucket
+        if (exactSelected.includes(d.spend_tier)) return true;
+        // Hierarchical match for >X buckets — entry rank must be >= the LOWEST selected ">X" tier
+        if (hierarchicalSelected.length > 0) {
+          const minRank = Math.min(...hierarchicalSelected.map((t: string) => SPEND_RANK[t] || 0));
+          const entryRank = SPEND_RANK[d.spend_tier] || 0;
+          if (entryRank >= minRank) return true;
+        }
+        return false;
+      });
     }
     if (libFilters.biomes.length) result = result.filter((d: DNAEntry) => libFilters.biomes.includes(d.biome));
     const q = libSearch.trim().toLowerCase();
@@ -3207,10 +3290,16 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                         const cm:{[k in ChipColor]:{bg:string;text:string;border:string}}={blue:{bg:D.blueBg,text:D.blue,border:D.blueDark},red:{bg:D.redBg,text:D.red,border:"#6e2020"},gold:{bg:D.goldBg,text:D.gold,border:D.goldBdr},purple:{bg:D.purpleBg,text:D.purple,border:D.purpleBdr}};
                         return <div style={{ display:"flex",gap:5,marginBottom:8,flexWrap:"wrap" as const }}>{chips.map(({label,text,color})=><button key={label} onClick={()=>setRefineTexts(p=>({...p,[ci]:text}))} style={{ fontSize:10,padding:"3px 9px",borderRadius:20,border:`0.5px solid ${cm[color].border}`,color:cm[color].text,background:cm[color].bg,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap" as const }}>{label}</button>)}</div>;
                       })()}
+                      {/* Deploy F: Refine annotation drop zone — compact, sits above textarea */}
+                      <RefineDropZone
+                        currentRef={refineRefs[ci] || null}
+                        onDrop={file => handleRefineRefDrop(ci, file)}
+                        onClear={() => setRefineRefs(p => ({ ...p, [ci]: null }))}
+                      />
                       <textarea
                         value={refineTexts[ci]||""}
                         onChange={e=>setRefineTexts(p=>({...p,[ci]:e.target.value}))}
-                        placeholder="Describe what to change… e.g. 'add more mobs', 'make the boss bigger', 'change biome to Desert'"
+                        placeholder={refineRefs[ci] ? "Describe what to change… (the dropped image will guide the edit)" : "Describe what to change… e.g. 'add more mobs', 'make the boss bigger', 'change biome to Desert'"}
                         rows={2}
                         style={{ width:"100%",boxSizing:"border-box" as const,fontSize:12,padding:"9px 12px",background:D.surface,border:`1px solid ${(refineTexts[ci]||"").trim().length>3?D.blueDark:D.border2}`,borderRadius:8,color:D.text,resize:"vertical" as const,minHeight:60,fontFamily:"inherit",outline:"none",lineHeight:1.6,transition:"border-color .2s",marginBottom:8 }}
                       />
@@ -3235,9 +3324,10 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                               // Always directly edit the image with the user's exact prompt
                               // handleRefineConcept still runs to keep brief fields in sync (text only, no render clear)
                               await handleRefineConcept(ci,prompt);
-                              // Pass the user's prompt directly to image edit — this is the Nano Banana approach
-                              await handleRenderScene(ci,targetScene,prompt);
+                              // Deploy F: pass user annotation reference too if present (drag-drop screenshot for spatial guidance)
+                              await handleRenderScene(ci,targetScene,prompt,refineRefs[ci]||null);
                               setRefineTexts(p=>({...p,[ci]:""}));
+                              setRefineRefs(p=>({...p,[ci]:null})); // clear annotation on success
                               setRefineErr(p=>({...p,[ci]:"✓ Done"}));
                             } catch(err:any){
                               setRefineErr(p=>({...p,[ci]:"Refine failed: "+(err as Error).message}));
