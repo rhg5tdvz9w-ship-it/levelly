@@ -51,18 +51,20 @@ export function parseDataURI(uri: string): { mimeType: string; data: string } {
 
 export async function callImageDirect(prompt: string, refParts: any[]): Promise<string> {
   const body = JSON.stringify({ contents: [{ parts: [...refParts, { text: prompt }] }], generationConfig: { responseModalities: ["IMAGE", "TEXT"], imageConfig: { aspectRatio: "9:16" } } });
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // Deploy F.1: 3 attempts with exponential backoff (1s → 2s → 4s) to absorb Gemini flakiness (esp. Hook A "No image returned")
+  const BACKOFFS = [1000, 2000, 4000];
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const r = await fetch(GEMINI_IMAGE_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body });
       const text = await r.text();
-      if (!r.ok) { if (attempt === 0 && (r.status === 503 || r.status === 429)) { await new Promise(res => setTimeout(res, 3000)); continue; } throw new Error(`Image gen ${r.status}: ${text.slice(0, 500)}`); }
+      if (!r.ok) { if (attempt < 2 && (r.status === 503 || r.status === 429 || r.status === 500)) { await new Promise(res => setTimeout(res, BACKOFFS[attempt])); continue; } throw new Error(`Image gen ${r.status}: ${text.slice(0, 500)}`); }
       const data = JSON.parse(text);
       const imgPart = data.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
-      if (!imgPart) { if (attempt === 0) { await new Promise(res => setTimeout(res, 2000)); continue; } throw new Error("No image returned — model did not generate an image"); }
+      if (!imgPart) { if (attempt < 2) { await new Promise(res => setTimeout(res, BACKOFFS[attempt])); continue; } throw new Error("No image returned after 3 attempts — Gemini rejected the render. Try again or adjust the prompt."); }
       return `data:${imgPart.inlineData.mimeType || "image/png"};base64,${imgPart.inlineData.data}`;
-    } catch (e: any) { if (attempt === 1) throw e; await new Promise(res => setTimeout(res, 2000)); }
+    } catch (e: any) { if (attempt === 2) throw e; await new Promise(res => setTimeout(res, BACKOFFS[attempt])); }
   }
-  throw new Error("Render failed after 2 attempts");
+  throw new Error("Render failed after 3 attempts");
 }
 
 export async function uploadToGeminiFileAPI(file: File, onStatus: (m: string) => void): Promise<{ fileUri: string; mimeType: string }> {

@@ -2448,6 +2448,12 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
           return refineLower.includes(refKey) || (refLabel.split(" — ")[0] && refineLower.includes(refLabel.split(" — ")[0]));
         });
         const editParts: any[] = [{ inlineData: { mimeType, data } }];
+        // Deploy F.1: USER ANNOTATION moves to FIRST position (right after source image) with MANDATORY framing.
+        // Gemini weights earlier images more heavily — annotation at position 2 beats MOC champion refs at later positions.
+        if (refineRef) {
+          editParts.push({ text: `MANDATORY ANNOTATION from the user — this image marks the EXACT location and/or the intended result for the edit. The user drew/screenshotted this to tell you precisely what to change in the source image above. Study it carefully: circles/highlights mark regions to fix, arrows mark direction of movement, sketched shapes mark desired result. This annotation IS the spatial source of truth for the edit — it overrides any ambiguity in the text instruction. Apply the changes in/to the annotated regions specifically. DO NOT copy the annotation's visual style (it may be a rough sketch or screenshot markup) — extract its spatial intent only.` });
+          editParts.push({ inlineData: { mimeType: refineRef.mimeType, data: refineRef.base64 } });
+        }
         if (matchedRefs.length > 0) {
           editParts.push({ text: `MOC CHAMPION REFERENCE${matchedRefs.length>1?"S":""} for the new character${matchedRefs.length>1?"s":""} mentioned in the edit instruction — match ${matchedRefs.length>1?"these":"this"} appearance EXACTLY (same body shape, colours, proportions, expression):` });
           matchedRefs.forEach((r: any) => {
@@ -2455,28 +2461,25 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
             editParts.push({ inlineData: { mimeType: (r as any).mimeType || "image/png", data: r.base64 } });
           });
         }
-        // Deploy F: user-supplied annotation reference image — guide Gemini to the area being changed
-        if (refineRef) {
-          editParts.push({ text: `USER ANNOTATION REFERENCE — the image below is an annotation/screenshot from the user showing what to focus on or how the result should look. Use it as visual guidance for the edit instruction. Do NOT copy its style verbatim if it looks like a sketch/screenshot/markup — interpret intent (e.g. circled areas = "fix this region", arrows = "move/transform this element", reference look = "match this style").` });
-          editParts.push({ inlineData: { mimeType: refineRef.mimeType, data: refineRef.base64 } });
-        }
-        editParts.push({ text: `EDIT THIS IMAGE: ${refinePrompt}\n\nKeep everything else identical — same composition, camera angle, art style, road layout, and all unchanged elements. ${matchedRefs.length>0?"For any character swap or addition mentioned, USE THE MOC CHAMPION REFERENCE${matchedRefs.length>1?'S':''} above as the visual source — do NOT invent a new character design.":""}${refineRef?" Use the USER ANNOTATION REFERENCE above to interpret the spatial/stylistic intent of the edit.":""} Output 9:16.` });
+        editParts.push({ text: `EDIT THIS IMAGE: ${refinePrompt}\n\nKeep everything else identical — same composition, camera angle, art style, road layout, and all unchanged elements. ${matchedRefs.length>0?"For any character swap or addition mentioned, USE THE MOC CHAMPION REFERENCE${matchedRefs.length>1?'S':''} above as the visual source — do NOT invent a new character design.":""}${refineRef?" The MANDATORY ANNOTATION image at the top of this prompt is the spatial source of truth for WHERE to apply this edit.":""} Output 9:16.` });
         const editBody = JSON.stringify({
           contents: [{ role: "user", parts: editParts }],
           generationConfig: { responseModalities: ["IMAGE", "TEXT"], imageConfig: { aspectRatio: "9:16" } }
         });
         let url: string | null = null;
-        for (let attempt = 0; attempt < 2; attempt++) {
+        // Deploy F.1: 3 attempts with exp backoff matching analysis.ts callImageDirect
+        const editBackoffs = [1000, 2000, 4000];
+        for (let attempt = 0; attempt < 3; attempt++) {
           const r = await fetch(GEMINI_IMAGE_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: editBody });
           const text = await r.text();
-          if (!r.ok) { if (attempt === 0 && (r.status === 503 || r.status === 429)) { await new Promise(res => setTimeout(res, 3000)); continue; } throw new Error(`Image edit ${r.status}: ${text.slice(0, 500)}`); }
+          if (!r.ok) { if (attempt < 2 && (r.status === 503 || r.status === 429 || r.status === 500)) { await new Promise(res => setTimeout(res, editBackoffs[attempt])); continue; } throw new Error(`Image edit ${r.status}: ${text.slice(0, 500)}`); }
           const result = JSON.parse(text);
           const imgPart = result.candidates?.[0]?.content?.parts?.find((p: any) => p.inlineData);
-          if (!imgPart) { if (attempt === 0) { await new Promise(res => setTimeout(res, 2000)); continue; } throw new Error("No image returned from edit"); }
+          if (!imgPart) { if (attempt < 2) { await new Promise(res => setTimeout(res, editBackoffs[attempt])); continue; } throw new Error("No image returned from edit after 3 attempts"); }
           url = `data:${imgPart.inlineData.mimeType || "image/png"};base64,${imgPart.inlineData.data}`;
           break;
         }
-        if (!url) throw new Error("Image edit failed after 2 attempts");
+        if (!url) throw new Error("Image edit failed after 3 attempts");
         setConcepts(p=>p.map((c,i)=>i===ci?{...c,[existingImgKey]:url}:c));
         return;
       }

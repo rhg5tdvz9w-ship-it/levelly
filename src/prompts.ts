@@ -484,6 +484,7 @@ CHAMPION DIVERSITY (concept 4 wild card rule):
 
 BIOME TIERS:
 - Concepts 1-2: PROVEN biomes (Desert, Foggy Forest, Water, Bunker, Meadow), is_experimental:false.
+- BIOME OVERRIDE (user intent rule): If the producer's brief context above EXPLICITLY names a non-proven biome by keyword (Snow, Volcanic, Cyber-City, Toxic, Mushroom, Steampunk, Volcano, Jungle, Underwater, or similar recognizable biome name), use that biome for CONCEPT 1 even though it's not on the PROVEN list. Concept 2 stays PROVEN for statistical safety. Concept 3 stays ADJACENT, concept 4 stays WILD. Only trigger the override on an explicit biome name — NOT on vague atmospheric words like "cold", "dark", "fun", "intense" (those don't commit the user to a specific biome).
 - Concept 3: ADJACENT biome — creative twist on a proven biome (e.g. "Desert at Night", "Flooded Bunker", "Autumn Forest", "Foggy Forest in Rain", "Snow Meadow"), is_experimental:true with experimental_note explaining the twist.
 - Concept 4: WILD CARD — pick ONE from this RANDOMIZED shortlist (changes every brief): ${shuffle(WILD_BIOMES).slice(0, 8).join(", ")}. is_experimental:true. Do NOT default to "Clockwork Factory" — rotate.
 - Each concept MUST use a different biome — never repeat across the 4.

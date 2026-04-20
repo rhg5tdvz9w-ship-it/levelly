@@ -84,8 +84,8 @@ export function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string, lib?:
     const biomeNorm = (vi.environment || "").toLowerCase().split(" ")[0]; // "foggy" from "Foggy Forest"
     // Map scene to relevant significance tags — updated for Scene + Hook A/B/C system
     const sigMap: Record<string, string[]> = {
-      start: ["hook", "gate"],   // Scene render: hook/gate moments for composition ref
-      hook:  ["hook", "swarm"],  // Hook renders: hook + swarm moments for drama ref
+      start: ["hook"],            // Deploy F.1: scene render uses only hook frames (pre-contact, fewer enemy mobs in frame)
+      hook:  ["hook", "swarm"],   // Hook renders still use both — those don't need the NO ENEMY MOBS rule
     };
     const wantedSigs = sigMap[scene] || ["hook"];
 
@@ -112,7 +112,13 @@ export function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string, lib?:
     }
 
     if (matchingFrames.length > 0) {
-      parts.push({ text: `### REAL HIGH-PERFORMING MOC AD FRAMES — use these as composition anchors. Match the mob scale, gate proportions, camera angle, and lane width exactly:` });
+      // Deploy F.1: scene renders use LAYOUT GUIDANCE ONLY framing (no mob-scale instruction),
+      // hook renders keep the stronger composition-anchor framing since mobs are expected there.
+      const sceneIsScene = scene === "start";
+      const framingText = sceneIsScene
+        ? `### REAL MOC AD FRAMES — use for LAYOUT GUIDANCE ONLY: match camera angle, gate proportions, lane width, and road perspective from these frames. DO NOT copy enemy mobs, mob counts, or mob positions from these frames — the NO ENEMY MOBS rule overrides any mobs visible in these references. These frames are for SPATIAL layout, not content:`
+        : `### REAL HIGH-PERFORMING MOC AD FRAMES — use these as composition anchors. Match the mob scale, gate proportions, camera angle, and lane width exactly:`;
+      parts.push({ text: framingText });
       matchingFrames.forEach(f => {
         parts.push({ text: `[REAL FRAME]: ${f.label}` });
         parts.push({ inlineData: { mimeType: "image/jpeg", data: f.data } });
