@@ -297,7 +297,7 @@ function EnhanceButton({ text, onEnhanced, mode }: { text: string; onEnhanced: (
 }
 
 // ─── Upload Modal ─────────────────────────────────────────────────────────────
-function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConfig) => void; onCancel: () => void; lib: DNAEntry[] }) {
+function UploadModal({ onConfirm, onCancel, lib, droppedFile }: { onConfirm: (cfg: UploadConfig, preAttachedFile?: File) => void; onCancel: () => void; lib: DNAEntry[]; droppedFile?: File | null }) {
   const [tier, setTier] = useState<UploadConfig["tier"]>("winner");
   const [adType, setAdType] = useState<UploadConfig["ad_type"]>("moc");
   const [context, setContext] = useState("");
@@ -319,7 +319,17 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
     <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000 }} onClick={onCancel}>
       <div style={{ background:D.surface,borderRadius:14,padding:"1.5rem",width:"90%",maxWidth:520,border:`0.5px solid ${D.border2}`,maxHeight:"90vh",overflowY:"auto" }} onClick={e=>e.stopPropagation()}>
         <h2 style={{ margin:"0 0 4px",fontSize:16,fontWeight:500,color:D.text }}>Upload ads</h2>
-        <p style={{ margin:"0 0 20px",fontSize:12,color:D.textMuted }}>{adType==="competitor" ? "Competitor ad — title and context only." : "Configure before choosing files."}</p>
+        <p style={{ margin:"0 0 20px",fontSize:12,color:D.textMuted }}>{adType==="competitor" ? "Competitor ad — ad type + tier only." : "Configure before choosing files."}</p>
+        {/* Deploy H.1: pre-attached file indicator (shown when user drag-dropped a video onto Analyse card) */}
+        {droppedFile && (
+          <div style={{ marginBottom:14,padding:"8px 12px",background:D.greenBg,border:`1px solid ${D.greenBdr}`,borderRadius:8,display:"flex",alignItems:"center",gap:8,fontSize:12 }}>
+            <span style={{ color:D.green,fontSize:14 }}>⇪</span>
+            <div style={{ flex:1,minWidth:0 }}>
+              <div style={{ color:D.text,fontWeight:500 }}>Video ready: {droppedFile.name}</div>
+              <div style={{ color:D.textMuted,fontSize:10,marginTop:2 }}>{Math.round(droppedFile.size/1024/1024*10)/10} MB — will analyse on Confirm</div>
+            </div>
+          </div>
+        )}
         {adType !== "competitor" && (<><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14,padding:"12px",background:D.surface2,borderRadius:8,border:`0.5px solid ${D.border}` }}>
           <div>
             <span style={labelStyle}>Production ID</span>
@@ -352,7 +362,8 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
             {TIERS.map(t => <button key={t} onClick={()=>setTier(t)} style={{ padding:"5px 12px",fontSize:11,fontWeight:500,borderRadius:20,border:`1.5px solid ${tier===t?TIER_STYLE[t].border:D.border2}`,background:tier===t?TIER_STYLE[t].bg:"transparent",color:tier===t?TIER_STYLE[t].text:D.textMuted,cursor:"pointer" }}>{t}</button>)}
           </div>
         </div>
-        <div style={{ marginBottom:14 }}>
+        {/* Deploy H.1: Analysis hints + Manual frames hidden entirely for competitors (MOC-specific noise) */}
+        {adType !== "competitor" && (<div style={{ marginBottom:14 }}>
           <span style={labelStyle}>Analysis hints <span style={{ fontWeight:400,color:D.textMuted }}>(helps Gemini avoid hallucinations)</span></span>
           <div style={{ background:D.surface2,borderRadius:8,border:`0.5px solid ${D.border}`,padding:"10px 12px",display:"flex",flexDirection:"column" as const,gap:10 }}>
             {/* Cannon evolution chain */}
@@ -420,14 +431,20 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
               <textarea style={{ ...inputStyle,minHeight:48,resize:"vertical" as const,background:D.bg,fontSize:11 }} placeholder="Biome, hook type, gates destroyed by giant, empty containers…" value={context} onChange={e=>setContext(e.target.value)} />
             </div>
           </div>
-        </div>
-        <div style={{ marginBottom:16 }}>
+        </div>)}
+        {/* Deploy H.1: Competitor-mode compact context input (replaces full hints block) */}
+        {adType === "competitor" && (<div style={{ marginBottom:14 }}>
+          <span style={labelStyle}>Context <span style={{ fontWeight:400,color:D.textMuted }}>(optional — e.g. game title, source, market observation)</span></span>
+          <textarea style={{ ...inputStyle,minHeight:48,resize:"vertical" as const,background:D.bg,fontSize:11 }} placeholder="e.g. War Games: Rising Tycoon — TikTok promo, gate escalation mechanic" value={context} onChange={e=>setContext(e.target.value)} />
+        </div>)}
+        {/* Deploy H.1: Manual frames — hidden for competitors (not useful for market-reference analysis) */}
+        {adType !== "competitor" && (<div style={{ marginBottom:16 }}>
           <span style={labelStyle}>Manual storyboard frames (optional)</span>
           <input ref={frameRef} type="file" accept="image/*" multiple style={{ display:"none" }} onChange={e=>setManualFrames(Array.from(e.target.files??[]))} />
           <button style={{ ...btnSec,...(manualFrames.length>0?{border:`1.5px solid ${D.greenBdr}`,color:D.green,background:D.greenBg}:{}) }} onClick={()=>frameRef.current?.click()}>
             {manualFrames.length>0?`✓ ${manualFrames.length} frame(s) selected`:"+ Add frames"}
           </button>
-        </div>
+        </div>)}
         <div style={{ marginBottom:16,padding:"8px 12px",background:D.surface2,borderRadius:8,fontSize:10,color:D.textMuted,border:`0.5px solid ${D.border}` }}>
           {refCount>0?`✓ ${refCount} MOC refs`:"⚠ No refs"} → Frame extraction → Hook detection → {manualFrames.length>0?`✓ ${manualFrames.length} manual frames`:"No manual frames"} → DNA analysis
         </div>
@@ -436,16 +453,20 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
           <button style={btnPri} onClick={()=>{
                   const parts: string[] = [];
                   const tierLabel2: Record<string,string> = {simple:"Simple Cannon",double:"Double Cannon",triple:"Triple Cannon",tank:"Tank"};
-                  if(chainStart){const s=chainStart==="other"?chainOther:tierLabel2[chainStart];const e=chainEnd&&chainEnd!=="other"?tierLabel2[chainEnd]:chainEnd==="other"?chainOther:null;if(s&&e&&s!==e)parts.push(`${s} to ${e} cannon chain`);else if(s)parts.push(`${s} cannon only`);}
-                  if(upgradeSec) parts.push(`upgrade at ${upgradeSec}s`);
-                  if(giantKillCount) parts.push(`${giantKillCount} giant${parseInt(giantKillCount)!==1?"s":""} killed`);
-                  if(giantKillSec) parts.push(`giant killed at ${giantKillSec}s`);
-                  if(finalGiantSurvives==="yes") parts.push("final giant is not killed");
-                  if(finalGiantSurvives==="no") parts.push("final giant is killed");
+                  // Deploy H.1: analysis hints only apply to non-competitor uploads
+                  if(adType !== "competitor") {
+                    if(chainStart){const s=chainStart==="other"?chainOther:tierLabel2[chainStart];const e=chainEnd&&chainEnd!=="other"?tierLabel2[chainEnd]:chainEnd==="other"?chainOther:null;if(s&&e&&s!==e)parts.push(`${s} to ${e} cannon chain`);else if(s)parts.push(`${s} cannon only`);}
+                    if(upgradeSec) parts.push(`upgrade at ${upgradeSec}s`);
+                    if(giantKillCount) parts.push(`${giantKillCount} giant${parseInt(giantKillCount)!==1?"s":""} killed`);
+                    if(giantKillSec) parts.push(`giant killed at ${giantKillSec}s`);
+                    if(finalGiantSurvives==="yes") parts.push("final giant is not killed");
+                    if(finalGiantSurvives==="no") parts.push("final giant is killed");
+                  }
                   if(context.trim()) parts.push(context.trim());
                   const fullContext = parts.join(", ");
-                  onConfirm({ tier,ad_type:adType,context:fullContext,manual_frames:manualFrames,creative_id:creativeId.trim()||undefined,parent_id:parentId.trim()||undefined,levelly_brief_title:levellyBriefTitle.trim()||undefined });
-                }}>Choose video →</button>
+                  // Deploy H.1: when droppedFile present, pass it through so handleModalConfirm skips file picker
+                  onConfirm({ tier,ad_type:adType,context:fullContext,manual_frames:adType==="competitor"?[]:manualFrames,creative_id:creativeId.trim()||undefined,parent_id:parentId.trim()||undefined,levelly_brief_title:levellyBriefTitle.trim()||undefined }, droppedFile || undefined);
+                }}>{droppedFile ? "Confirm & analyse →" : "Choose video →"}</button>
         </div>
       </div>
     </div>
@@ -1647,6 +1668,11 @@ function AppInner() {
   // Ref to prevent stale cloud data from overwriting fresh upload results
   const uploadCompletedRef = React.useRef(false);
 
+  // Deploy H.1: drag-and-drop state. When a video is dropped on the Analyse card,
+  // we capture it here, open the modal, and skip the file-picker step on confirm.
+  const [droppedFile, setDroppedFile] = React.useState<File | null>(null);
+  const [homeDropActive, setHomeDropActive] = React.useState(false);
+
   useEffect(()=>{
     const sanitizeLib = (entries: any[]): DNAEntry[] => entries.map(e => sanitizeDNA(e) as DNAEntry);
 
@@ -2106,7 +2132,20 @@ For each description above:
     alert(`✓ Synced ${success}/${candidates.length} thumbnails. They are now visible to other browsers after the next page reload.`);
   };
 
-  const handleModalConfirm=(cfg: UploadConfig)=>{ setUploadConfig(cfg); setShowModal(false); fileRef.current?.click(); };
+  // Deploy H.1: when file was pre-attached via drag-drop, skip file picker and feed directly to handleUpload.
+  const handleModalConfirm=(cfg: UploadConfig, preAttachedFile?: File)=>{
+    setUploadConfig(cfg);
+    setShowModal(false);
+    if (preAttachedFile) {
+      // Simulate file-input change event so handleUpload processes it uniformly with click-upload flow.
+      // DataTransfer construct is read-only; we build a synthetic event with files array.
+      const fakeEvent = { target: { files: [preAttachedFile], value: "" } } as any;
+      setDroppedFile(null);
+      handleUpload(fakeEvent);
+    } else {
+      fileRef.current?.click();
+    }
+  };
   const handleUpload=useCallback(async(e: React.ChangeEvent<HTMLInputElement>)=>{
     const files=Array.from(e.target.files??[]); if(!files.length) return;
     const cfg=uploadConfig||{tier:"winner" as const,ad_type:"moc" as const,context:"",manual_frames:[]};
@@ -2742,7 +2781,7 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
 
   return (
     <div style={{ background:D.bg,minHeight:"100vh",color:D.text,fontFamily:"system-ui,sans-serif",fontSize:13,position:"relative" }}>
-      {showModal&&<UploadModal lib={lib} onConfirm={handleModalConfirm} onCancel={()=>setShowModal(false)} />}
+      {showModal&&<UploadModal lib={lib} droppedFile={droppedFile} onConfirm={handleModalConfirm} onCancel={()=>{setShowModal(false);setDroppedFile(null);}} />}
       {/* Frame zoom lightbox */}
       {zoomedFrame && (
         <div onClick={()=>{ setZoomedFrame(null); setZoomedFrameList([]); }} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center" }}>
@@ -2787,13 +2826,9 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
 
       {/* Main */}
       <div style={{ marginLeft:SB }}>
-        <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 20px",borderBottom:`0.5px solid ${D.border}`,background:D.bg,position:"sticky",top:0,zIndex:100 }}>
-          <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-            <div style={{ width:28,height:28,borderRadius:"50%",background:D.blueDark,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:500,color:"#fff",flexShrink:0 }}>L</div>
-            <span style={{ fontSize:15,fontWeight:500 }}>Levelly</span>
-            <span style={{ fontSize:12,color:D.textMuted }}>MOC Creative Intelligence</span>
-          </div>
-          <div>{cloudStatus!=="idle"&&<span style={{ fontSize:10,color:cloudColor }}>{cloudLabel}</span>}</div>
+        {/* Deploy H.1: header soft-kill. Wordmark lives in content area now (LevellyLogo). Keep thin strip for cloudStatus. */}
+        <div style={{ display:"flex",alignItems:"center",justifyContent:"flex-end",padding:"6px 20px",borderBottom:`0.5px solid ${D.border}`,background:D.bg,position:"sticky",top:0,zIndex:100,minHeight:16 }}>
+          {cloudStatus!=="idle"&&<span style={{ fontSize:10,color:cloudColor }}>{cloudLabel}</span>}
         </div>
 
         <div style={{ padding:20,maxWidth:960,margin:"0 auto" }}>
@@ -2990,14 +3025,25 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 0.55fr",gap:12,marginBottom:12,alignItems:"stretch" }}>
             {/* Analyse card */}
             <div onClick={()=>{ setAnalysePanelOpen(p=>!p); setBriefPanelOpen(false); setLibPanelOpen(false); }}
-              style={{ background:analysePanelOpen?"#1a2130":D.surface,border:`0.5px solid ${analysePanelOpen?D.greenBdr:D.border2}`,borderRadius:12,padding:20,cursor:"pointer",transition:"border-color .18s,background .18s,transform .12s" }}
+              onDragOver={e => { e.preventDefault(); e.stopPropagation(); setHomeDropActive(true); }}
+              onDragLeave={e => { e.preventDefault(); e.stopPropagation(); setHomeDropActive(false); }}
+              onDrop={e => {
+                e.preventDefault(); e.stopPropagation(); setHomeDropActive(false);
+                const f = e.dataTransfer.files?.[0];
+                if (f && f.type.startsWith("video/")) {
+                  setDroppedFile(f);
+                  setShowModal(true);
+                  setAnalysePanelOpen(false); setBriefPanelOpen(false); setLibPanelOpen(false);
+                }
+              }}
+              style={{ background:homeDropActive?"rgba(63,185,80,0.12)":(analysePanelOpen?"#1a2130":D.surface),border:`0.5px solid ${homeDropActive?D.green:(analysePanelOpen?D.greenBdr:D.border2)}`,borderRadius:12,padding:20,cursor:"pointer",transition:"border-color .18s,background .18s,transform .12s" }}
               onMouseEnter={e=>{ (e.currentTarget as HTMLDivElement).style.transform="translateY(-1px)"; (e.currentTarget as HTMLDivElement).style.borderColor=D.greenBdr; }}
               onMouseLeave={e=>{ (e.currentTarget as HTMLDivElement).style.transform=""; (e.currentTarget as HTMLDivElement).style.borderColor=analysePanelOpen?D.greenBdr:D.border2; }}>
               <div style={{ width:38,height:38,borderRadius:10,background:D.greenBg,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:14 }}>
                 <svg width="22" height="22" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4" stroke="#3fb950" strokeWidth="1.5"/><line x1="9.5" y1="9.5" x2="14" y2="14" stroke="#3fb950" strokeWidth="1.5"/></svg>
               </div>
               <div style={{ marginBottom:10 }}><span style={{ fontSize:10,padding:"3px 10px",borderRadius:20,border:`1px solid ${D.greenBdr}`,color:D.green }}>Most used</span></div>
-              <div style={{ fontSize:15,fontWeight:500,marginBottom:6 }}>Analyse creative</div>
+              <div style={{ fontSize:18,fontWeight:500,marginBottom:6 }}>Analyse creative</div>
               <div style={{ fontSize:12,color:D.textMuted,lineHeight:1.6,marginBottom:10 }}>Drop any video — MOC ad, competitor, or market reference. Extracts DNA: hook timing, gate patterns, emotional beats, cannon chain.</div>
               {/* Deploy H: upgraded drop-zone affordance */}
               <div style={{ marginTop:4,padding:"12px 10px",border:`1px dashed ${D.border2}`,borderRadius:8,background:"rgba(63,185,80,0.05)",display:"flex",alignItems:"center",gap:10,pointerEvents:"none" as const }}>
@@ -3018,7 +3064,7 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                 <svg width="22" height="22" viewBox="0 0 16 16" fill="#58a6ff"><path d="M2 2h9l3 3v9H2V2zm1 1v10h10V6.5L9.5 3H3z"/></svg>
               </div>
               <div style={{ marginBottom:10 }}><span style={{ fontSize:10,padding:"3px 10px",borderRadius:20,border:`1px solid ${D.blueDark}`,color:D.blue }}>Primary output</span></div>
-              <div style={{ fontSize:15,fontWeight:500,marginBottom:6 }}>Generate brief</div>
+              <div style={{ fontSize:18,fontWeight:500,marginBottom:6 }}>Generate brief</div>
               <div style={{ fontSize:12,color:D.textMuted,lineHeight:1.6 }}>Describe your idea — biome, network, hook. Generates a master brief with lane design, tension moments, and scene renders.</div>
             </div>
 
@@ -3031,7 +3077,7 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                 <div style={{ width:32,height:32,borderRadius:8,background:"rgba(210,153,34,0.12)",display:"flex",alignItems:"center",justifyContent:"center",marginBottom:12 }}>
                   <svg width="15" height="15" viewBox="0 0 16 16" fill={D.gold}><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
                 </div>
-                <div style={{ fontSize:13,fontWeight:500,marginBottom:8 }}>Library</div>
+                <div style={{ fontSize:18,fontWeight:500,marginBottom:8 }}>Library</div>
                 <div style={{ fontSize:11,color:D.textMuted,lineHeight:1.8 }}>{lib.length} entries<br/>{activeWinners} active<br/>{topVel>0?`$${topVel>=1000?Math.round(topVel/1000)+"K":topVel}/d top vel`:""}</div>
               </div>
               <div style={{ fontSize:10,color:libPanelOpen?D.gold:D.textDim,marginTop:10 }}>{libPanelOpen?"▲ collapse":"▼ expand"}</div>

@@ -75,12 +75,14 @@ export function sortLib(lib: DNAEntry[], mode: SortMode): DNAEntry[] {
   const active = filtered.filter(d => d.creative_status !== "fatigued");
   const fatigued = filtered.filter(d => d.creative_status === "fatigued");
   const now = Date.now();
+  // Deploy H.1: untagged/no-spend entries (e.g. competitors) go to BOTTOM for spend sort.
+  // Previous behavior floated untagged-in-last-48h to top, which put fresh competitor uploads above real winners.
+  // New behavior: anyone with spend_tier ranks first (by spend desc, then newest). Untagged ranks last (by newest).
   const bySpendThenNewest = (a: DNAEntry, b: DNAEntry) => {
-    const aNew = !a.spend_tier && (now - new Date(a.added_at).getTime()) < 48 * 60 * 60 * 1000;
-    const bNew = !b.spend_tier && (now - new Date(b.added_at).getTime()) < 48 * 60 * 60 * 1000;
-    // Untagged entries added in last 48h float to top
-    if (aNew && !bNew) return -1;
-    if (bNew && !aNew) return 1;
+    const aHasSpend = !!a.spend_tier && (SPEND_RANK[a.spend_tier] ?? 0) > 0;
+    const bHasSpend = !!b.spend_tier && (SPEND_RANK[b.spend_tier] ?? 0) > 0;
+    if (aHasSpend && !bHasSpend) return -1;
+    if (bHasSpend && !aHasSpend) return 1;
     const spendDiff = (SPEND_RANK[b.spend_tier??""]??0) - (SPEND_RANK[a.spend_tier??""]??0);
     if (spendDiff !== 0) return spendDiff;
     return new Date(b.added_at).getTime() - new Date(a.added_at).getTime();
