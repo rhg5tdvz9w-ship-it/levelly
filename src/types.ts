@@ -11,6 +11,8 @@ export interface DNASegment {
   why_it_works: string; why_it_fails: string | null;
 }
 export interface DNAEntry {
+  /** Deploy H: detected escalating xN gate sequence within a single video (e.g. "x2 → x6 → x60 (13s span)"). null when no escalation detected. */
+  gate_escalation?: string | null;
   id: number;
   tier: "winner" | "scalable" | "failed" | "inspiration";
   ad_type: "moc" | "competitor" | "compound";

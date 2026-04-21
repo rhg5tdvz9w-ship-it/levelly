@@ -319,8 +319,8 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
     <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000 }} onClick={onCancel}>
       <div style={{ background:D.surface,borderRadius:14,padding:"1.5rem",width:"90%",maxWidth:520,border:`0.5px solid ${D.border2}`,maxHeight:"90vh",overflowY:"auto" }} onClick={e=>e.stopPropagation()}>
         <h2 style={{ margin:"0 0 4px",fontSize:16,fontWeight:500,color:D.text }}>Upload ads</h2>
-        <p style={{ margin:"0 0 20px",fontSize:12,color:D.textMuted }}>Configure before choosing files.</p>
-        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14,padding:"12px",background:D.surface2,borderRadius:8,border:`0.5px solid ${D.border}` }}>
+        <p style={{ margin:"0 0 20px",fontSize:12,color:D.textMuted }}>{adType==="competitor" ? "Competitor ad — title and context only." : "Configure before choosing files."}</p>
+        {adType !== "competitor" && (<><div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14,padding:"12px",background:D.surface2,borderRadius:8,border:`0.5px solid ${D.border}` }}>
           <div>
             <span style={labelStyle}>Production ID</span>
             <input style={{ ...inputStyle,fontSize:12,fontWeight:500 }} placeholder="e.g. CX18" value={creativeId} onChange={e=>setCreativeId(e.target.value)} />
@@ -334,7 +334,8 @@ function UploadModal({ onConfirm, onCancel, lib }: { onConfirm: (cfg: UploadConf
         <div style={{ marginBottom:14,padding:"10px 12px",background:D.surface2,borderRadius:8,border:`0.5px solid ${D.border}` }}>
           <span style={labelStyle}>Levelly brief reference <span style={{ color:D.textDim,fontWeight:400,textTransform:"none",letterSpacing:0 }}>(if this creative was produced from a Levelly brief)</span></span>
           <input style={{ ...inputStyle,fontSize:12 }} placeholder="e.g. Desert Skeleton Hook v2" value={levellyBriefTitle} onChange={e=>setLevellyBriefTitle(e.target.value)} />
-        </div>
+        </div></>)}
+        {/* Deploy H: competitor mode strips MOC-specific fields */}
         <div style={{ marginBottom:14 }}>
           <span style={labelStyle}>Ad type</span>
           <div style={{ display:"flex",gap:6 }}>
@@ -1169,7 +1170,8 @@ ${d.creative_gaps?`<div style="margin-bottom:12px"><div style="font-size:9px;col
           borderLeft: "none", // accent is on parent already
         }}>
           {/* Producer correction card — audit + override hallucinated fields */}
-          <ValidationCard entry={d} lib={lib} saveLib={saveLib} />
+          {/* Deploy H: ValidationCard hidden for competitors (producer verification is MOC-specific) */}
+          {d.ad_type !== "competitor" && <ValidationCard entry={d} lib={lib} saveLib={saveLib} />}
           {/* SpendTagger moved to bottom — see end of expanded section */}
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 5, marginTop: 14, marginBottom: 10 }}>
@@ -1488,6 +1490,33 @@ const loadEntryLazy = { loading: new Set<number>(), attempted: new Set<number>()
 // Deploy G.3: once-per-session backfill flag. Prevents repeated walks.
 let backfillFramesOnceRan = false;
 
+// Deploy H: Levelly logo — wordmark where the double-l is replaced by 2 chart bars.
+// Default variant = dark mode (app uses dark theme). Sizing scales via `scale` prop.
+function LevellyLogo({ scale = 1, variant = "dark" }: { scale?: number; variant?: "light"|"dark" }) {
+  // Colors per variant
+  const bar = variant === "dark" ? "#38bdf8" : "#0ea5e9";
+  const text = variant === "dark" ? "#f0f2f5" : "#1a2332";
+  // Text size scales from 28px base
+  const fontSize = 28 * scale;
+  const barWidth = 9 * scale;
+  const bar1Height = 11 * scale;
+  const bar2Height = 19 * scale;
+  const barGap = 3 * scale;
+  const bar2Offset = 3 * scale; // how much higher bar-2 sits
+  const barRadius = 2 * scale;
+  const letterSpacing = -1 * scale;
+  return (
+    <div aria-label="Levelly" role="img" style={{ display:"inline-flex", alignItems:"flex-end", lineHeight:1 }}>
+      <span style={{ fontSize, fontWeight:800, letterSpacing, color:text, fontFamily:"Inter, system-ui, sans-serif" }}>leve</span>
+      <div style={{ display:"flex", gap:barGap, alignItems:"flex-end", margin:`0 ${1 * scale}px`, paddingBottom:`${2 * scale}px` }}>
+        <div style={{ width:barWidth, height:bar1Height, background:bar, opacity:0.45, borderRadius:`${barRadius}px ${barRadius}px 1px 1px` }} />
+        <div style={{ width:barWidth, height:bar2Height, background:bar, borderRadius:`${barRadius}px ${barRadius}px 1px 1px`, position:"relative" as const, bottom:bar2Offset }} />
+      </div>
+      <span style={{ fontSize, fontWeight:800, letterSpacing, color:text, fontFamily:"Inter, system-ui, sans-serif" }}>y</span>
+    </div>
+  );
+}
+
 function AppInner() {
   const [lib, setLib] = useState<DNAEntry[]>([]);
   const [libraryLoaded, setLibraryLoaded] = useState(false);
@@ -1498,7 +1527,11 @@ function AppInner() {
   // Track which panel was last opened — content persists when switching panels
   const [lastOpenPanel, setLastOpenPanel] = useState<"brief"|"analyse"|"lib"|null>(null);
   const [expandedDNA, setExpandedDNA] = useState<number|null>(null);
-  const [libSort, setLibSort] = useState<SortMode>("all");
+  // Deploy H: tier filter moved from single-select (libSort) to multi-select (libTiers) to match other filters.
+  // Empty array = no tier filter applied. Sort-by-spend etc. now handled by separate libSortMode.
+  const [libTiers, setLibTiers] = useState<string[]>([]);
+  // Deploy H: separate sort mode — "newest" | "oldest" | "spend". Default newest.
+  const [libSortMode, setLibSortMode] = useState<"newest"|"oldest"|"spend">("newest");
   // Deploy E (Bug 1 fix): deep link — closure-trap-free rewrite
   // Old version polled with setInterval but captured stale lib from closure.
   // New version re-runs on lib.length changes, so closure refreshes when lib actually populates.
@@ -2648,7 +2681,19 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
     finally { setRenderingScene(p=>({...p,[k]:false})); }
   };
 
-  const sortedLib = sortLib(lib, libSort);
+  // Deploy H: tier filtering (multi-select) + sort mode (newest/oldest/spend).
+  // Tier filter: if libTiers is non-empty, keep only entries matching. Empty = no filter.
+  // Sort: "newest" / "oldest" by added_at, "spend" keeps existing sortLib behaviour (fatigued last, spend tier desc).
+  const sortedLib = (() => {
+    const tierFiltered = libTiers.length > 0 ? lib.filter(d => libTiers.includes(d.tier)) : lib;
+    if (libSortMode === "spend") return sortLib(tierFiltered, "all");
+    const byTs = [...tierFiltered].sort((a, b) => {
+      const ta = a.added_at ? new Date(a.added_at).getTime() : 0;
+      const tb = b.added_at ? new Date(b.added_at).getTime() : 0;
+      return libSortMode === "newest" ? tb - ta : ta - tb;
+    });
+    return byTs;
+  })();
   // Deploy C: apply multi-filter + text search on top of sorted list
   const filteredSortedLib = (() => {
     let result: DNAEntry[] = sortedLib;
@@ -2717,6 +2762,21 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
       <input ref={fileRef} type="file" accept="video/*,image/*" multiple style={{ display:"none" }} onChange={handleUpload} />
       <input ref={importRef} type="file" accept=".json" style={{ display:"none" }} onChange={importLibrary} />
 
+      {/* Deploy H: floating re-analyze banner — appears above modals (z-index 2500 > modal 2000) */}
+      {reanalyzingEntry && libModalId && (() => {
+        const entry = lib.find(e => e.id === reanalyzingEntry);
+        if (!entry) return null;
+        return (
+          <div style={{ position:"fixed", top:12, left:"50%", transform:"translateX(-50%)", zIndex:2500, background:D.surface, border:`1.5px solid ${D.blueDark}`, borderRadius:12, padding:"10px 16px", display:"flex", alignItems:"center", gap:12, boxShadow:"0 4px 20px rgba(0,0,0,0.6)", minWidth:280, maxWidth:"90vw" }}>
+            <div style={{ width:14, height:14, borderRadius:"50%", border:`2px solid rgba(88,166,255,0.2)`, borderTopColor:D.blue, flexShrink:0, animation:"spin .7s linear infinite" }} />
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:12, fontWeight:500, color:D.text }}>Re-analysing{entry.creative_id ? `: ${entry.creative_id}` : ""} ({analyzeStep || "working"}…)</div>
+              <div style={{ fontSize:10, color:D.textMuted, marginTop:2, whiteSpace:"nowrap" as const, overflow:"hidden" as const, textOverflow:"ellipsis" as const }}>{entry.title}</div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Sidebar */}
       <div style={{ position:"fixed",top:0,left:0,width:SB,height:"100vh",background:D.surface,borderRight:`0.5px solid ${D.border}`,display:"flex",flexDirection:"column",alignItems:"center",paddingTop:12,gap:6,zIndex:200 }}>
         <div style={{ width:32,height:32,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",background:D.surface2,border:"none",color:D.text,cursor:"default" }}>
@@ -2743,8 +2803,8 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
             <AnalysisProgressPanel step={analyzeStep} fileName={analyzeFileName} error={analyzeErr} />
           )}
 
-          {/* ── Re-analyze progress ── */}
-          {reanalyzingEntry && (() => {
+          {/* ── Re-analyze progress ── (inline on home) */}
+          {reanalyzingEntry && !libModalId && (() => {
             const entry = lib.find(e => e.id === reanalyzingEntry);
             if (!entry) return null;
             return (
@@ -2921,6 +2981,11 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
             );
           })()}
 
+          {/* Deploy H: Levelly wordmark header */}
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-start", paddingBottom:16, marginBottom:8, borderBottom:`0.5px solid ${D.border}` }}>
+            <LevellyLogo scale={1.2} variant="dark" />
+          </div>
+
           {/* 3-column layout: Analyse + Brief (equal) + Library (narrow) */}
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 0.55fr",gap:12,marginBottom:12,alignItems:"stretch" }}>
             {/* Analyse card */}
@@ -2933,7 +2998,15 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
               </div>
               <div style={{ marginBottom:10 }}><span style={{ fontSize:10,padding:"3px 10px",borderRadius:20,border:`1px solid ${D.greenBdr}`,color:D.green }}>Most used</span></div>
               <div style={{ fontSize:15,fontWeight:500,marginBottom:6 }}>Analyse creative</div>
-              <div style={{ fontSize:12,color:D.textMuted,lineHeight:1.6 }}>Drop any video — MOC ad, competitor, or market reference. Extracts DNA: hook timing, gate patterns, emotional beats, cannon chain.</div>
+              <div style={{ fontSize:12,color:D.textMuted,lineHeight:1.6,marginBottom:10 }}>Drop any video — MOC ad, competitor, or market reference. Extracts DNA: hook timing, gate patterns, emotional beats, cannon chain.</div>
+              {/* Deploy H: upgraded drop-zone affordance */}
+              <div style={{ marginTop:4,padding:"12px 10px",border:`1px dashed ${D.border2}`,borderRadius:8,background:"rgba(63,185,80,0.05)",display:"flex",alignItems:"center",gap:10,pointerEvents:"none" as const }}>
+                <span style={{ fontSize:14,color:D.green }}>⇪</span>
+                <div style={{ fontSize:11,color:D.textMuted,lineHeight:1.3 }}>
+                  <div style={{ color:D.text,fontWeight:500,marginBottom:2 }}>Drag & drop a video</div>
+                  <div>or click to browse</div>
+                </div>
+              </div>
             </div>
 
             {/* Generate brief card */}
@@ -2983,16 +3056,26 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                   <span style={{ position:"absolute" as const,left:10,top:"50%",transform:"translateY(-50%)",fontSize:12,color:D.textDim,pointerEvents:"none" as const }}>🔍</span>
                   <input type="text" value={libSearch} onChange={e=>setLibSearch(e.target.value)} onClick={e=>e.stopPropagation()} placeholder="Search by ID, title, hook, champion, biome…" style={{ width:"100%",boxSizing:"border-box" as const,padding:"6px 30px 6px 28px",fontSize:12,background:D.surface2,border:`0.5px solid ${D.border}`,borderRadius:6,color:D.text,outline:"none",fontFamily:"inherit" }} />
                   {libSearch && <button onClick={e=>{ e.stopPropagation(); setLibSearch(""); }} style={{ position:"absolute" as const,right:6,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:D.textMuted,cursor:"pointer",fontSize:14,padding:"2px 6px",lineHeight:1 }}>×</button>}
+                  {/* Deploy H: sort-mode dropdown */}
+                  <select value={libSortMode} onChange={e=>setLibSortMode(e.target.value as "newest"|"oldest"|"spend")} onClick={e=>e.stopPropagation()} style={{ marginLeft:8,fontSize:11,padding:"6px 8px",background:D.surface2,color:D.text,border:`0.5px solid ${D.border}`,borderRadius:6,outline:"none",fontFamily:"inherit",cursor:"pointer" }}>
+                    <option value="newest">Newest</option>
+                    <option value="oldest">Oldest</option>
+                    <option value="spend">Top spend</option>
+                  </select>
                 </div>
                 {hasActiveFilters && <button onClick={e=>{ e.stopPropagation(); setLibSearch(""); setLibFilters({ ad_types:[], statuses:[], spend_tiers:[], biomes:[] }); }} style={{ padding:"5px 10px",fontSize:10,borderRadius:6,cursor:"pointer",fontFamily:"inherit",border:`0.5px solid ${D.border2}`,background:"transparent",color:D.textMuted,whiteSpace:"nowrap" as const }}>Clear all</button>}
               </div>
               {/* Tier filter (existing, kept) */}
               <div style={{ display:"flex",gap:5,padding:"6px 16px",borderBottom:`0.5px solid ${D.border}`,flexWrap:"wrap" as const,alignItems:"center" }}>
-                {(["all","winner","scalable","inspiration","failed"] as SortMode[]).map(s=>(
-                  <button key={s} onClick={e=>{ e.stopPropagation(); setLibSort(s); }} style={{ padding:"3px 10px",fontSize:10,borderRadius:20,cursor:"pointer",fontFamily:"inherit",border:`0.5px solid ${libSort===s?(s==="all"?D.border2:TIER_STYLE[s]?.border??D.border2):D.border2}`,background:libSort===s?(s==="all"?D.surface2:TIER_STYLE[s]?.bg??"transparent"):"transparent",color:libSort===s?(s==="all"?D.text:TIER_STYLE[s]?.text??D.text):D.textMuted }}>
-                    {s==="all"?"All":s.charAt(0).toUpperCase()+s.slice(1)}
+                {/* Deploy H: multi-select tier pills matching other filters */}
+                {(["winner","scalable","inspiration","failed"] as ("winner"|"scalable"|"inspiration"|"failed")[]).map(s=>(
+                  <button key={s} onClick={e=>{ e.stopPropagation(); setLibTiers(p => p.includes(s) ? p.filter(v=>v!==s) : [...p, s]); }} style={{ padding:"3px 10px",fontSize:10,borderRadius:20,cursor:"pointer",fontFamily:"inherit",border:`0.5px solid ${libTiers.includes(s)?TIER_STYLE[s]?.border??D.border2:D.border2}`,background:libTiers.includes(s)?TIER_STYLE[s]?.bg??"transparent":"transparent",color:libTiers.includes(s)?TIER_STYLE[s]?.text??D.text:D.textMuted }}>
+                    {s.charAt(0).toUpperCase()+s.slice(1)}
                   </button>
                 ))}
+                {libTiers.length > 0 && (
+                  <button onClick={e=>{ e.stopPropagation(); setLibTiers([]); }} style={{ padding:"3px 10px",fontSize:10,borderRadius:20,cursor:"pointer",fontFamily:"inherit",border:`0.5px solid ${D.border2}`,background:"transparent",color:D.textDim }}>Clear</button>
+                )}
                 <span style={{ fontSize:10,color:D.textDim,marginLeft:"auto" }}>by spend · fatigued last</span>
               </div>
               {/* Deploy C: Multi-filter rows (ad_type, status, spend, biome) */}
@@ -3036,7 +3119,8 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                 )}
               </div>
               <div style={{ display:"flex",gap:6,padding:"8px 16px",borderBottom:`0.5px solid ${D.border}`,flexWrap:"wrap" as const }}>
-                {lib.length>0&&(<><button style={btnSec} onClick={e=>{ e.stopPropagation(); handleReanalyzeAll(); }} disabled={reanalyzingAll||analyzing}>{reanalyzingAll?"Re-analyzing…":"Re-analyze all"}</button><button style={btnSec} onClick={e=>{ e.stopPropagation(); exportLibrary(); }}>Export</button><button style={btnSec} onClick={e=>{ e.stopPropagation(); handleSyncThumbnails(); }} disabled={syncingThumbs||reanalyzingAll||analyzing} title="Generate 150px thumbnails for entries missing them — visible on other browsers">{syncingThumbs?(syncProgress||"Syncing…"):"☁ Sync thumbnails"}</button><button style={btnSec} onClick={e=>{ e.stopPropagation(); if(confirm("Clear library?")) saveLib([]); }}>Clear</button></>)}
+                {/* Deploy H: removed Sync thumbnails (redundant post-G.3 — cloud_thumbnail auto-generated on save). Removed Clear button (landmine — use Export + manual deletion if needed). */}
+                {lib.length>0&&(<><button style={btnSec} onClick={e=>{ e.stopPropagation(); handleReanalyzeAll(); }} disabled={reanalyzingAll||analyzing}>{reanalyzingAll?"Re-analyzing…":"Re-analyze all"}</button><button style={btnSec} onClick={e=>{ e.stopPropagation(); exportLibrary(); }}>Export</button></>)}
                 <button style={btnSec} onClick={e=>{ e.stopPropagation(); importRef.current?.click(); }}>Import</button>
                 <button style={btnPri} onClick={e=>{ e.stopPropagation(); setLibPanelOpen(false); setShowModal(true); }} disabled={analyzing||reanalyzingAll}>{analyzing?"Analyzing…":"+ Upload"}</button>
               </div>
