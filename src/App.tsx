@@ -1693,49 +1693,66 @@ function AppInner() {
       }
       setLibraryLoaded(true);
 
-      // Deploy G.3: frame backfill — push local IDB frames to cloud for entries that don't have them.
-      // Runs once per session, ~2s apart, silently. Each team member who opens the app contributes their frames.
+      // Deploy G.3.1: frame backfill — fixed to read IDB directly + repair-index flags first.
+      // Two fixes vs G.3:
+      //  (a) Read from IDB via mergeFramesFromIDB (not libPrevRef which was stale at backfill time)
+      //  (b) Call /api/repair-index first so has_frames flags reflect actual cloud blob state
+      //      (needed because entries saved via G.2's save-entry pre-G.3 didn't set has_frames)
       if (!backfillFramesOnceRan) {
         backfillFramesOnceRan = true;
         setTimeout(async () => {
           try {
-            // Re-fetch index to see the has_frames flag server-side (truth source)
+            // Step 1: Repair index so has_frames flags are accurate
+            try {
+              const repairResp = await fetch("/api/repair-index", { method: "POST" });
+              if (repairResp.ok) {
+                const repairRes = await repairResp.json();
+                console.log("[Levelly G.3.1] repair-index result:", repairRes);
+              } else {
+                console.warn("[Levelly G.3.1] repair-index call failed (continuing anyway)");
+              }
+            } catch (err) {
+              console.warn("[Levelly G.3.1] repair-index error (continuing anyway):", err);
+            }
+
+            // Step 2: Re-fetch index AFTER repair so we see correct has_frames flags
             const idxResp = await fetch("/api/load-index");
             if (!idxResp.ok) return;
             const index: any[] = await idxResp.json();
             if (!Array.isArray(index) || index.length === 0) return;
 
-            // Get entries from IDB via the currently-loaded lib state — they merged on load.
-            // Use functional setLib read to access fresh lib. Can't read state directly from effect; use a trick: snapshot at invocation time.
-            const currentLib = libPrevRef.current;
-            if (!currentLib || currentLib.length === 0) return;
-
+            // Step 3: Read IDB frames directly — fixes stale-ref bug from G.3.
+            // mergeFramesFromIDB(index) returns entries keyed by id, filling in auto_frames from IDB.
+            // We don't need full lib state — just a map of id → frames from local IDB.
+            const indexAsEntries = index.map(s => ({ id: s.id, auto_frames: [] })) as any[];
+            const withFrames = await mergeFramesFromIDB(indexAsEntries as DNAEntry[]).catch(() => [] as DNAEntry[]);
             const localFrameMap = new Map<number | string, any[]>();
-            for (const e of currentLib) {
+            for (const e of withFrames) {
               const withData = e.auto_frames?.filter((f: any) => f.image_data);
               if (withData && withData.length > 0) localFrameMap.set(e.id, e.auto_frames!);
             }
+            console.log(`[Levelly G.3.1] Found ${localFrameMap.size} entries with local frame data in IDB`);
 
+            // Step 4: Intersect index (needs frames) with localFrameMap (has frames) — that's our backfill set
             const needsBackfill = index.filter(s => !s.has_frames && localFrameMap.has(s.id));
             if (needsBackfill.length === 0) {
-              console.log("[Levelly G.3 backfill] Nothing to push — no local frames for entries missing cloud frames");
+              console.log("[Levelly G.3.1 backfill] Nothing to push — either all entries already have cloud frames, or no matching local frames in IDB");
               return;
             }
-            console.log(`[Levelly G.3 backfill] Will push frames for ${needsBackfill.length} entries to cloud`);
+            console.log(`[Levelly G.3.1 backfill] Will push frames for ${needsBackfill.length} entries to cloud`);
 
             let successCount = 0;
             for (let i = 0; i < needsBackfill.length; i++) {
               const summary = needsBackfill[i];
-              const libEntry = currentLib.find(e => e.id === summary.id);
-              if (!libEntry) continue;
+              const localFrames = localFrameMap.get(summary.id);
+              if (!localFrames) continue;
               try {
-                // Fetch current cloud entry (has metadata, no frames)
-                const cloudResp = await fetch(`/api/load-entry?id=${libEntry.id}`);
-                if (!cloudResp.ok) { console.warn(`[Levelly G.3 backfill] Could not fetch cloud entry ${libEntry.id}`); continue; }
+                // Fetch current cloud entry (metadata, possibly no frames)
+                const cloudResp = await fetch(`/api/load-entry?id=${summary.id}`);
+                if (!cloudResp.ok) { console.warn(`[Levelly G.3.1 backfill] Could not fetch cloud entry ${summary.id}`); continue; }
                 const cloudEntry: any = await cloudResp.json();
-                // Merge: cloud data + our local frames (frames are the only new piece)
-                const merged = { ...cloudEntry, auto_frames: libEntry.auto_frames };
-                // Push up
+                // Merge: cloud data + our local frames
+                const merged = { ...cloudEntry, auto_frames: localFrames };
                 const pushResp = await fetch("/api/save-entry", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
@@ -1743,21 +1760,20 @@ function AppInner() {
                 });
                 if (pushResp.ok) {
                   successCount++;
-                  console.log(`[Levelly G.3 backfill] Pushed frames for ${summary.title || summary.id} (${successCount}/${needsBackfill.length})`);
+                  console.log(`[Levelly G.3.1 backfill] Pushed frames for ${summary.title || summary.id} (${successCount}/${needsBackfill.length})`);
                 } else {
-                  console.warn(`[Levelly G.3 backfill] save-entry failed for ${summary.id}`);
+                  console.warn(`[Levelly G.3.1 backfill] save-entry failed for ${summary.id}`);
                 }
               } catch (err) {
-                console.warn(`[Levelly G.3 backfill] Error for ${summary.id}:`, err);
+                console.warn(`[Levelly G.3.1 backfill] Error for ${summary.id}:`, err);
               }
-              // Throttle: 2s between pushes to avoid hammering Netlify functions
               if (i < needsBackfill.length - 1) await new Promise(r => setTimeout(r, 2000));
             }
-            console.log(`[Levelly G.3 backfill] Complete — ${successCount}/${needsBackfill.length} pushed`);
+            console.log(`[Levelly G.3.1 backfill] Complete — ${successCount}/${needsBackfill.length} pushed`);
           } catch (err) {
-            console.warn("[Levelly G.3 backfill] Top-level error (non-fatal):", err);
+            console.warn("[Levelly G.3.1 backfill] Top-level error (non-fatal):", err);
           }
-        }, 3000); // 3s delay after load so we don't compete with initial render
+        }, 3000);
       }
       })
       .catch(()=>{ try { const l=localStorage.getItem("levelly_dna_library"); if(l) setLib(sanitizeLib(JSON.parse(l))); } catch {} setLibraryLoaded(true); });
