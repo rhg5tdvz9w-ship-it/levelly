@@ -1485,6 +1485,9 @@ export default function App() {
 // Two Sets: loading (currently fetching) + attempted (don't retry failed fetches on every re-render).
 const loadEntryLazy = { loading: new Set<number>(), attempted: new Set<number>() };
 
+// Deploy G.3: once-per-session backfill flag. Prevents repeated walks.
+let backfillFramesOnceRan = false;
+
 function AppInner() {
   const [lib, setLib] = useState<DNAEntry[]>([]);
   const [libraryLoaded, setLibraryLoaded] = useState(false);
@@ -1634,8 +1637,19 @@ function AppInner() {
       .then(res => { if (res?.migrated) console.log("[Levelly G.2] Migration ran:", res); else if (res) console.log("[Levelly G.2] Migration status:", res); })
       .catch(err => console.warn("[Levelly G.2] Migration call failed (non-fatal — old blob still works):", err));
 
-    fetch("/api/load-library")
+    // Deploy G.3: primary load from /api/load-index (fast summary) with fallback to /api/load-library.
+    fetch("/api/load-index")
       .then(r=>{ if(!r.ok) throw new Error(); return r.json(); })
+      .then((indexData: any[])=>{
+        // If index returned empty but we know entries exist (e.g. first load post-G.3 before migration writes flag),
+        // fall back to full load-library.
+        if(!Array.isArray(indexData) || indexData.length === 0){
+          console.log("[Levelly G.3] load-index empty — falling back to load-library");
+          return fetch("/api/load-library").then(r => r.ok ? r.json() : []);
+        }
+        console.log(`[Levelly G.3] Loaded ${indexData.length} entries from index`);
+        return indexData;
+      })
       .then((data: DNAEntry[])=>{
       if(uploadCompletedRef.current) { setLibraryLoaded(true); return; }
       if(Array.isArray(data)&&data.length>0){
@@ -1677,7 +1691,75 @@ function AppInner() {
           }
         } catch {}
       }
-      setLibraryLoaded(true); })
+      setLibraryLoaded(true);
+
+      // Deploy G.3: frame backfill — push local IDB frames to cloud for entries that don't have them.
+      // Runs once per session, ~2s apart, silently. Each team member who opens the app contributes their frames.
+      if (!backfillFramesOnceRan) {
+        backfillFramesOnceRan = true;
+        setTimeout(async () => {
+          try {
+            // Re-fetch index to see the has_frames flag server-side (truth source)
+            const idxResp = await fetch("/api/load-index");
+            if (!idxResp.ok) return;
+            const index: any[] = await idxResp.json();
+            if (!Array.isArray(index) || index.length === 0) return;
+
+            // Get entries from IDB via the currently-loaded lib state — they merged on load.
+            // Use functional setLib read to access fresh lib. Can't read state directly from effect; use a trick: snapshot at invocation time.
+            const currentLib = libPrevRef.current;
+            if (!currentLib || currentLib.length === 0) return;
+
+            const localFrameMap = new Map<number | string, any[]>();
+            for (const e of currentLib) {
+              const withData = e.auto_frames?.filter((f: any) => f.image_data);
+              if (withData && withData.length > 0) localFrameMap.set(e.id, e.auto_frames!);
+            }
+
+            const needsBackfill = index.filter(s => !s.has_frames && localFrameMap.has(s.id));
+            if (needsBackfill.length === 0) {
+              console.log("[Levelly G.3 backfill] Nothing to push — no local frames for entries missing cloud frames");
+              return;
+            }
+            console.log(`[Levelly G.3 backfill] Will push frames for ${needsBackfill.length} entries to cloud`);
+
+            let successCount = 0;
+            for (let i = 0; i < needsBackfill.length; i++) {
+              const summary = needsBackfill[i];
+              const libEntry = currentLib.find(e => e.id === summary.id);
+              if (!libEntry) continue;
+              try {
+                // Fetch current cloud entry (has metadata, no frames)
+                const cloudResp = await fetch(`/api/load-entry?id=${libEntry.id}`);
+                if (!cloudResp.ok) { console.warn(`[Levelly G.3 backfill] Could not fetch cloud entry ${libEntry.id}`); continue; }
+                const cloudEntry: any = await cloudResp.json();
+                // Merge: cloud data + our local frames (frames are the only new piece)
+                const merged = { ...cloudEntry, auto_frames: libEntry.auto_frames };
+                // Push up
+                const pushResp = await fetch("/api/save-entry", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ entry: merged })
+                });
+                if (pushResp.ok) {
+                  successCount++;
+                  console.log(`[Levelly G.3 backfill] Pushed frames for ${summary.title || summary.id} (${successCount}/${needsBackfill.length})`);
+                } else {
+                  console.warn(`[Levelly G.3 backfill] save-entry failed for ${summary.id}`);
+                }
+              } catch (err) {
+                console.warn(`[Levelly G.3 backfill] Error for ${summary.id}:`, err);
+              }
+              // Throttle: 2s between pushes to avoid hammering Netlify functions
+              if (i < needsBackfill.length - 1) await new Promise(r => setTimeout(r, 2000));
+            }
+            console.log(`[Levelly G.3 backfill] Complete — ${successCount}/${needsBackfill.length} pushed`);
+          } catch (err) {
+            console.warn("[Levelly G.3 backfill] Top-level error (non-fatal):", err);
+          }
+        }, 3000); // 3s delay after load so we don't compete with initial render
+      }
+      })
       .catch(()=>{ try { const l=localStorage.getItem("levelly_dna_library"); if(l) setLib(sanitizeLib(JSON.parse(l))); } catch {} setLibraryLoaded(true); });
   },[]);
 
@@ -1702,24 +1784,15 @@ function AppInner() {
     saveFramesToIDB(updated); // async, no-wait — IndexedDB has no size limit
     if(libraryLoaded){
       setCloudStatus("saving");
-      // ── Old path: full library POST (kept for backcompat) ───────────────────
-      const stripped = updated.map(e => ({
-        ...e,
-        auto_frames: e.auto_frames?.map((f: FrameExtraction) => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance }))
-      }));
-      const oldPath = fetch("/api/save-library",{ method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(stripped) })
-        .then(r=>{ if(!r.ok) throw new Error("save-library failed"); });
-
-      // ── New path: diff-based per-entry writes ───────────────────────────────
-      // Diff vs prev state: changed/new IDs → save-entry (with full frames), removed IDs → delete-entry.
+      // ── Deploy G.3: per-entry writes only. /api/save-library no longer called. ──
+      // Diff vs prev state: changed/new IDs → save-entry (with full frames, up to ~500KB each).
+      // Removed IDs → delete-entry. Old /api/save-library function stays in codebase for rollback but is dormant.
       const prevById = new Map(prev.map(e => [e.id, e]));
       const updatedById = new Map(updated.map(e => [e.id, e]));
       const toSave: DNAEntry[] = [];
       const toDelete: (number | string)[] = [];
       for (const entry of updated) {
         const prevEntry = prevById.get(entry.id);
-        // Shallow-ish change detection: stringified comparison. Not perfect but cheap + conservative
-        // (writes more often than strictly needed, never misses a real change).
         if (!prevEntry || JSON.stringify(prevEntry) !== JSON.stringify(entry)) {
           toSave.push(entry);
         }
@@ -1727,22 +1800,17 @@ function AppInner() {
       for (const prevEntry of prev) {
         if (!updatedById.has(prevEntry.id)) toDelete.push(prevEntry.id);
       }
-      // Fire per-entry writes in parallel. Each gets its full entry with frames (image_data) included.
-      const newPathSaves = toSave.map(entry =>
+      const saves = toSave.map(entry =>
         fetch("/api/save-entry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entry }) })
-          .then(r => { if (!r.ok) throw new Error("save-entry failed for " + entry.id); })
-          .catch(err => console.warn("[Levelly G.2] save-entry failed for " + entry.id + " (non-fatal — old blob still has it):", err))
+          .then(r => { if (!r.ok) throw new Error("save-entry " + entry.id); })
       );
-      const newPathDeletes = toDelete.map(id =>
+      const deletes = toDelete.map(id =>
         fetch("/api/delete-entry?id=" + id, { method: "DELETE" })
-          .then(r => { if (!r.ok) throw new Error("delete-entry failed for " + id); })
-          .catch(err => console.warn("[Levelly G.2] delete-entry failed for " + id + " (non-fatal):", err))
+          .then(r => { if (!r.ok) throw new Error("delete-entry " + id); })
       );
-
-      // Wait on old path for status display. New path is fire-and-forget (logs warn on failure).
-      Promise.all([oldPath, ...newPathSaves, ...newPathDeletes])
+      Promise.all([...saves, ...deletes])
         .then(()=>{ setCloudStatus("saved"); setTimeout(()=>setCloudStatus("idle"),2000); })
-        .catch(()=>{ setCloudStatus("error"); setTimeout(()=>setCloudStatus("idle"),3000); });
+        .catch((err)=>{ console.warn("[Levelly G.3] save failed:", err); setCloudStatus("error"); setTimeout(()=>setCloudStatus("idle"),3000); });
     }
   },[libraryLoaded]);
 

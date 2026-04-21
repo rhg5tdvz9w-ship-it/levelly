@@ -30,6 +30,8 @@ export const handler: Handler = async (event) => {
     } catch { index = []; }
 
     // Summary fields used by the library grid — keep lightweight
+    // Deploy G.3: has_frames flag lets backfill logic know which entries need frames pushed up.
+    const hasFramesInCloud = Array.isArray(entry.auto_frames) && entry.auto_frames.some((f: any) => f && f.image_data);
     const summary = {
       id: entry.id,
       title: entry.title || "",
@@ -45,6 +47,7 @@ export const handler: Handler = async (event) => {
       is_compound: entry.is_compound,
       champions_visible: entry.champions_visible || [],
       core_fantasy: entry.core_fantasy,
+      has_frames: hasFramesInCloud, // Deploy G.3
     };
 
     const existingIdx = index.findIndex((e: any) => e.id === entry.id);
