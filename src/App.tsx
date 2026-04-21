@@ -1481,6 +1481,10 @@ export default function App() {
   return <ErrorBoundary><AppInner /></ErrorBoundary>;
 }
 
+// Deploy G.2: module-level tracker for lazy-loaded entries.
+// Two Sets: loading (currently fetching) + attempted (don't retry failed fetches on every re-render).
+const loadEntryLazy = { loading: new Set<number>(), attempted: new Set<number>() };
+
 function AppInner() {
   const [lib, setLib] = useState<DNAEntry[]>([]);
   const [libraryLoaded, setLibraryLoaded] = useState(false);
@@ -1623,6 +1627,13 @@ function AppInner() {
       }
     } catch {}
 
+    // Deploy G.2: kick off silent migration on load (idempotent — no-op if already migrated)
+    // Does not block UI; fire-and-forget. Console.log for devtools visibility per Dmitriy's "silent" choice.
+    fetch("/api/migrate-library", { method: "POST" })
+      .then(r => r.ok ? r.json() : null)
+      .then(res => { if (res?.migrated) console.log("[Levelly G.2] Migration ran:", res); else if (res) console.log("[Levelly G.2] Migration status:", res); })
+      .catch(err => console.warn("[Levelly G.2] Migration call failed (non-fatal — old blob still works):", err));
+
     fetch("/api/load-library")
       .then(r=>{ if(!r.ok) throw new Error(); return r.json(); })
       .then((data: DNAEntry[])=>{
@@ -1670,8 +1681,16 @@ function AppInner() {
       .catch(()=>{ try { const l=localStorage.getItem("levelly_dna_library"); if(l) setLib(sanitizeLib(JSON.parse(l))); } catch {} setLibraryLoaded(true); });
   },[]);
 
+  // Deploy G.2: saveLib with diff-based dual-write.
+  // - Old path: full library POSTed to /api/save-library (unchanged — backcompat for 30 days)
+  // - New path: only CHANGED entries POSTed to /api/save-entry. Deletions to /api/delete-entry.
+  //   Per-entry blobs include FULL frames (image_data) for cache-clear survivability.
+  // libPrevRef tracks the previous state so we can compute the diff on each save.
+  const libPrevRef = React.useRef<DNAEntry[]>([]);
   const saveLib = useCallback((updated: DNAEntry[])=>{
+    const prev = libPrevRef.current;
     setLib(updated);
+    libPrevRef.current = updated;
     // Save metadata to localStorage (tiny — no image_data) and frames to IndexedDB (no size limit)
     try {
       const withoutFrames = updated.map(e => ({
@@ -1683,15 +1702,52 @@ function AppInner() {
     saveFramesToIDB(updated); // async, no-wait — IndexedDB has no size limit
     if(libraryLoaded){
       setCloudStatus("saving");
+      // ── Old path: full library POST (kept for backcompat) ───────────────────
       const stripped = updated.map(e => ({
         ...e,
         auto_frames: e.auto_frames?.map((f: FrameExtraction) => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance }))
       }));
-      fetch("/api/save-library",{ method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(stripped) })
-        .then(r=>{ if(!r.ok) throw new Error(); setCloudStatus("saved"); setTimeout(()=>setCloudStatus("idle"),2000); })
+      const oldPath = fetch("/api/save-library",{ method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(stripped) })
+        .then(r=>{ if(!r.ok) throw new Error("save-library failed"); });
+
+      // ── New path: diff-based per-entry writes ───────────────────────────────
+      // Diff vs prev state: changed/new IDs → save-entry (with full frames), removed IDs → delete-entry.
+      const prevById = new Map(prev.map(e => [e.id, e]));
+      const updatedById = new Map(updated.map(e => [e.id, e]));
+      const toSave: DNAEntry[] = [];
+      const toDelete: (number | string)[] = [];
+      for (const entry of updated) {
+        const prevEntry = prevById.get(entry.id);
+        // Shallow-ish change detection: stringified comparison. Not perfect but cheap + conservative
+        // (writes more often than strictly needed, never misses a real change).
+        if (!prevEntry || JSON.stringify(prevEntry) !== JSON.stringify(entry)) {
+          toSave.push(entry);
+        }
+      }
+      for (const prevEntry of prev) {
+        if (!updatedById.has(prevEntry.id)) toDelete.push(prevEntry.id);
+      }
+      // Fire per-entry writes in parallel. Each gets its full entry with frames (image_data) included.
+      const newPathSaves = toSave.map(entry =>
+        fetch("/api/save-entry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entry }) })
+          .then(r => { if (!r.ok) throw new Error("save-entry failed for " + entry.id); })
+          .catch(err => console.warn("[Levelly G.2] save-entry failed for " + entry.id + " (non-fatal — old blob still has it):", err))
+      );
+      const newPathDeletes = toDelete.map(id =>
+        fetch("/api/delete-entry?id=" + id, { method: "DELETE" })
+          .then(r => { if (!r.ok) throw new Error("delete-entry failed for " + id); })
+          .catch(err => console.warn("[Levelly G.2] delete-entry failed for " + id + " (non-fatal):", err))
+      );
+
+      // Wait on old path for status display. New path is fire-and-forget (logs warn on failure).
+      Promise.all([oldPath, ...newPathSaves, ...newPathDeletes])
+        .then(()=>{ setCloudStatus("saved"); setTimeout(()=>setCloudStatus("idle"),2000); })
         .catch(()=>{ setCloudStatus("error"); setTimeout(()=>setCloudStatus("idle"),3000); });
     }
   },[libraryLoaded]);
+
+  // Keep libPrevRef in sync on initial load (otherwise first save treats everything as new)
+  React.useEffect(() => { libPrevRef.current = lib; }, [lib.length === 0 ? 0 : 1]);
 
   const exportLibrary=()=>{ const blob=new Blob([JSON.stringify(lib,null,2)],{type:"application/json"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`levelly-dna-${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url); };
   const importLibrary=(e: React.ChangeEvent<HTMLInputElement>)=>{ const file=e.target.files?.[0]; if(!file) return; const reader=new FileReader(); reader.onload=()=>{ try { const p=JSON.parse(reader.result as string); if(!Array.isArray(p)) throw new Error(); const m=[...lib]; p.forEach((entry: DNAEntry)=>{ if(!m.find(x=>x.id===entry.id)) m.push(sanitizeDNA(entry) as DNAEntry); }); saveLib(m); } catch { alert("Import failed."); } }; reader.readAsText(file); e.target.value=""; };
@@ -2918,6 +2974,27 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                 const entry = lib.find(e => e.id === libModalId);
                 if (!entry) return null;
                 const di = lib.indexOf(entry);
+                // Deploy G.2: lazy-load full entry frames from cloud if missing (team-uploaded entries)
+                const hasFrames = entry.auto_frames?.some(f => f.image_data);
+                if (!hasFrames && !loadEntryLazy.loading.has(entry.id) && !loadEntryLazy.attempted.has(entry.id)) {
+                  loadEntryLazy.loading.add(entry.id);
+                  loadEntryLazy.attempted.add(entry.id);
+                  fetch(`/api/load-entry?id=${entry.id}`)
+                    .then(r => r.ok ? r.json() : null)
+                    .then(fullEntry => {
+                      loadEntryLazy.loading.delete(entry.id);
+                      if (fullEntry && fullEntry.auto_frames?.some((f: any) => f.image_data)) {
+                        // Merge full entry into lib state (keep local fields, add frames)
+                        setLib(currentLib => currentLib.map(e => e.id === entry.id ? { ...e, auto_frames: fullEntry.auto_frames } : e));
+                        // Cache frames in IDB for session persistence
+                        saveFramesToIDB([{ ...entry, auto_frames: fullEntry.auto_frames }] as DNAEntry[]);
+                      }
+                    })
+                    .catch(err => {
+                      loadEntryLazy.loading.delete(entry.id);
+                      console.warn(`[Levelly G.2] load-entry failed for ${entry.id}:`, err);
+                    });
+                }
                 return (
                   <LibraryModal entry={entry} di={di} lib={lib} saveLib={saveLib}
                     expandedDNA={di} setExpandedDNA={setExpandedDNA}
