@@ -987,7 +987,19 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
             {TIERS.map(t => <option key={t} value={t} style={{ background: D.surface2, color: D.text }}>{t}</option>)}
           </select>
           {statusSt && <span style={pill(statusSt.bg, statusSt.text, statusSt.border)}>{statusSt.label}</span>}
-          {d.ad_type !== "moc" && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)}>{d.ad_type === "competitor" && d.core_fantasy ? d.core_fantasy : d.ad_type}</span>}
+          {/* Deploy H.1.1: ad_type editable dropdown (was read-only pill). Fixes misclassified entries from H.1 drop-upload bug. */}
+          <select
+            value={d.ad_type}
+            onChange={e => { e.stopPropagation(); saveLib(lib.map(x => x.id === d.id ? { ...x, ad_type: e.target.value as DNAEntry["ad_type"] } : x)); }}
+            onClick={e => e.stopPropagation()}
+            title="Change ad type — re-analyze the entry afterwards to refresh DNA with correct prompts"
+            style={{ fontSize: 10, fontWeight: 500, padding: "2px 18px 2px 8px", borderRadius: 20, background: d.ad_type === "moc" ? D.surface2 : D.purpleBg, color: d.ad_type === "moc" ? D.textMuted : D.purple, border: `0.5px solid ${d.ad_type === "moc" ? D.border2 : D.purpleBdr}`, cursor: "pointer", appearance: "none", WebkitAppearance: "none", MozAppearance: "none", backgroundImage: `linear-gradient(45deg, transparent 50%, ${d.ad_type === "moc" ? D.textMuted : D.purple} 50%), linear-gradient(135deg, ${d.ad_type === "moc" ? D.textMuted : D.purple} 50%, transparent 50%)`, backgroundPosition: "calc(100% - 9px) 50%, calc(100% - 5px) 50%", backgroundSize: "4px 4px, 4px 4px", backgroundRepeat: "no-repeat", fontFamily: "inherit" }}
+          >
+            <option value="moc" style={{ background: D.surface2, color: D.text }}>moc</option>
+            <option value="competitor" style={{ background: D.surface2, color: D.text }}>competitor</option>
+            <option value="compound" style={{ background: D.surface2, color: D.text }}>compound</option>
+          </select>
+          {d.ad_type === "competitor" && d.core_fantasy && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)}>{d.core_fantasy}</span>}
           {d.is_compound && <span style={pill(D.goldBg, D.gold, D.goldBdr)}>compound</span>}
           {d.levelly_brief_title && <span style={pill(D.blueBg, D.blue, D.blueDark)} title={`Levelly brief: ${d.levelly_brief_title}`}>⎇ Levelly</span>}
           {d.reanalyzed && <span style={pill(D.greenBg, D.green, D.greenBdr)}>re-analyzed</span>}
@@ -2133,22 +2145,24 @@ For each description above:
   };
 
   // Deploy H.1: when file was pre-attached via drag-drop, skip file picker and feed directly to handleUpload.
+  // Deploy H.1.1: pass cfg directly to handleUpload via cfgOverride (state was committing too late for the sync call).
   const handleModalConfirm=(cfg: UploadConfig, preAttachedFile?: File)=>{
     setUploadConfig(cfg);
     setShowModal(false);
     if (preAttachedFile) {
-      // Simulate file-input change event so handleUpload processes it uniformly with click-upload flow.
-      // DataTransfer construct is read-only; we build a synthetic event with files array.
       const fakeEvent = { target: { files: [preAttachedFile], value: "" } } as any;
       setDroppedFile(null);
-      handleUpload(fakeEvent);
+      handleUpload(fakeEvent, cfg); // Deploy H.1.1: cfg passed directly — no async state dependency
     } else {
       fileRef.current?.click();
     }
   };
-  const handleUpload=useCallback(async(e: React.ChangeEvent<HTMLInputElement>)=>{
+  // Deploy H.1.1: handleUpload accepts optional cfgOverride.
+  // Drop path passes cfg directly (React state is async — uploadConfig may not be committed yet when drop path fires).
+  // Click path leaves cfgOverride undefined and relies on uploadConfig state (already committed by the time user picks a file).
+  const handleUpload=useCallback(async(e: React.ChangeEvent<HTMLInputElement>, cfgOverride?: UploadConfig)=>{
     const files=Array.from(e.target.files??[]); if(!files.length) return;
-    const cfg=uploadConfig||{tier:"winner" as const,ad_type:"moc" as const,context:"",manual_frames:[]};
+    const cfg=cfgOverride||uploadConfig||{tier:"winner" as const,ad_type:"moc" as const,context:"",manual_frames:[]};
     setAnalyzing(true); setAnalyzeErr(""); setAnalyzeStep("uploading"); setAnalyzeFileName(files[0].name);
     setBriefPanelOpen(false); setAnalysePanelOpen(false);
     try {
