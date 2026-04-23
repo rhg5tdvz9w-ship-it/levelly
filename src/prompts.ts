@@ -25,14 +25,16 @@ export const WILD_BIOMES = [
 // Hook type taxonomy — shuffled per-generation. Rule: 4 concepts = 4 different types.
 export const HOOK_TYPES = ["Challenge", "Satisfying", "Loss Aversion", "Story", "FOMO", "Tutorial"];
 
-// UGC archetype menu (hook_b). Shuffled per-generation; Claude assigns 4 different across 4 concepts.
+// Deploy J: UGC archetype menu expanded to 3-part shot descriptions (SHOT SETUP / PERSONA ACTION / CAPTION HINT).
+// Gives Gemini concrete visual anchors — camera distance, body language, facial beat, caption — so the render feels
+// like a real TikTok moment rather than generic "person with phone". Four different assigned across concepts.
 export const UGC_ARCHETYPES = [
-  "POV reaction — close face of a player, shocked or hyped expression, phone visible in corner of frame. 'POV: you just discovered the most addictive cannon game'",
-  "Stopwatch challenge — person with visible stopwatch or phone timer, tense concentrated face. 'Can you beat this boss in 30 seconds?'",
-  "Rage / relatable — visibly frustrated player, slightly exaggerated reaction. 'When the boss is at 1HP and I STILL lose'",
-  "Before / after — same person shown twice (side-by-side or cut), two emotional states. 'Day 1 vs day 30 playing this game'",
-  "Discovery / duet — person pointing at their phone screen, wide-eyed, leaning into camera. 'You HAVE to try this'",
-  "Pro tip / tutorial — person mid-explanation, gesturing with hands, leaning into camera as if sharing a secret. 'The trick that changed everything'"
+  "POV reaction — SHOT SETUP: medium close-up, front-facing camera held at arm's length, warm indoor lighting from above, phone screen glow on face. PERSONA ACTION: mouth slightly open, eyes wide, leaning BACK not forward (genuine shock not performed). CAPTION HINT: 'POV: you just discovered the most addictive cannon game'",
+  "Stopwatch challenge — SHOT SETUP: medium shot, side camera on tripod or propped, visible wall clock or watch on wrist, clean bright daylight. PERSONA ACTION: jaw clenched, eyes locked forward, other hand gripping knee or couch armrest. CAPTION HINT: 'can you beat this boss in 30 seconds'",
+  "Rage / relatable — SHOT SETUP: close crop on upper body, handheld shaky-cam feel, natural indoor light, phone briefly visible then slammed down. PERSONA ACTION: hands thrown up mid-air, head tipped back in comic frustration, visible face-palm or groan. CAPTION HINT: 'when the boss is at 1HP and I still lose'",
+  "Before / after — SHOT SETUP: split-frame or cut between two identical angles, same couch same shirt same lighting, only facial state differs. PERSONA ACTION: LEFT tired slumped defeated, RIGHT alert upright focused. CAPTION HINT: 'day 1 vs day 30 playing this game'",
+  "Discovery / duet — SHOT SETUP: close-up, person looking slightly off-camera at phone in their hand, indoor natural light, shallow depth of field. PERSONA ACTION: finger pointing at phone, eyebrows raised, mouth open mid-sentence, leaning slightly into frame. CAPTION HINT: 'you HAVE to try this'",
+  "Pro tip / tutorial — SHOT SETUP: medium shot facing camera, person slightly leaned forward, hands in frame, warm home-office lighting. PERSONA ACTION: one hand gesturing palm-up like explaining, other hand touching phone, eye contact directly with camera. CAPTION HINT: 'the trick that changed everything'"
 ];
 
 // UGC persona menu (hook_b). Grounded in MOC audience portrait:

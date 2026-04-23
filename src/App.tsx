@@ -1639,6 +1639,13 @@ function AppInner() {
   const [briefAnalysis, setBriefAnalysis] = useState<BriefAnalysis|null>(null);
   // Deploy I: tracks which concepts have "More details" section expanded (session state only, not persisted).
   const [briefDetailsExpanded, setBriefDetailsExpanded] = useState<Record<number, boolean>>({});
+  // Deploy J: concept accent colors — 4 rotating accents cycled by concept index. Makes 4 cards visually distinct at a glance.
+  const CONCEPT_ACCENTS = [
+    { border: D.blueDark, bg: D.blueBg,   text: D.blue,   label: "1" },
+    { border: D.goldBdr,  bg: D.goldBg,   text: D.gold,   label: "2" },
+    { border: D.purpleBdr,bg: D.purpleBg, text: D.purple, label: "3" },
+    { border: D.greenBdr, bg: D.greenBg,  text: D.green,  label: "4" },
+  ];
   const [expandedConcept, setExpandedConcept] = useState<number|null>(null);
   const [feedbackSessionId, setFeedbackSessionId] = useState<string>("");
   const [conceptVotes, setConceptVotes] = useState<Record<number, "up" | "down">>({});
@@ -2482,7 +2489,7 @@ Return ONLY: {"production_script": [{time, action, visual_cue, audio_cue}]}`;
       lines.push("\n## Hook");
       lines.push(`**${(c as any).hook_type||"Challenge"}** at ${(c as any).hook_timing_seconds??0}s — ${c.hook_description||""}`);
       if(c.hook_a_description) lines.push(`**Hook A (Gameplay Boss):** ${c.hook_a_description}`);
-      if(c.hook_b_description) lines.push(`**Hook B (Comedy/Narrative):** ${c.hook_b_description}`);
+      if(c.hook_b_description) lines.push(`**Hook B (UGC):** ${c.hook_b_description}`);
       if(c.hook_c_description) lines.push(`**Hook C (Stopwatch/Viral):** ${c.hook_c_description}`);
       if(chain) { lines.push("\n## Unit evolution"); lines.push(chain); }
       if(vi.environment) { lines.push("\n## Visual identity"); lines.push(`- Biome: ${vi.environment}`); if(vi.lighting) lines.push(`- Lighting: ${vi.lighting}`); if(vi.mood_notes) lines.push(`- Mood: ${vi.mood_notes}`); }
@@ -2512,13 +2519,21 @@ Return ONLY: {"production_script": [{time, action, visual_cue, audio_cue}]}`;
 
     const pill = (t: string) => `<span style="display:inline-block;font-size:10px;padding:2px 8px;border-radius:4px;background:#eff6ff;color:#1a56db;border:0.5px solid #93c5fd;margin:2px 2px 2px 0">${t}</span>`;
 
-    const renders = (["start","middle","end","hook"] as const)
-      .map(scene => {
-        const img = (scene==="scene"?(c.visual_scene||c.visual_start):c[`visual_${scene}` as keyof Concept]) as string|undefined;
-        return img
-          ? `<div style="text-align:center"><div style="font-size:9px;color:#8b949e;margin-bottom:4px;text-transform:uppercase">${scene}</div><img src="${img}" style="width:100%;border-radius:6px;display:block"/></div>`
-          : `<div style="aspect-ratio:9/16;background:#161b22;border-radius:6px;display:flex;align-items:center;justify-content:center"><span style="font-size:10px;color:#484f58">${scene}</span></div>`;
-      });
+    // Deploy J: use CURRENT scene keys — visual_scene, visual_hook_a, visual_hook_b, visual_hook_c.
+    // Previous code used legacy keys (visual_start/middle/end/hook) which are no longer populated by brief generation,
+    // causing empty labeled placeholders in Notion paste.
+    const sceneDefs = [
+      { key: "scene",  label: "Scene",  imgKey: "visual_scene"  },
+      { key: "hook_a", label: "Hook A", imgKey: "visual_hook_a" },
+      { key: "hook_b", label: "Hook B", imgKey: "visual_hook_b" },
+      { key: "hook_c", label: "Hook C", imgKey: "visual_hook_c" },
+    ] as const;
+    const renders = sceneDefs.map(({ key, label, imgKey }) => {
+      const img = (key === "scene" ? ((c as any)[imgKey] || (c as any).visual_start) : (c as any)[imgKey]) as string | undefined;
+      return img
+        ? `<div style="text-align:center"><div style="font-size:9px;color:#8b949e;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em">${label}</div><img src="${img}" style="width:100%;border-radius:6px;display:block" alt="${label}"/></div>`
+        : `<div style="aspect-ratio:9/16;background:#161b22;border-radius:6px;display:flex;align-items:center;justify-content:center"><span style="font-size:10px;color:#484f58">${label}</span></div>`;
+    });
 
     const scriptRows = Array.isArray(c.production_script) ? c.production_script.map((s:any,i:number) =>
       `<tr style="background:${i%2===0?"#ffffff":"#f9f9f9"}"><td style="padding:6px 10px;color:#1a56db;white-space:nowrap;vertical-align:top;font-size:11px;font-weight:500">${s.time||""}</td><td style="padding:6px 10px;font-size:11px;color:#111111">${s.action||""}</td><td style="padding:6px 10px;font-size:11px;color:#444444;font-style:italic">${s.visual_cue||""}</td><td style="padding:6px 10px;font-size:11px;color:#666666">${s.audio_cue||""}</td></tr>`
@@ -2529,6 +2544,8 @@ Return ONLY: {"production_script": [{time, action, visual_cue, audio_cue}]}`;
       .map(n => `<div style="margin-bottom:6px"><span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:3px;background:#eff6ff;color:#1a56db;margin-right:6px">${n}</span><span style="font-size:12px;color:#444444">${c.network_adaptations![n]}</span></div>`)
       .join("") : "";
 
+    // Deploy J: reorder to match new UI flow. Top: header + hook + chain + lane. Then renders, script, hook_a/b/c.
+    // Bottom: <details> collapsible with the context fields that moved below the fold in UI.
     return `<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#ffffff;color:#111111;padding:24px;max-width:900px;margin:0 auto">
 <div style="border-bottom:1px solid #e0e0e0;padding-bottom:16px;margin-bottom:24px">
   <div style="font-size:11px;color:#666666;margin-bottom:4px">LEVELLY CREATIVE BRIEF · CONCEPT ${ci+1} · ${seg}</div>
@@ -2536,34 +2553,37 @@ Return ONLY: {"production_script": [{time, action, visual_cue, audio_cue}]}`;
   <div style="font-size:13px;color:#444444">${c.objective||""}</div>
 </div>
 
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
-<div>
-${(c as any).analysis?.strategy ? section("Strategy", (c as any).analysis.strategy) : ""}
-${section("Hook", `<strong style="color:#58a6ff">${(c as any).hook_type||"Challenge"} at ${(c as any).hook_timing_seconds??0}s</strong><br/>${c.hook_description||""}`)}
-${c.hook_a_description ? section("Hook A — Gameplay Boss", c.hook_a_description) : ""}
-${c.hook_b_description ? section("Hook B — Comedy/Narrative", c.hook_b_description) : ""}
-${c.hook_c_description ? section("Hook C — Stopwatch/Viral", c.hook_c_description + "<br/><em style='color:#666;font-size:10px'>Market data slot — will be enriched when market research feature launches</em>") : ""}
+${section("Hook", `<strong style="color:#1a56db">${(c as any).hook_type||"Challenge"} at ${(c as any).hook_timing_seconds??0}s</strong><br/>${c.hook_description||""}`)}
 ${chain ? section("Unit evolution chain", pill(chain)) : ""}
+${c.lane_design ? section("Lane design", c.lane_design) : ""}
+
+<div style="margin:18px 0 18px">
+  <div style="font-size:10px;font-weight:700;color:#666666;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Scene renders</div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">${renders.join("")}</div>
+</div>
+
+${scriptRows ? `<div style="margin:0 0 18px"><div style="font-size:10px;font-weight:700;color:#666666;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Production script</div><table style="width:100%;border-collapse:collapse;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden"><thead><tr style="background:#f5f5f5"><th style="padding:6px 10px;text-align:left;font-size:9px;color:#666666;font-weight:600;text-transform:uppercase">Time</th><th style="padding:6px 10px;text-align:left;font-size:9px;color:#666666;font-weight:600;text-transform:uppercase">Action</th><th style="padding:6px 10px;text-align:left;font-size:9px;color:#666666;font-weight:600;text-transform:uppercase">Visual cue</th><th style="padding:6px 10px;text-align:left;font-size:9px;color:#666666;font-weight:600;text-transform:uppercase">Audio cue</th></tr></thead><tbody>${scriptRows}</tbody></table></div>` : ""}
+
+${c.hook_a_description ? section("Hook A — Gameplay Boss", c.hook_a_description) : ""}
+${c.hook_b_description ? section("Hook B — UGC", c.hook_b_description) : ""}
+${c.hook_c_description ? section("Hook C — Stopwatch/Viral", c.hook_c_description) : ""}
+
+<details style="margin-top:10px;padding-top:10px;border-top:1px solid #e0e0e0">
+<summary style="font-size:11px;color:#666;cursor:pointer;font-weight:600">More details (visual identity, upgrade triggers, tension, engagement, network adaptations)</summary>
+<div style="margin-top:12px">
+${(c as any).analysis?.strategy ? section("Strategy", (c as any).analysis.strategy) : ""}
 ${vi.environment ? section("Visual identity", [
   `Biome: <strong>${vi.environment}</strong>`,
   vi.lighting ? `Lighting: ${vi.lighting}` : "",
   vi.player_mob_color ? `Player mobs: ${vi.player_mob_color} · Enemy: ${vi.enemy_mob_color||"red"}` : "",
   vi.mood_notes ? `Mood: ${vi.mood_notes}` : ""
 ].filter(Boolean).join("<br/>")) : ""}
-${c.lane_design ? section("Lane design", c.lane_design) : ""}
 ${(c.upgrade_triggers||[]).length ? section("Upgrade triggers", (c.upgrade_triggers||[]).map((t:string)=>`↑ ${t}`).join("<br/>")) : ""}
 ${(c.tension_moments||[]).length ? section("Tension moments", (c.tension_moments||[]).map((t:string)=>`⚡ ${t}`).join("<br/>")) : ""}
 ${c.engagement_hooks ? section("Engagement hooks", c.engagement_hooks) : ""}
 ${netAdapt ? section("Network adaptations", netAdapt) : ""}
 </div>
-
-<div>
-<div style="font-size:10px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Scene renders</div>
-<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:20px">${renders.join("")}</div>
-</div>
-</div>
-
-${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Production script</div><table style="width:100%;border-collapse:collapse;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden"><thead><tr style="background:#f5f5f5"><th style="padding:6px 10px;text-align:left;font-size:9px;color:#666666;font-weight:600;text-transform:uppercase">Time</th><th style="padding:6px 10px;text-align:left;font-size:9px;color:#666666;font-weight:600;text-transform:uppercase">Action</th><th style="padding:6px 10px;text-align:left;font-size:9px;color:#666666;font-weight:600;text-transform:uppercase">Visual cue</th><th style="padding:6px 10px;text-align:left;font-size:9px;color:#666666;font-weight:600;text-transform:uppercase">Audio cue</th></tr></thead><tbody>${scriptRows}</tbody></table></div>` : ""}
+</details>
 
 <div style="margin-top:20px;padding-top:12px;border-top:1px solid #e0e0e0;font-size:10px;color:#888888">Generated by Levelly — MOC Creative Intelligence</div>
 </body></html>`;
@@ -3184,6 +3204,12 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
               </div>
               <div style={{ display:"flex",gap:6,padding:"8px 16px",borderBottom:`0.5px solid ${D.border}`,flexWrap:"wrap" as const }}>
                 {/* Deploy H: removed Sync thumbnails (redundant post-G.3 — cloud_thumbnail auto-generated on save). Removed Clear button (landmine — use Export + manual deletion if needed). */}
+                {/* Deploy J: notice that competitor entries don't flow into briefs yet (requires market research pipeline). */}
+                {lib.filter(d=>d.ad_type==="competitor").length>0&&(
+                  <div style={{ fontSize:10,color:D.gold,background:D.goldBg,border:`0.5px solid ${D.goldBdr}`,borderRadius:6,padding:"5px 10px",marginRight:"auto" }} title="Competitor entries will flow into briefs after market research feature ships. For one-shot use today, drop a competitor video into the Brief generator's Reference field.">
+                    ⚠ {lib.filter(d=>d.ad_type==="competitor").length} competitor{lib.filter(d=>d.ad_type==="competitor").length===1?"":"s"} — not yet used in briefs
+                  </div>
+                )}
                 {lib.length>0&&(<><button style={btnSec} onClick={e=>{ e.stopPropagation(); handleReanalyzeAll(); }} disabled={reanalyzingAll||analyzing}>{reanalyzingAll?"Re-analyzing…":"Re-analyze all"}</button><button style={btnSec} onClick={e=>{ e.stopPropagation(); exportLibrary(); }}>Export</button></>)}
                 <button style={btnSec} onClick={e=>{ e.stopPropagation(); importRef.current?.click(); }}>Import</button>
                 <button style={btnPri} onClick={e=>{ e.stopPropagation(); setLibPanelOpen(false); setShowModal(true); }} disabled={analyzing||reanalyzingAll}>{analyzing?"Analyzing…":"+ Upload"}</button>
@@ -3351,11 +3377,13 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
             </div>
           )}
           {(!libPanelOpen&&!analysePanelOpen)&&concepts.map((c,ci)=>(
-            <div key={ci} style={{ background:expandedConcept===ci?"#161f2e":D.surface,border:`0.5px solid ${(c as any).is_experimental?"#9d174d":D.border}`,borderRadius:10,padding:0,marginBottom:10,overflow:"hidden",transition:"background .15s,box-shadow .15s,border-color .15s",boxShadow:expandedConcept===ci?`0 0 0 2px ${D.blueBg}`:"none",borderLeft:`3px solid ${expandedConcept===ci?D.blue:"transparent"}`,animation:`slideIn .2s ease-out ${ci*0.05}s both` }}>
+            <div key={ci} style={{ background:expandedConcept===ci?"#161f2e":D.surface,border:`0.5px solid ${(c as any).is_experimental?"#9d174d":D.border}`,borderRadius:10,padding:0,marginBottom:10,overflow:"hidden",transition:"background .15s,box-shadow .15s,border-color .15s",boxShadow:expandedConcept===ci?`0 0 0 2px ${CONCEPT_ACCENTS[ci%CONCEPT_ACCENTS.length].bg}`:"none",borderLeft:`4px solid ${CONCEPT_ACCENTS[ci%CONCEPT_ACCENTS.length].text}`,animation:`slideIn .2s ease-out ${ci*0.05}s both` }}>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",cursor:"pointer",padding:"14px 16px" }} onClick={()=>setExpandedConcept(expandedConcept===ci?null:ci)}>
                 <div style={{ flex:1 }}>
                   <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap" as const }}>
                     <span style={{ fontSize:9,fontWeight:700,color:D.textDim,letterSpacing:"0.1em" }}>CONCEPT {ci+1}</span>
+                    {/* Deploy J: large concept number badge */}
+                    <span style={{ display:"inline-flex",alignItems:"center",justifyContent:"center",minWidth:26,height:22,padding:"0 7px",borderRadius:6,fontSize:12,fontWeight:700,background:CONCEPT_ACCENTS[ci%CONCEPT_ACCENTS.length].bg,color:CONCEPT_ACCENTS[ci%CONCEPT_ACCENTS.length].text,border:`0.5px solid ${CONCEPT_ACCENTS[ci%CONCEPT_ACCENTS.length].border}`,letterSpacing:"0.03em",marginRight:2 }}>#{ci+1}</span>
                     {c.is_data_backed&&<span style={pill(D.goldBg,D.gold,D.goldBdr)}>Data-backed</span>}
                     {c.is_experimental&&<span style={pill("#2a1a2e","#f472b6","#9d174d")}>⚠ Experimental</span>}
                     {(c as any).dna_source&&<span style={pill(D.greenBg,D.green,D.greenBdr)}>DNA: {(c as any).dna_source}</span>}
@@ -3504,7 +3532,7 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                         const borderColor=isNext?sceneColor:D.border;
                         const borderWidth=isNext?"1.5px":"0.5px";
                         const sceneLabel={scene:"SCENE",hook_a:"HOOK A",hook_b:"HOOK B",hook_c:"HOOK C"}[scene]||scene;
-                        const sceneSubLabel={scene:"Top-down lane",hook_a:"Gameplay Boss",hook_b:"Comedy/Narrative",hook_c:"Stopwatch/Viral"}[scene]||"";
+                        const sceneSubLabel={scene:"Top-down lane",hook_a:"Gameplay Boss",hook_b:"UGC",hook_c:"Stopwatch/Viral"}[scene]||"";
                         const lockedMsg="Render Scene first";
                         return (
                           <div key={scene} style={{ display:"flex",flexDirection:"column" as const,gap:3 }}>
