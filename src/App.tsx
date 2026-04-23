@@ -1001,6 +1001,8 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
           </select>
           {d.ad_type === "competitor" && d.core_fantasy && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)}>{d.core_fantasy}</span>}
           {d.is_compound && <span style={pill(D.goldBg, D.gold, D.goldBdr)}>compound</span>}
+          {/* Deploy I: gate escalation badge — shows when analyze detected an ascending xN sequence in the video. */}
+          {d.gate_escalation && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)} title={`Gate escalation detected: ${d.gate_escalation}`}>⚡ {d.gate_escalation.replace(/\s*\(.*?\).*$/, "")}</span>}
           {d.levelly_brief_title && <span style={pill(D.blueBg, D.blue, D.blueDark)} title={`Levelly brief: ${d.levelly_brief_title}`}>⎇ Levelly</span>}
           {d.reanalyzed && <span style={pill(D.greenBg, D.green, D.greenBdr)}>re-analyzed</span>}
         </div>
@@ -1635,6 +1637,8 @@ function AppInner() {
   const [briefProgress, setBriefProgress] = useState("");
   const [concepts, setConcepts] = useState<Concept[]>([]);
   const [briefAnalysis, setBriefAnalysis] = useState<BriefAnalysis|null>(null);
+  // Deploy I: tracks which concepts have "More details" section expanded (session state only, not persisted).
+  const [briefDetailsExpanded, setBriefDetailsExpanded] = useState<Record<number, boolean>>({});
   const [expandedConcept, setExpandedConcept] = useState<number|null>(null);
   const [feedbackSessionId, setFeedbackSessionId] = useState<string>("");
   const [conceptVotes, setConceptVotes] = useState<Record<number, "up" | "down">>({});
@@ -3372,24 +3376,53 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                   {c.quality_score&&<><div style={{ fontSize:24,fontWeight:600,color:scoreColor(c.quality_score.overall),lineHeight:1 }}>{c.quality_score.overall}</div><div style={{ fontSize:9,color:D.textDim }}>quality</div></>}
   <div style={{ fontSize:11,padding:"4px 10px",borderRadius:6,background:expandedConcept===ci?D.blueBg:D.surface2,color:expandedConcept===ci?D.blue:D.textMuted,border:`0.5px solid ${expandedConcept===ci?D.blueDark:D.border2}`,fontWeight:500,marginTop:4,whiteSpace:"nowrap" as const }}>{expandedConcept===ci?"▲ Collapse":"▼ Expand"}</div>
                   <div style={{ display:"flex",gap:4,marginTop:2 }}>
+                    {/* Deploy I: universal copy — pre-uploads renders as hosted URLs so Notion/Docs/Gmail/Slack all render images */}
                     <div onClick={async e=>{ e.stopPropagation();
+                      setCopiedConcept(-2); // transient "uploading" sentinel
                       try {
-                        const html = formatBriefAsHTML(c,ci);
+                        // Collect all data: URI renders for this concept and upload them to hosted URLs
+                        const sceneUrls: Record<string, string> = {};
+                        const sceneKeys = ["visual_scene","visual_start","visual_hook_a","visual_hook_b","visual_hook_c"] as const;
+                        const base = window.location.origin;
+                        const uploads: Promise<void>[] = [];
+                        for (const k of sceneKeys) {
+                          const dataUri = (c as any)[k] as string | undefined;
+                          if (dataUri && dataUri.startsWith("data:")) {
+                            uploads.push((async () => {
+                              try {
+                                const resp = await fetch("/api/upload-image", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ dataUri })
+                                });
+                                if (resp.ok) {
+                                  const data = await resp.json();
+                                  if (data?.url) sceneUrls[k] = base + data.url;
+                                }
+                              } catch (err) { console.warn("[Levelly I] image upload failed for "+k, err); }
+                            })());
+                          }
+                        }
+                        await Promise.all(uploads);
+
+                        // Build concept with swapped URLs for HTML rendering
+                        const conceptForHtml = { ...c } as any;
+                        for (const k of sceneKeys) {
+                          if (sceneUrls[k]) conceptForHtml[k] = sceneUrls[k];
+                        }
+                        const html = formatBriefAsHTML(conceptForHtml as Concept, ci);
                         await navigator.clipboard.write([new ClipboardItem({
                           "text/html": new Blob([html],{type:"text/html"}),
                           "text/plain": new Blob([c.title+(c.objective?"\n"+c.objective:"")],{type:"text/plain"})
                         })]);
-                      } catch {
+                        setCopiedConcept(ci); setTimeout(()=>setCopiedConcept(null),2500);
+                      } catch (err) {
+                        console.warn("[Levelly I] copy failed, falling back to plain text:", err);
                         const lines=[c.title||"",c.objective||"",c.hook_description||"",c.lane_design||"",(c.unit_evolution_chain||[]).join(" → ")].filter(Boolean).join("\n");
-                        await navigator.clipboard.writeText(lines);
+                        try { await navigator.clipboard.writeText(lines); } catch {}
+                        setCopiedConcept(ci); setTimeout(()=>setCopiedConcept(null),2500);
                       }
-                      setCopiedConcept(ci); setTimeout(()=>setCopiedConcept(null),2500);
-                    }} style={{ fontSize:11,padding:"4px 10px",borderRadius:6,background:copiedConcept===ci?D.greenBg:D.blueBg,color:copiedConcept===ci?D.green:D.blue,border:`0.5px solid ${copiedConcept===ci?D.greenBdr:D.blueDark}`,fontWeight:500,cursor:"pointer",whiteSpace:"nowrap" as const,transition:"background .2s,color .2s,border-color .2s" }}>{copiedConcept===ci?"✓ Copied!":"⎘ Copy"}</div>
-                    <div onClick={async e=>{ e.stopPropagation();
-                      const md = formatBriefAsMarkdown(c,ci);
-                      await navigator.clipboard.writeText(md);
-                      setCopiedConcept(-(ci+1)); setTimeout(()=>setCopiedConcept(null),2500);
-                    }} style={{ fontSize:11,padding:"4px 10px",borderRadius:6,background:copiedConcept===-(ci+1)?D.greenBg:D.surface2,color:copiedConcept===-(ci+1)?D.green:D.textMuted,border:`0.5px solid ${copiedConcept===-(ci+1)?D.greenBdr:D.border2}`,fontWeight:500,cursor:"pointer",whiteSpace:"nowrap" as const,transition:"background .2s,color .2s,border-color .2s" }} title="Plain text — works in Miro, stays under character limit">{copiedConcept===-(ci+1)?"✓ Copied!":"⎘ Miro"}</div>
+                    }} style={{ fontSize:11,padding:"4px 10px",borderRadius:6,background:copiedConcept===ci?D.greenBg:(copiedConcept===-2?D.blueBg:D.blueBg),color:copiedConcept===ci?D.green:D.blue,border:`0.5px solid ${copiedConcept===ci?D.greenBdr:D.blueDark}`,fontWeight:500,cursor:"pointer",whiteSpace:"nowrap" as const,transition:"background .2s,color .2s,border-color .2s" }}>{copiedConcept===-2?"⏳ Uploading…":copiedConcept===ci?"✓ Copied!":"⎘ Copy brief"}</div>
                   </div>
                 </div>
               </div>
@@ -3426,7 +3459,7 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
               </div>
               {expandedConcept===ci&&(
                 <div style={{ padding:"0 16px 16px",borderTop:`0.5px solid ${D.border}`,paddingTop:16 }}>
-                  {(c as any).hook_timing_seconds!=null&&<div style={{ marginBottom:12,padding:"8px 12px",background:D.blueBg,borderRadius:8,fontSize:11,color:D.blue,border:`0.5px solid ${D.blueDark}` }}>Hook at <strong>{(c as any).hook_timing_seconds}s</strong> — {c.performance_hooks?.[0]?.type||"Challenge"}</div>}
+                  {/* Deploy I: unit_evolution_chain + lane_design moved TO TOP (high signal). Other context fields moved into collapsible "More details" block below scene renders. */}
                   {(c as any).unit_evolution_chain?.length>0&&(
                     <div style={{ marginBottom:14 }}>
                       <span style={labelStyle}>Unit evolution chain</span>
@@ -3447,49 +3480,8 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                       <p style={{ margin:0,fontSize:11,color:D.textMuted,lineHeight:1.6 }}>{c.lane_design}</p>
                     </div>
                   )}
-                  {(c as any).nine_step_curve && (
-                    <div style={{ marginBottom: 12 }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: D.textDim, textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 6 }}>9-Step Curve</div>
-                      <div style={{ display: "flex", flexDirection: "column" as const, gap: 3 }}>
-                        {Object.entries((c as any).nine_step_curve).map(([beat, desc]: [string, any]) => (
-                          <div key={beat} style={{ display: "flex", gap: 8, fontSize: 11, padding: "3px 0", borderBottom: `0.5px solid ${D.border}` }}>
-                            <span style={{ fontWeight: 600, color: D.gold, minWidth: 90, flexShrink: 0 }}>{beat}</span>
-                            <span style={{ color: D.text }}>{String(desc)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {c.upgrade_triggers && c.upgrade_triggers.length > 0 && (
-                    <div style={{ marginBottom:14 }}>
-                      <span style={labelStyle}>Upgrade triggers</span>
-                      <div style={{ display:"flex",flexDirection:"column" as const,gap:3 }}>
-                        {c.upgrade_triggers.map((t: string,i: number)=>(
-                          <div key={i} style={{ fontSize:11,color:D.textMuted,padding:"4px 8px",background:D.surface2,borderRadius:5 }}>↑ {t}</div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {c.tension_moments && c.tension_moments.length > 0 && (
-                    <div style={{ marginBottom:14 }}>
-                      <span style={labelStyle}>Tension moments</span>
-                      <div style={{ display:"flex",flexDirection:"column" as const,gap:3 }}>
-                        {c.tension_moments.map((t: string,i: number)=>(
-                          <div key={i} style={{ fontSize:11,color:D.red,padding:"4px 8px",background:D.redBg,borderRadius:5,border:`0.5px solid #6e2020` }}>⚡ {t}</div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {c.visual_identity&&(
-                    <div style={{ marginBottom:14 }}>
-                      <span style={labelStyle}>Visual identity</span>
-                      <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:7 }}>
-                        {[{l:"Environment",v:c.visual_identity.environment},{l:"Lighting",v:c.visual_identity.lighting},{l:"Cannon",v:c.visual_identity.cannon_type},{l:"Player",v:`${c.visual_identity.player_champion} (${c.visual_identity.player_mob_color})`},{l:"Enemy",v:`${c.visual_identity.enemy_champion} (${c.visual_identity.enemy_mob_color})`},{l:"Gates",v:c.visual_identity.gate_values?.join(", ")}].map(({l,v})=>(
-                          <div key={l} style={metricStyle}><div style={metricLabel}>{l}</div><div style={{ fontSize:11,fontWeight:500,color:D.text }}>{v??"—"}</div></div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  {/* Deploy I: low-signal blocks (9-step curve, upgrade triggers, tension moments, visual identity)
+                      moved below production_script into a collapsible "More details" section — see below. */}
 
                   <div style={{ marginBottom:14 }}>
                     <span style={labelStyle}>Scene renders</span>
@@ -3723,6 +3715,65 @@ ${scriptRows ? `<div style="margin-top:8px"><div style="font-size:10px;font-weig
                       </div>
                     </div>
                   )}
+
+                  {/* Deploy I: "More details" collapsible — hook_timing, 9-step curve, upgrade triggers, tension moments, visual identity. Placed at the bottom so the high-signal content (unit chain, lane, renders, script) stays on top. */}
+                  <div style={{ marginTop:12,paddingTop:12,borderTop:`0.5px solid ${D.border}` }}>
+                    <button
+                      onClick={e=>{ e.stopPropagation(); setBriefDetailsExpanded(p=>({...p,[ci]:!p[ci]})); }}
+                      style={{ background:"transparent",border:"none",color:D.textMuted,fontSize:11,padding:"4px 0",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:6 }}
+                    >
+                      <span style={{ fontSize:10,color:D.textDim }}>{briefDetailsExpanded[ci]?"▲":"▼"}</span>
+                      {briefDetailsExpanded[ci]?"Hide details":"More details (hook timing, 9-step curve, upgrade triggers, tension, visual identity)"}
+                    </button>
+                    {briefDetailsExpanded[ci]&&(
+                      <div style={{ marginTop:10 }}>
+                        {(c as any).hook_timing_seconds!=null&&<div style={{ marginBottom:12,padding:"8px 12px",background:D.blueBg,borderRadius:8,fontSize:11,color:D.blue,border:`0.5px solid ${D.blueDark}` }}>Hook at <strong>{(c as any).hook_timing_seconds}s</strong> — {c.performance_hooks?.[0]?.type||"Challenge"}</div>}
+                        {(c as any).nine_step_curve && (
+                          <div style={{ marginBottom: 12 }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: D.textDim, textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 6 }}>9-Step Curve</div>
+                            <div style={{ display: "flex", flexDirection: "column" as const, gap: 3 }}>
+                              {Object.entries((c as any).nine_step_curve).map(([beat, desc]: [string, any]) => (
+                                <div key={beat} style={{ display: "flex", gap: 8, fontSize: 11, padding: "3px 0", borderBottom: `0.5px solid ${D.border}` }}>
+                                  <span style={{ fontWeight: 600, color: D.gold, minWidth: 90, flexShrink: 0 }}>{beat}</span>
+                                  <span style={{ color: D.text }}>{String(desc)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {c.upgrade_triggers && c.upgrade_triggers.length > 0 && (
+                          <div style={{ marginBottom:14 }}>
+                            <span style={labelStyle}>Upgrade triggers</span>
+                            <div style={{ display:"flex",flexDirection:"column" as const,gap:3 }}>
+                              {c.upgrade_triggers.map((t: string,i: number)=>(
+                                <div key={i} style={{ fontSize:11,color:D.textMuted,padding:"4px 8px",background:D.surface2,borderRadius:5 }}>↑ {t}</div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {c.tension_moments && c.tension_moments.length > 0 && (
+                          <div style={{ marginBottom:14 }}>
+                            <span style={labelStyle}>Tension moments</span>
+                            <div style={{ display:"flex",flexDirection:"column" as const,gap:3 }}>
+                              {c.tension_moments.map((t: string,i: number)=>(
+                                <div key={i} style={{ fontSize:11,color:D.red,padding:"4px 8px",background:D.redBg,borderRadius:5,border:`0.5px solid #6e2020` }}>⚡ {t}</div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {c.visual_identity&&(
+                          <div style={{ marginBottom:14 }}>
+                            <span style={labelStyle}>Visual identity</span>
+                            <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:7 }}>
+                              {[{l:"Environment",v:c.visual_identity.environment},{l:"Lighting",v:c.visual_identity.lighting},{l:"Cannon",v:c.visual_identity.cannon_type},{l:"Player",v:`${c.visual_identity.player_champion} (${c.visual_identity.player_mob_color})`},{l:"Enemy",v:`${c.visual_identity.enemy_champion} (${c.visual_identity.enemy_mob_color})`},{l:"Gates",v:c.visual_identity.gate_values?.join(", ")}].map(({l,v})=>(
+                                <div key={l} style={metricStyle}><div style={metricLabel}>{l}</div><div style={{ fontSize:11,fontWeight:500,color:D.text }}>{v??"—"}</div></div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
