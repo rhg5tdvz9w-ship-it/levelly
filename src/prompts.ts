@@ -435,7 +435,96 @@ ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}
 Return CORRECTED full JSON with all original fields.`;
 
-export const briefSystem = (lib: any[], ctx: string, seg: string, iterateFrom?: string, refNote?: string, competitorContext?: { core_fantasy?: string; moc_inspiration?: string; transferable_elements?: string[]; title?: string; lift_intent?: string }) => {
+// Deploy K: Market Research synthesis prompt.
+// Extracts cross-ad patterns from competitor library entries. Output is a structured JSON digest
+// that gets cached in Netlify Blobs and injected into briefSystem at brief generation time.
+//
+// DESIGN NOTES:
+// - Temperature should be low (0.3) for consistency. Called from refresh-market-intel.ts.
+// - Code-side computes: competitor_count, titles_covered, dominance_warning (no LLM math).
+// - LLM only emits patterns + example creative_ids. Frequency derivable from examples.length in code.
+// - Evidence-based, no invented patterns (first rule, most prominent).
+// - Adaptive threshold: <3 returns empty digest; 3-5 allows single-example patterns with low-confidence flag; ≥6 requires ≥2 examples.
+export const competitorSynthesisSystem = (competitors: any[]) => `You are a creative strategist analyzing a collection of competitor mobile-game ad entries. Your job is to extract cross-ad patterns that could inform new Mob Control (MOC) ad concepts.
+
+ABSOLUTE RULE #1 — EVIDENCE-BASED, NO HALLUCINATION:
+Every pattern you emit MUST be supported by specific entries in the data below. Cite example creative_ids or titles. If a pattern exists in only one entry, either omit it entirely OR include it with "confidence":"low". Do NOT invent patterns that are not directly observable in the data.
+
+COMPETITOR ENTRIES (${competitors.length} total):
+${JSON.stringify(competitors, null, 2)}
+
+OUTPUT: a compact JSON object with the following schema. Return ONLY valid JSON, no markdown, no prose.
+
+{
+  "top_hook_patterns": [
+    {
+      "pattern_name": "short label, 2-4 words",
+      "description": "1-2 sentence summary of the pattern",
+      "example_entries": ["creative_id or title", ...],   // 2-3 entries cited as evidence
+      "confidence": "high" | "medium" | "low",
+      "moc_transfer_note": "how this could translate to MOC gameplay — 1 sentence"
+    }
+  ],
+
+  "top_core_fantasies": [
+    {
+      "fantasy": "short label, 2-4 words",
+      "description": "1-2 sentence summary",
+      "example_entries": ["creative_id or title", ...],
+      "confidence": "high" | "medium" | "low",
+      "moc_biome_fit": "which MOC biome(s) naturally carry this fantasy"
+    }
+  ],
+
+  "ugc_hook_patterns": [
+    {
+      "archetype": "short label (e.g. 'skeptic-turned-believer')",
+      "persona_profile": "age range, gender balance, setting observed across examples",
+      "shot_setup_commonalities": "camera distance, lighting, composition patterns",
+      "opening_cue_pattern": "common dialogue/caption opener",
+      "example_entries": ["creative_id or title", ...],
+      "confidence": "high" | "medium" | "low"
+    }
+  ],   // MAY BE EMPTY — only populate when ≥2 competitor UGC hooks are observable
+
+  "transferable_mechanics": [
+    {
+      "mechanic": "short label",
+      "description": "what happens visually + mechanically — 1-2 sentences. This IS the MOC-transfer note; do not duplicate into a separate field.",
+      "example_entries": ["creative_id"],
+      "confidence": "high" | "medium" | "low"
+    }
+  ],
+
+  "gaps_noted": ["gap_code", ...]   // constrained enum. Use only these codes:
+  // "thin_sample" (library has <6 entries)
+  // "no_ugc_observed" (no UGC hooks found in library)
+  // "single_title_dominance" (one title provides most entries)
+  // "no_stopwatch_hooks" / "no_escalation_mechanic" / "no_ragebait_hooks" / "no_before_after_hooks"
+  // "no_biome_diversity" (all competitors share similar biomes)
+}
+
+PATTERN QUANTITY:
+- top_hook_patterns: 3-5 entries
+- top_core_fantasies: 2-4 entries
+- ugc_hook_patterns: 0-4 entries (empty OK)
+- transferable_mechanics: 3-5 entries
+- gaps_noted: 0-5 codes from the enum above
+
+THRESHOLD:
+- If competitors.length < 3, return all arrays empty and gaps_noted = ["thin_sample"].
+- If 3 ≤ competitors.length < 6, allow single-example patterns marked "confidence":"low".
+- If competitors.length ≥ 6, require ≥2 example_entries per pattern.
+
+QUALITY BAR:
+- No generic patterns ("games use timers"). Only specific patterns with concrete form factors and repetition.
+- descriptions must be TIGHT. This is intelligence for a strategist, not a report.
+- Reference specific competitor titles when they're helpful (e.g. "2 Last War entries use this" is useful context).
+- Pattern names: concrete, quotable, short. "Stopwatch urgency" good. "Urgency-driven creative approach" bad.
+
+Return ONLY the JSON object. No preamble, no markdown fences, no explanation.`;
+
+export const briefSystem = (lib: any[], ctx: string, seg: string, iterateFrom?: string, refNote?: string, competitorContext?: { core_fantasy?: string; moc_inspiration?: string; transferable_elements?: string[]; title?: string; lift_intent?: string }, marketIntel?: any) => {
   // Deploy H: Extract gate_escalation signal from winner/scalable entries.
   // When a meaningful fraction of high-performers use escalation, surface it so brief can propose it.
   const highPerf = Array.isArray(lib) ? lib.filter((e: any) => e && (e.tier === "winner" || e.tier === "scalable")) : [];
@@ -496,6 +585,40 @@ CHAMPION DIVERSITY (concept 4 wild card rule):
 - If concepts 1-3 all use Red Hulk, concept 4 must NOT use Red Hulk — pick another from the canonical roster.
 
 ${_escSignal}
+${(() => {
+  // Deploy K: inject cached market intelligence from competitor library.
+  // marketIntel comes from /api/load-market-intel (synthesized via competitorSynthesisSystem).
+  if (!marketIntel || typeof marketIntel !== "object") return "";
+  const mi = marketIntel as any;
+  const digest = mi.digest;
+  if (!digest) return "";
+  const hookPat = (digest.top_hook_patterns || []).slice(0, 3);
+  const fantasies = (digest.top_core_fantasies || []).slice(0, 2);
+  const ugcPat = (digest.ugc_hook_patterns || []).slice(0, 3);
+  const mechs = (digest.transferable_mechanics || []).slice(0, 3);
+  if (hookPat.length === 0 && fantasies.length === 0 && mechs.length === 0) return "";
+
+  const hookStr = hookPat.map((p: any) => `- ${p.pattern_name}: ${p.description} (MOC transfer: ${p.moc_transfer_note}) [confidence: ${p.confidence}, examples: ${(p.example_entries||[]).join(", ")}]`).join("\n");
+  const fantasyStr = fantasies.map((f: any) => `- ${f.fantasy}: ${f.description} (MOC biome fit: ${f.moc_biome_fit}) [examples: ${(f.example_entries||[]).join(", ")}]`).join("\n");
+  const ugcStr = ugcPat.length > 0 ? `\n\nUGC HOOK PATTERNS (use these to inform hook_b_description):\n${ugcPat.map((u: any) => `- ${u.archetype}: persona ${u.persona_profile}, setup ${u.shot_setup_commonalities}, opener ${u.opening_cue_pattern}`).join("\n")}` : "";
+  const mechStr = mechs.map((m: any) => `- ${m.mechanic}: ${m.description} [source: ${(m.example_entries||[]).join(", ")}]`).join("\n");
+  const dom = mi.dominance_warning ? `\n⚠ DOMINANCE WARNING: ${mi.dominance_warning}. Intelligence below may not generalize.` : "";
+  const syncedAgo = mi.synced_at ? `(synthesized from ${mi.competitor_count} competitor ads across ${(mi.titles_covered || []).join(", ") || "unknown titles"})` : "";
+
+  return `\n\nMARKET INTELLIGENCE ${syncedAgo}:${dom}
+
+TOP HOOK PATTERNS (across competitor winners):
+${hookStr || "- (none observed)"}
+
+TOP CORE FANTASIES:
+${fantasyStr || "- (none observed)"}
+${ugcStr}
+
+TRANSFERABLE MECHANICS:
+${mechStr || "- (none observed)"}
+
+USE THIS INTELLIGENCE: allocate 1-2 concepts to lift a competitor hook pattern or mechanic. Mark those concepts with is_experimental: false (patterns are evidence-based). Cite the competitor source in the concept's experimental_note field. Do NOT copy competitor visuals directly — translate to MOC vocabulary.`;
+})()}
 
 BIOME TIERS:
 - Concepts 1-2: PROVEN biomes (Desert, Foggy Forest, Water, Bunker, Meadow), is_experimental:false.

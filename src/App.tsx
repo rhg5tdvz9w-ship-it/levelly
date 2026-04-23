@@ -1646,6 +1646,37 @@ function AppInner() {
     { border: D.purpleBdr,bg: D.purpleBg, text: D.purple, label: "3" },
     { border: D.greenBdr, bg: D.greenBg,  text: D.green,  label: "4" },
   ];
+  // Deploy K: cached market intelligence envelope loaded from /api/load-market-intel.
+  // Synthesized from competitor library entries via /api/refresh-market-intel. Injected into briefSystem.
+  const [marketIntel, setMarketIntel] = useState<any | null>(null);
+  const [marketIntelRefreshing, setMarketIntelRefreshing] = useState(false);
+  const [marketIntelError, setMarketIntelError] = useState<string>("");
+  const refreshMarketIntel = React.useCallback(async () => {
+    setMarketIntelRefreshing(true); setMarketIntelError("");
+    try {
+      const r = await fetch("/api/refresh-market-intel", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const data = await r.json();
+      if (!r.ok || !data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      setMarketIntel(data);
+      console.log("[Levelly K] Market intel refreshed:", { competitors: data.competitor_count, titles: data.titles_covered });
+    } catch (err: any) {
+      console.error("[Levelly K] refreshMarketIntel failed:", err);
+      setMarketIntelError(err.message || "Refresh failed");
+    } finally { setMarketIntelRefreshing(false); }
+  }, []);
+  // Deploy K: auto-refresh market intel when competitor library has grown by ≥20 since last sync.
+  // Runs ONLY when marketIntel already exists (never auto-fires on fresh install — user triggers first time manually).
+  React.useEffect(() => {
+    if (!marketIntel) return;
+    if (marketIntelRefreshing) return;
+    const currentCompCount = lib.filter(d => d.ad_type === "competitor").length;
+    const syncedCount = (marketIntel as any)?.competitor_count ?? 0;
+    const delta = currentCompCount - syncedCount;
+    if (delta >= 20) {
+      console.log(`[Levelly K] Auto-refresh triggered: ${delta} new competitors since last sync`);
+      refreshMarketIntel();
+    }
+  }, [lib, marketIntel, marketIntelRefreshing, refreshMarketIntel]);
   const [expandedConcept, setExpandedConcept] = useState<number|null>(null);
   const [feedbackSessionId, setFeedbackSessionId] = useState<string>("");
   const [conceptVotes, setConceptVotes] = useState<Record<number, "up" | "down">>({});
@@ -1718,6 +1749,16 @@ function AppInner() {
       .then(r => r.ok ? r.json() : null)
       .then(res => { if (res?.migrated) console.log("[Levelly G.2] Migration ran:", res); else if (res) console.log("[Levelly G.2] Migration status:", res); })
       .catch(err => console.warn("[Levelly G.2] Migration call failed (non-fatal — old blob still works):", err));
+    // Deploy K: load cached market intelligence (if it exists)
+    fetch("/api/load-market-intel")
+      .then(r => r.json())
+      .then(data => {
+        if (data && typeof data === "object" && data.digest) {
+          setMarketIntel(data);
+          console.log(`[Levelly K] Loaded market intel: ${data.competitor_count} competitors, synced ${data.synced_at}`);
+        }
+      })
+      .catch(err => console.warn("[Levelly K] load-market-intel failed (non-fatal):", err));
 
     // Deploy G.3: primary load from /api/load-index (fast summary) with fallback to /api/load-library.
     fetch("/api/load-index")
@@ -2382,7 +2423,8 @@ For each description above:
           spend_networks: d.spend_networks||[],
           cannon_count_log: d.cannon_count_log||null,
         }));
-      const systemPrompt = briefSystem(trimmedLib, briefCtx, "Whale+Dolphin", iterateFrom.trim()||undefined, refNote, competitorContext);
+      // Deploy K: inject market intelligence into brief generation
+      const systemPrompt = briefSystem(trimmedLib, briefCtx, "Whale+Dolphin", iterateFrom.trim()||undefined, refNote, competitorContext, marketIntel);
       const jobId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
       // Start background job (returns immediately, Claude runs async)
@@ -3204,12 +3246,47 @@ ${netAdapt ? section("Network adaptations", netAdapt) : ""}
               </div>
               <div style={{ display:"flex",gap:6,padding:"8px 16px",borderBottom:`0.5px solid ${D.border}`,flexWrap:"wrap" as const }}>
                 {/* Deploy H: removed Sync thumbnails (redundant post-G.3 — cloud_thumbnail auto-generated on save). Removed Clear button (landmine — use Export + manual deletion if needed). */}
-                {/* Deploy J: notice that competitor entries don't flow into briefs yet (requires market research pipeline). */}
-                {lib.filter(d=>d.ad_type==="competitor").length>0&&(
-                  <div style={{ fontSize:10,color:D.gold,background:D.goldBg,border:`0.5px solid ${D.goldBdr}`,borderRadius:6,padding:"5px 10px",marginRight:"auto" }} title="Competitor entries will flow into briefs after market research feature ships. For one-shot use today, drop a competitor video into the Brief generator's Reference field.">
-                    ⚠ {lib.filter(d=>d.ad_type==="competitor").length} competitor{lib.filter(d=>d.ad_type==="competitor").length===1?"":"s"} — not yet used in briefs
-                  </div>
-                )}
+                {/* Deploy K: market intelligence indicator — replaces Deploy J's "not yet used" warning. */}
+                {(() => {
+                  const compCount = lib.filter(d=>d.ad_type==="competitor").length;
+                  if (compCount === 0) return null;
+                  const synced = marketIntel && typeof marketIntel === "object" ? marketIntel : null;
+                  const syncedCount = synced?.competitor_count ?? 0;
+                  const pendingDelta = compCount - syncedCount;
+                  const syncedAt = synced?.synced_at ? new Date(synced.synced_at) : null;
+                  const syncedAgeDays = syncedAt ? Math.round((Date.now() - syncedAt.getTime()) / (24*60*60*1000)) : null;
+                  const statusColor = !synced ? D.gold : (pendingDelta >= 20 ? D.gold : D.green);
+                  const statusBg = !synced ? D.goldBg : (pendingDelta >= 20 ? D.goldBg : D.greenBg);
+                  const statusBdr = !synced ? D.goldBdr : (pendingDelta >= 20 ? D.goldBdr : D.greenBdr);
+                  const label = marketIntelRefreshing
+                    ? "Synthesising market intelligence…"
+                    : !synced
+                      ? `⚠ ${compCount} competitor${compCount===1?"":"s"} — not yet synthesized`
+                      : pendingDelta >= 20
+                        ? `⚠ ${compCount} competitors — ${pendingDelta} new since last sync`
+                        : `✓ ${syncedCount} competitor${syncedCount===1?"":"s"} synthesized${syncedAgeDays!==null?` · ${syncedAgeDays===0?"today":syncedAgeDays===1?"1 day ago":`${syncedAgeDays} days ago`}`:""}`;
+                  const tooltip = synced ? `Titles: ${(synced.titles_covered||[]).join(", ")||"unknown"}${synced.dominance_warning?` · ${synced.dominance_warning}`:""}` : "Click Refresh to synthesise patterns from competitor ads and inject them into brief generation.";
+                  return (
+                    <div style={{ display:"flex",alignItems:"center",gap:8,marginRight:"auto" }}>
+                      <div style={{ fontSize:10,color:statusColor,background:statusBg,border:`0.5px solid ${statusBdr}`,borderRadius:6,padding:"5px 10px" }} title={tooltip}>
+                        {label}
+                      </div>
+                      <button
+                        style={{ ...btnSec,fontSize:10,padding:"4px 10px",opacity:marketIntelRefreshing?0.6:1,cursor:marketIntelRefreshing?"wait":"pointer" }}
+                        onClick={e=>{ e.stopPropagation(); refreshMarketIntel(); }}
+                        disabled={marketIntelRefreshing}
+                        title="Re-synthesize market intelligence from current competitor library. Takes 10-30 seconds depending on competitor count."
+                      >
+                        {marketIntelRefreshing?"⏳":"🔄"} Refresh
+                      </button>
+                      {marketIntelError && (
+                        <span style={{ fontSize:10,color:D.red,background:D.redBg,border:`0.5px solid #6e2020`,borderRadius:6,padding:"5px 10px" }} title={marketIntelError}>
+                          ⚠ Refresh failed
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
                 {lib.length>0&&(<><button style={btnSec} onClick={e=>{ e.stopPropagation(); handleReanalyzeAll(); }} disabled={reanalyzingAll||analyzing}>{reanalyzingAll?"Re-analyzing…":"Re-analyze all"}</button><button style={btnSec} onClick={e=>{ e.stopPropagation(); exportLibrary(); }}>Export</button></>)}
                 <button style={btnSec} onClick={e=>{ e.stopPropagation(); importRef.current?.click(); }}>Import</button>
                 <button style={btnPri} onClick={e=>{ e.stopPropagation(); setLibPanelOpen(false); setShowModal(true); }} disabled={analyzing||reanalyzingAll}>{analyzing?"Analyzing…":"+ Upload"}</button>
