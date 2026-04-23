@@ -82,10 +82,14 @@ export function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string, lib?:
   // Inject matching library frames — real high-performing MOC ad frames as composition anchors
   if (lib && lib.length > 0 && scene) {
     const biomeNorm = (vi.environment || "").toLowerCase().split(" ")[0]; // "foggy" from "Foggy Forest"
-    // Map scene to relevant significance tags — updated for Scene + Hook A/B/C system
+    // Deploy L: FIX scene-key mismatch. Earlier code used legacy "start"/"hook" keys but the current system uses
+    // "scene"/"hook_a"/"hook_b"/"hook_c". This caused Scene renders to fall through to the wrong framing rule,
+    // treating hook frames as strict composition anchors and producing boss-dominant images when Scene was requested.
     const sigMap: Record<string, string[]> = {
-      start: ["hook"],            // Deploy F.1: scene render uses only hook frames (pre-contact, fewer enemy mobs in frame)
-      hook:  ["hook", "swarm"],   // Hook renders still use both — those don't need the NO ENEMY MOBS rule
+      scene:  ["hook"],                  // Top-down lane render: use only "hook" frames (pre-contact, fewer enemy mobs).
+      hook_a: ["hook", "boss_appear"],   // Gameplay boss hook: boss frames work best.
+      hook_b: [],                        // UGC — no MOC refs used.
+      hook_c: ["peak", "almost_fail"],   // Stopwatch/viral tension: use peak/almost-fail frames.
     };
     const wantedSigs = sigMap[scene] || ["hook"];
 
@@ -114,7 +118,8 @@ export function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string, lib?:
     if (matchingFrames.length > 0) {
       // Deploy F.1: scene renders use LAYOUT GUIDANCE ONLY framing (no mob-scale instruction),
       // hook renders keep the stronger composition-anchor framing since mobs are expected there.
-      const sceneIsScene = scene === "start";
+      // Deploy L: fix key name — was "start", now "scene".
+      const sceneIsScene = scene === "scene";
       const framingText = sceneIsScene
         ? `### REAL MOC AD FRAMES — use for LAYOUT GUIDANCE ONLY: match camera angle, gate proportions, lane width, and road perspective from these frames. DO NOT copy enemy mobs, mob counts, or mob positions from these frames — the NO ENEMY MOBS rule overrides any mobs visible in these references. These frames are for SPATIAL layout, not content:`
         : `### REAL HIGH-PERFORMING MOC AD FRAMES — use these as composition anchors. Match the mob scale, gate proportions, camera angle, and lane width exactly:`;

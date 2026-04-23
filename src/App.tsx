@@ -1651,6 +1651,10 @@ function AppInner() {
   const [marketIntel, setMarketIntel] = useState<any | null>(null);
   const [marketIntelRefreshing, setMarketIntelRefreshing] = useState(false);
   const [marketIntelError, setMarketIntelError] = useState<string>("");
+  // Deploy L: snapshot of marketIntel AT the moment of last brief generation. Used to show "📊 Intel used" badge
+  // on generated concepts so user can audit what Claude was given.
+  const [briefIntelSnapshot, setBriefIntelSnapshot] = useState<any | null>(null);
+  const [showIntelPanel, setShowIntelPanel] = useState(false);
   const refreshMarketIntel = React.useCallback(async () => {
     setMarketIntelRefreshing(true); setMarketIntelError("");
     try {
@@ -2424,6 +2428,8 @@ For each description above:
           cannon_count_log: d.cannon_count_log||null,
         }));
       // Deploy K: inject market intelligence into brief generation
+      // Deploy L: snapshot the intel used so we can show it on the brief UI
+      setBriefIntelSnapshot(marketIntel);
       const systemPrompt = briefSystem(trimmedLib, briefCtx, "Whale+Dolphin", iterateFrom.trim()||undefined, refNote, competitorContext, marketIntel);
       const jobId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -3423,6 +3429,79 @@ ${netAdapt ? section("Network adaptations", netAdapt) : ""}
             </div>
           )}
 
+          {/* Deploy L: "📊 Intel used" badge + click-to-view panel, shown when brief used market intel */}
+          {(!libPanelOpen&&!analysePanelOpen)&&concepts.length>0&&briefIntelSnapshot&&(briefIntelSnapshot as any).digest&&(
+            <div style={{ marginBottom:14,background:D.surface,border:`0.5px solid ${D.border}`,borderRadius:10,padding:"10px 14px" }}>
+              <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                <span style={{ fontSize:11,fontWeight:600,color:D.blue,background:D.blueBg,border:`0.5px solid ${D.blueDark}`,borderRadius:6,padding:"3px 9px" }} title="This brief was generated with market intelligence from your competitor library.">📊 Intel used</span>
+                <span style={{ fontSize:11,color:D.textMuted }}>
+                  Synthesised from {(briefIntelSnapshot as any).competitor_count||0} competitor ad{(briefIntelSnapshot as any).competitor_count===1?"":"s"}
+                  {(briefIntelSnapshot as any).synced_at?` · ${new Date((briefIntelSnapshot as any).synced_at).toLocaleDateString()}`:""}
+                </span>
+                <button onClick={e=>{ e.stopPropagation(); setShowIntelPanel(p=>!p); }} style={{ ...btnSec,fontSize:10,padding:"3px 10px",marginLeft:"auto" }}>
+                  {showIntelPanel?"▲ Hide":"▼ Audit intel"}
+                </button>
+              </div>
+              {showIntelPanel&&(() => {
+                const d = (briefIntelSnapshot as any).digest || {};
+                const axes = d.differentiation_axes || [];
+                const outsiders = d.genre_outsiders || [];
+                const ugcPat = d.ugc_hook_patterns || [];
+                const legacyHook = d.top_hook_patterns || [];
+                const legacyFantasy = d.top_core_fantasies || [];
+                const legacyMech = d.transferable_mechanics || [];
+                const isLegacy = axes.length === 0 && outsiders.length === 0 && (legacyHook.length > 0 || legacyFantasy.length > 0);
+                return (
+                  <div style={{ marginTop:10,paddingTop:10,borderTop:`0.5px solid ${D.border}`,fontSize:11,lineHeight:1.5,color:D.textMuted }}>
+                    {isLegacy && <div style={{ marginBottom:8,padding:"6px 10px",background:D.goldBg,border:`0.5px solid ${D.goldBdr}`,borderRadius:6,color:D.gold,fontSize:10 }}>⚠ Legacy intel format. Click 🔄 Refresh in library panel for stronger differentiation signal.</div>}
+                    {!isLegacy && axes.length > 0 && (
+                      <div style={{ marginBottom:8 }}>
+                        <div style={{ fontSize:10,fontWeight:600,color:D.textDim,textTransform:"uppercase" as const,letterSpacing:"0.06em",marginBottom:4 }}>Differentiation axes</div>
+                        {axes.map((a: any,i: number) => (
+                          <div key={i} style={{ marginBottom:6,paddingLeft:8,borderLeft:`2px solid ${D.blueDark}` }}>
+                            <div style={{ color:D.text,fontWeight:500 }}>{a.axis_name} <span style={{ color:D.textDim,fontSize:10 }}>[{a.confidence}]</span></div>
+                            <div>{a.description}</div>
+                            <div style={{ color:D.blue,marginTop:2,fontStyle:"italic" as const }}>💡 {a.differentiation_hypothesis}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {!isLegacy && outsiders.length > 0 && (
+                      <div style={{ marginBottom:8 }}>
+                        <div style={{ fontSize:10,fontWeight:600,color:D.textDim,textTransform:"uppercase" as const,letterSpacing:"0.06em",marginBottom:4 }}>Genre outsiders</div>
+                        {outsiders.map((o: any,i: number) => (
+                          <div key={i} style={{ marginBottom:6,paddingLeft:8,borderLeft:`2px solid ${D.gold}` }}>
+                            <div style={{ color:D.text,fontWeight:500 }}>{o.entry_title} <span style={{ color:D.textDim,fontSize:10 }}>({o.genre})</span></div>
+                            <div>{o.unique_element}</div>
+                            <div style={{ color:D.gold,marginTop:2,fontStyle:"italic" as const }}>→ {o.moc_translation}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {isLegacy && legacyHook.length > 0 && (
+                      <div style={{ marginBottom:8 }}>
+                        <div style={{ fontSize:10,fontWeight:600,color:D.textDim,textTransform:"uppercase" as const,letterSpacing:"0.06em",marginBottom:4 }}>Hook patterns (legacy)</div>
+                        {legacyHook.slice(0,3).map((p: any,i: number) => (
+                          <div key={i} style={{ marginBottom:4 }}>• {p.pattern_name}: {p.description}</div>
+                        ))}
+                      </div>
+                    )}
+                    {ugcPat.length > 0 && (
+                      <div style={{ marginBottom:8 }}>
+                        <div style={{ fontSize:10,fontWeight:600,color:D.textDim,textTransform:"uppercase" as const,letterSpacing:"0.06em",marginBottom:4 }}>UGC hook patterns</div>
+                        {ugcPat.map((u: any,i: number) => (
+                          <div key={i} style={{ marginBottom:4 }}>• {u.archetype}: {u.opening_cue_pattern}</div>
+                        ))}
+                      </div>
+                    )}
+                    {axes.length === 0 && outsiders.length === 0 && legacyHook.length === 0 && ugcPat.length === 0 && (
+                      <div style={{ color:D.textDim,fontStyle:"italic" as const }}>No actionable signal extracted (see library panel gaps). Add more diverse competitors and re-sync.</div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
           {(!libPanelOpen&&!analysePanelOpen)&&lastCompetitorEntry&&concepts.length>0&&(
             <div style={{ background:D.surface,border:`1.5px solid ${D.purpleBdr}`,borderRadius:10,padding:"12px 16px",marginBottom:14 }}>
               <div style={{ display:"flex",alignItems:"center",gap:10,cursor:"pointer",userSelect:"none" }} onClick={()=>setCompetitorExpanded(!competitorExpanded)}>

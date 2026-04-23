@@ -445,10 +445,20 @@ Return CORRECTED full JSON with all original fields.`;
 // - LLM only emits patterns + example creative_ids. Frequency derivable from examples.length in code.
 // - Evidence-based, no invented patterns (first rule, most prominent).
 // - Adaptive threshold: <3 returns empty digest; 3-5 allows single-example patterns with low-confidence flag; ≥6 requires ≥2 examples.
-export const competitorSynthesisSystem = (competitors: any[]) => `You are a creative strategist analyzing a collection of competitor mobile-game ad entries. Your job is to extract cross-ad patterns that could inform new Mob Control (MOC) ad concepts.
+export const competitorSynthesisSystem = (competitors: any[]) => `You are a creative strategist helping improve Mob Control (MOC) ads by learning from competitors. MOC is a top-down lane game where a cannon shoots mob swarms at multiplier gates (xN) and accumulator gates (+N) to grow the army, then crashes it into a boss at the end.
 
 ABSOLUTE RULE #1 — EVIDENCE-BASED, NO HALLUCINATION:
-Every pattern you emit MUST be supported by specific entries in the data below. Cite example creative_ids or titles. If a pattern exists in only one entry, either omit it entirely OR include it with "confidence":"low". Do NOT invent patterns that are not directly observable in the data.
+Every observation you emit MUST be supported by specific entries in the data below. Cite example creative_ids or titles. Do NOT invent observations not directly present in the data.
+
+ABSOLUTE RULE #2 — DIFFERENTIATION, NOT DESCRIPTION:
+Your job is NOT to describe what the competitor ads have in common with MOC. Your job is to surface what competitors do DIFFERENTLY from MOC, that MOC could learn from. Examples:
+- BAD: "Competitors use multiplier gates" (MOC does this too — useless signal)
+- BAD: "Competitors open with immediate combat" (MOC does this too)
+- BAD: "Competitors show army accumulation" (MOC's core loop — useless)
+- GOOD: "Gold & Goblins opens with passive wealth accumulation instead of active combat — visual language of coins/numbers falling without player input. MOC could test a similar 'passive gains' opener before introducing cannon"
+- GOOD: "Whiteout Survival uses a thermometer/warmth meter as the central stake instead of an HP bar — transferable as a freezing mob count in a snow biome"
+
+If a pattern is ALSO what MOC does, SKIP IT. Only emit observations where the competitor does something MOC currently doesn't.
 
 COMPETITOR ENTRIES (${competitors.length} total):
 ${JSON.stringify(competitors, null, 2)}
@@ -456,23 +466,22 @@ ${JSON.stringify(competitors, null, 2)}
 OUTPUT: a compact JSON object with the following schema. Return ONLY valid JSON, no markdown, no prose.
 
 {
-  "top_hook_patterns": [
+  "differentiation_axes": [
     {
-      "pattern_name": "short label, 2-4 words",
-      "description": "1-2 sentence summary of the pattern",
-      "example_entries": ["creative_id or title", ...],   // 2-3 entries cited as evidence
+      "axis_name": "2-5 word label describing the differentiation dimension (e.g. 'Passive vs Active Opener', 'Non-HP Stakes', 'Delayed Gratification')",
+      "description": "1-2 sentences on what competitors do that MOC doesn't on this axis",
+      "example_entries": ["creative_id or title", ...],
       "confidence": "high" | "medium" | "low",
-      "moc_transfer_note": "how this could translate to MOC gameplay — 1 sentence"
+      "differentiation_hypothesis": "a concrete MOC ad concept idea that tests this differentiation. Must be ACTIONABLE — suggest a specific scene or mechanic change, not just 'try doing X'. 1-2 sentences."
     }
   ],
 
-  "top_core_fantasies": [
+  "genre_outsiders": [
     {
-      "fantasy": "short label, 2-4 words",
-      "description": "1-2 sentence summary",
-      "example_entries": ["creative_id or title", ...],
-      "confidence": "high" | "medium" | "low",
-      "moc_biome_fit": "which MOC biome(s) naturally carry this fantasy"
+      "entry_title": "creative_id or title of a competitor that is NOT in the same genre as MOC (e.g. clicker, idle, tycoon, builder, puzzle, card game — anything non-lane non-runner non-battle)",
+      "genre": "short genre label",
+      "unique_element": "1 sentence: the single thing this outsider ad does that's worth lifting into an MOC concept",
+      "moc_translation": "1-2 sentences: how to translate that element into MOC's lane/cannon/gate/boss vocabulary"
     }
   ],
 
@@ -485,42 +494,38 @@ OUTPUT: a compact JSON object with the following schema. Return ONLY valid JSON,
       "example_entries": ["creative_id or title", ...],
       "confidence": "high" | "medium" | "low"
     }
-  ],   // MAY BE EMPTY — only populate when ≥2 competitor UGC hooks are observable
+  ],   // MAY BE EMPTY — only populate when ≥2 competitor UGC hooks are observable. Most competitor libraries won't have UGC hooks; that's fine.
 
-  "transferable_mechanics": [
-    {
-      "mechanic": "short label",
-      "description": "what happens visually + mechanically — 1-2 sentences. This IS the MOC-transfer note; do not duplicate into a separate field.",
-      "example_entries": ["creative_id"],
-      "confidence": "high" | "medium" | "low"
-    }
-  ],
-
-  "gaps_noted": ["gap_code", ...]   // constrained enum. Use only these codes:
+  "format_gaps": ["gap_code", ...]   // constrained enum, describe FORMATS missing from your competitor library. Codes:
   // "thin_sample" (library has <6 entries)
-  // "no_ugc_observed" (no UGC hooks found in library)
-  // "single_title_dominance" (one title provides most entries)
-  // "no_stopwatch_hooks" / "no_escalation_mechanic" / "no_ragebait_hooks" / "no_before_after_hooks"
-  // "no_biome_diversity" (all competitors share similar biomes)
+  // "no_ugc_observed"
+  // "no_stopwatch_hooks"
+  // "no_escalation_mechanic"
+  // "no_ragebait_hooks"
+  // "no_before_after_hooks"
+  // "no_non_combat_openers" (all competitor ads start with combat)
+  // "no_outsider_genres" (all competitors are lane/battle/multiplier games — no outside-genre inspiration)
+  // "single_title_dominance"
+  // "no_biome_diversity"
 }
 
-PATTERN QUANTITY:
-- top_hook_patterns: 3-5 entries
-- top_core_fantasies: 2-4 entries
+QUANTITY:
+- differentiation_axes: 2-5 entries (fewer is FINE if competitor pool is homogeneous — quality over quantity; if you can only find 2 genuine differentiation points, return 2)
+- genre_outsiders: 0-4 entries (empty is FINE if all competitors are same-genre; that's actually what "no_outsider_genres" signals)
 - ugc_hook_patterns: 0-4 entries (empty OK)
-- transferable_mechanics: 3-5 entries
-- gaps_noted: 0-5 codes from the enum above
+- format_gaps: 0-6 codes from the enum
 
 THRESHOLD:
-- If competitors.length < 3, return all arrays empty and gaps_noted = ["thin_sample"].
-- If 3 ≤ competitors.length < 6, allow single-example patterns marked "confidence":"low".
-- If competitors.length ≥ 6, require ≥2 example_entries per pattern.
+- If competitors.length < 3, return all arrays empty and format_gaps = ["thin_sample"].
+- If 3 ≤ competitors.length < 6, allow single-example axes marked "confidence":"low".
+- If competitors.length ≥ 6, require ≥2 example_entries per axis.
 
-QUALITY BAR:
-- No generic patterns ("games use timers"). Only specific patterns with concrete form factors and repetition.
-- descriptions must be TIGHT. This is intelligence for a strategist, not a report.
-- Reference specific competitor titles when they're helpful (e.g. "2 Last War entries use this" is useful context).
-- Pattern names: concrete, quotable, short. "Stopwatch urgency" good. "Urgency-driven creative approach" bad.
+QUALITY BAR — CRITICAL:
+- If your axis describes something BOTH competitor and MOC do, SKIP it entirely. Empty output is better than describing MOC back to itself.
+- differentiation_hypothesis must be a CONCRETE ad-concept starting point, not a vague principle. "Test a passive opener in snow biome where coins fall into the lane before the cannon appears" GOOD. "Try non-combat openers" BAD.
+- Axis names: specific and quotable. "Passive vs Active Opener" good. "Gameplay Dynamics" bad.
+- Genre outsiders: ONLY include competitors from genres genuinely OUTSIDE lane/battle/multiplier/army. Hypercasual puzzles, tycoons, clickers, simulators, card games.
+- If competitor library is homogeneous (mostly MOC-clones), SAY SO via format_gaps (e.g. "no_outsider_genres") and return fewer/shorter axes. Do not pad.
 
 Return ONLY the JSON object. No preamble, no markdown fences, no explanation.`;
 
@@ -586,38 +591,63 @@ CHAMPION DIVERSITY (concept 4 wild card rule):
 
 ${_escSignal}
 ${(() => {
-  // Deploy K: inject cached market intelligence from competitor library.
-  // marketIntel comes from /api/load-market-intel (synthesized via competitorSynthesisSystem).
+  // Deploy K/L: inject cached market intelligence from competitor library.
+  // Deploy L reframed synthesis output — axes (differentiation) + outsiders, not generic patterns.
+  // Handles both new schema (differentiation_axes/genre_outsiders) and legacy schema (top_hook_patterns) gracefully.
   if (!marketIntel || typeof marketIntel !== "object") return "";
   const mi = marketIntel as any;
   const digest = mi.digest;
   if (!digest) return "";
-  const hookPat = (digest.top_hook_patterns || []).slice(0, 3);
-  const fantasies = (digest.top_core_fantasies || []).slice(0, 2);
-  const ugcPat = (digest.ugc_hook_patterns || []).slice(0, 3);
-  const mechs = (digest.transferable_mechanics || []).slice(0, 3);
-  if (hookPat.length === 0 && fantasies.length === 0 && mechs.length === 0) return "";
 
-  const hookStr = hookPat.map((p: any) => `- ${p.pattern_name}: ${p.description} (MOC transfer: ${p.moc_transfer_note}) [confidence: ${p.confidence}, examples: ${(p.example_entries||[]).join(", ")}]`).join("\n");
-  const fantasyStr = fantasies.map((f: any) => `- ${f.fantasy}: ${f.description} (MOC biome fit: ${f.moc_biome_fit}) [examples: ${(f.example_entries||[]).join(", ")}]`).join("\n");
-  const ugcStr = ugcPat.length > 0 ? `\n\nUGC HOOK PATTERNS (use these to inform hook_b_description):\n${ugcPat.map((u: any) => `- ${u.archetype}: persona ${u.persona_profile}, setup ${u.shot_setup_commonalities}, opener ${u.opening_cue_pattern}`).join("\n")}` : "";
-  const mechStr = mechs.map((m: any) => `- ${m.mechanic}: ${m.description} [source: ${(m.example_entries||[]).join(", ")}]`).join("\n");
+  // New schema (Deploy L)
+  const axes = (digest.differentiation_axes || []).slice(0, 4);
+  const outsiders = (digest.genre_outsiders || []).slice(0, 3);
+  const ugcPat = (digest.ugc_hook_patterns || []).slice(0, 3);
+
+  // Legacy schema fallback (Deploy K) — if intel was synthesized before L prompt reframe
+  const legacyHook = (digest.top_hook_patterns || []).slice(0, 3);
+  const legacyFantasy = (digest.top_core_fantasies || []).slice(0, 2);
+  const legacyMech = (digest.transferable_mechanics || []).slice(0, 3);
+  const usingLegacy = axes.length === 0 && outsiders.length === 0 && (legacyHook.length > 0 || legacyFantasy.length > 0);
+
+  if (axes.length === 0 && outsiders.length === 0 && ugcPat.length === 0 && !usingLegacy) return "";
+
   const dom = mi.dominance_warning ? `\n⚠ DOMINANCE WARNING: ${mi.dominance_warning}. Intelligence below may not generalize.` : "";
-  const syncedAgo = mi.synced_at ? `(synthesized from ${mi.competitor_count} competitor ads across ${(mi.titles_covered || []).join(", ") || "unknown titles"})` : "";
+  const syncedAgo = mi.synced_at ? `(synthesized from ${mi.competitor_count} competitor ads across ${(mi.titles_covered || []).length} ad descriptions)` : "";
+
+  let body = "";
+  if (usingLegacy) {
+    // Legacy format — keep existing injection form. Weaker signal but backward-compatible.
+    const hookStr = legacyHook.map((p: any) => `- ${p.pattern_name}: ${p.description}`).join("\n");
+    const fantasyStr = legacyFantasy.map((f: any) => `- ${f.fantasy}: ${f.description}`).join("\n");
+    const mechStr = legacyMech.map((m: any) => `- ${m.mechanic}: ${m.description}`).join("\n");
+    body = `TOP COMPETITOR PATTERNS (legacy — re-sync market intel for stronger differentiation signal):
+${hookStr}
+${fantasyStr}
+${mechStr}`;
+  } else {
+    // New schema — differentiation-first framing
+    const axisStr = axes.map((a: any, i: number) => `${i+1}. ${a.axis_name} [${a.confidence||"?"}]: ${a.description}
+   HYPOTHESIS: ${a.differentiation_hypothesis}
+   evidence: ${(a.example_entries||[]).join(", ")}`).join("\n\n");
+    const outsiderStr = outsiders.length > 0
+      ? `\n\nGENRE OUTSIDERS (competitors from non-lane non-battle genres — strongest learning source):
+${outsiders.map((o: any) => `- ${o.entry_title} (${o.genre}): ${o.unique_element}
+  MOC translation: ${o.moc_translation}`).join("\n")}`
+      : "";
+    const ugcStr = ugcPat.length > 0
+      ? `\n\nUGC HOOK PATTERNS (inform hook_b_description):
+${ugcPat.map((u: any) => `- ${u.archetype}: persona ${u.persona_profile}, setup ${u.shot_setup_commonalities}, opener ${u.opening_cue_pattern}`).join("\n")}`
+      : "";
+    body = `DIFFERENTIATION AXES (things competitors do that MOC currently does NOT):
+${axisStr || "(none — competitor library is too homogeneous with MOC for differentiation signal)"}${outsiderStr}${ugcStr}`;
+  }
 
   return `\n\nMARKET INTELLIGENCE ${syncedAgo}:${dom}
 
-TOP HOOK PATTERNS (across competitor winners):
-${hookStr || "- (none observed)"}
+${body}
 
-TOP CORE FANTASIES:
-${fantasyStr || "- (none observed)"}
-${ugcStr}
-
-TRANSFERABLE MECHANICS:
-${mechStr || "- (none observed)"}
-
-USE THIS INTELLIGENCE: allocate 1-2 concepts to lift a competitor hook pattern or mechanic. Mark those concepts with is_experimental: false (patterns are evidence-based). Cite the competitor source in the concept's experimental_note field. Do NOT copy competitor visuals directly — translate to MOC vocabulary.`;
+USE THIS INTELLIGENCE: allocate 1-2 concepts to test a differentiation hypothesis or lift from a genre outsider. Cite the specific differentiation_hypothesis or genre outsider in that concept's experimental_note field (e.g. "lifts Gold & Goblins passive-opener axis — tests whether MOC hook can delay cannon reveal"). Mark those concepts with is_experimental: true (axes test what MOC hasn't proven). Do NOT copy competitor visuals — translate into MOC's lane/cannon/gate/boss vocabulary.`;
 })()}
 
 BIOME TIERS:

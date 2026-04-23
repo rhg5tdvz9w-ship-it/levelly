@@ -12,27 +12,42 @@ const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemi
 // Inlined synthesis prompt (ES modules don't bundle src/ into functions by default).
 // If you change prompts.ts:competitorSynthesisSystem, mirror changes here.
 function buildSynthesisPrompt(competitors: any[]): string {
-  return `You are a creative strategist analyzing a collection of competitor mobile-game ad entries. Your job is to extract cross-ad patterns that could inform new Mob Control (MOC) ad concepts.
+  // Deploy L: DIFFERENTIATION reframe — mirrors prompts.ts:competitorSynthesisSystem.
+  // Asks what competitors do DIFFERENTLY from MOC, not what patterns exist.
+  return `You are a creative strategist helping improve Mob Control (MOC) ads by learning from competitors. MOC is a top-down lane game where a cannon shoots mob swarms at multiplier gates (xN) and accumulator gates (+N) to grow the army, then crashes it into a boss at the end.
 
 ABSOLUTE RULE #1 — EVIDENCE-BASED, NO HALLUCINATION:
-Every pattern you emit MUST be supported by specific entries in the data below. Cite example creative_ids or titles. If a pattern exists in only one entry, either omit it entirely OR include it with "confidence":"low". Do NOT invent patterns that are not directly observable in the data.
+Every observation you emit MUST be supported by specific entries in the data below. Cite example creative_ids or titles.
+
+ABSOLUTE RULE #2 — DIFFERENTIATION, NOT DESCRIPTION:
+Your job is NOT to describe what competitor ads have in common with MOC. Your job is to surface what competitors do DIFFERENTLY from MOC, that MOC could learn from. If a pattern is ALSO what MOC does, SKIP IT. Examples:
+- BAD: "Competitors use multiplier gates" (MOC does this — useless signal)
+- BAD: "Competitors show army accumulation" (MOC's core loop)
+- GOOD: "Gold & Goblins opens with passive wealth accumulation instead of active combat. MOC could test a similar passive-gains opener before the cannon appears"
+- GOOD: "Whiteout Survival uses a warmth meter as the central stake instead of HP. MOC could test a freezing mob count in snow biome"
+
+Only emit observations where the competitor does something MOC currently does NOT.
 
 COMPETITOR ENTRIES (${competitors.length} total):
 ${JSON.stringify(competitors, null, 2)}
 
-OUTPUT SCHEMA: return ONLY valid JSON. No markdown. No prose preamble.
+OUTPUT SCHEMA — return ONLY valid JSON. No markdown. No prose.
 {
-  "top_hook_patterns": [{"pattern_name":string,"description":string,"example_entries":[string],"confidence":"high"|"medium"|"low","moc_transfer_note":string}],
-  "top_core_fantasies": [{"fantasy":string,"description":string,"example_entries":[string],"confidence":"high"|"medium"|"low","moc_biome_fit":string}],
+  "differentiation_axes": [{"axis_name":string,"description":string,"example_entries":[string],"confidence":"high"|"medium"|"low","differentiation_hypothesis":string}],
+  "genre_outsiders": [{"entry_title":string,"genre":string,"unique_element":string,"moc_translation":string}],
   "ugc_hook_patterns": [{"archetype":string,"persona_profile":string,"shot_setup_commonalities":string,"opening_cue_pattern":string,"example_entries":[string],"confidence":"high"|"medium"|"low"}],
-  "transferable_mechanics": [{"mechanic":string,"description":string,"example_entries":[string],"confidence":"high"|"medium"|"low"}],
-  "gaps_noted": [string]
+  "format_gaps": [string]
 }
 
-QUANTITY: hook_patterns 3-5, core_fantasies 2-4, ugc_patterns 0-4 (empty OK), transferable_mechanics 3-5, gaps_noted 0-5.
-THRESHOLD: if competitors.length < 3, return empty arrays + gaps_noted ["thin_sample"]. If 3-5, allow "confidence":"low" single-example. If ≥6, require ≥2 example_entries per pattern.
-gaps_noted enum: "thin_sample","no_ugc_observed","single_title_dominance","no_stopwatch_hooks","no_escalation_mechanic","no_ragebait_hooks","no_before_after_hooks","no_biome_diversity"
-QUALITY: no generic patterns. Concrete and quotable labels. Tight descriptions.`;
+QUANTITY: differentiation_axes 2-5 (quality over quantity — if only 2 are genuine, return 2), genre_outsiders 0-4, ugc_hook_patterns 0-4, format_gaps 0-6.
+THRESHOLD: if competitors.length < 3 → empty arrays + format_gaps ["thin_sample"]. If 3-5 → allow confidence:low. If ≥6 → require ≥2 example_entries per axis.
+format_gaps enum: "thin_sample","no_ugc_observed","no_stopwatch_hooks","no_escalation_mechanic","no_ragebait_hooks","no_before_after_hooks","no_non_combat_openers","no_outsider_genres","single_title_dominance","no_biome_diversity"
+
+QUALITY BAR — CRITICAL:
+- If your axis describes something MOC ALSO does, SKIP it. Empty output > MOC-describes-itself.
+- differentiation_hypothesis must be CONCRETE. "Test passive opener in snow biome where coins fall into lane before cannon appears" GOOD. "Try non-combat openers" BAD.
+- Genre outsiders: ONLY competitors from genres OUTSIDE lane/battle/multiplier/army (clickers, tycoons, puzzles, simulators, card games).
+- If competitor library is homogeneous (mostly MOC-clones), say so via format_gaps ("no_outsider_genres") and return fewer axes. Do not pad.`;
 }
 
 async function callGeminiSynthesis(prompt: string): Promise<any> {
