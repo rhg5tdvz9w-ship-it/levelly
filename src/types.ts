@@ -55,6 +55,8 @@ export interface PerformanceHook { type: string; text: string; }
 export interface QualityScore { pattern_fidelity: number; moc_dna: number; emotional_arc: number; visual_clarity: number; segment_fit: number; overall: number; notes: string; }
 export interface NetworkAdaptations { AppLovin?: string; Facebook?: string; Google?: string; TikTok?: string; }
 export interface Concept {
+  /** Deploy M: when concept lifts from competitor market intelligence, this names the axis or outsider source (e.g. "Passive vs Active Opener" or "Gold & Goblins"). Empty/undefined when concept is MOC-DNA-only. */
+  intel_source?: string;
   title: string; is_data_backed: boolean; is_experimental?: boolean; experimental_note?: string;
   objective: string; target_segment: string; player_motivation: string;
   hook_description?: string;

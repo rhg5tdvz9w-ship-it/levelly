@@ -20,13 +20,9 @@ ABSOLUTE RULE #1 — EVIDENCE-BASED, NO HALLUCINATION:
 Every observation you emit MUST be supported by specific entries in the data below. Cite example creative_ids or titles.
 
 ABSOLUTE RULE #2 — DIFFERENTIATION, NOT DESCRIPTION:
-Your job is NOT to describe what competitor ads have in common with MOC. Your job is to surface what competitors do DIFFERENTLY from MOC, that MOC could learn from. If a pattern is ALSO what MOC does, SKIP IT. Examples:
-- BAD: "Competitors use multiplier gates" (MOC does this — useless signal)
-- BAD: "Competitors show army accumulation" (MOC's core loop)
-- GOOD: "Gold & Goblins opens with passive wealth accumulation instead of active combat. MOC could test a similar passive-gains opener before the cannon appears"
-- GOOD: "Whiteout Survival uses a warmth meter as the central stake instead of HP. MOC could test a freezing mob count in snow biome"
-
-Only emit observations where the competitor does something MOC currently does NOT.
+Surface what competitors do DIFFERENTLY from MOC. If a pattern is ALSO what MOC does, SKIP IT.
+GOOD example: "Gold & Goblins opens with passive wealth accumulation — MOC could test a passive-gains opener before cannon reveal"
+Only emit observations where the competitor does something MOC does NOT.
 
 COMPETITOR ENTRIES (${competitors.length} total):
 ${JSON.stringify(competitors, null, 2)}
@@ -44,16 +40,19 @@ THRESHOLD: if competitors.length < 3 → empty arrays + format_gaps ["thin_sampl
 format_gaps enum: "thin_sample","no_ugc_observed","no_stopwatch_hooks","no_escalation_mechanic","no_ragebait_hooks","no_before_after_hooks","no_non_combat_openers","no_outsider_genres","single_title_dominance","no_biome_diversity"
 
 QUALITY BAR — CRITICAL:
+- Keep every description field under 180 characters. Keep differentiation_hypothesis under 250 characters. This is intelligence for a strategist, not a report.
 - If your axis describes something MOC ALSO does, SKIP it. Empty output > MOC-describes-itself.
-- differentiation_hypothesis must be CONCRETE. "Test passive opener in snow biome where coins fall into lane before cannon appears" GOOD. "Try non-combat openers" BAD.
-- Genre outsiders: ONLY competitors from genres OUTSIDE lane/battle/multiplier/army (clickers, tycoons, puzzles, simulators, card games).
-- If competitor library is homogeneous (mostly MOC-clones), say so via format_gaps ("no_outsider_genres") and return fewer axes. Do not pad.`;
+- differentiation_hypothesis must be CONCRETE (specific scene/mechanic change), not vague ("try X").
+- Genre outsiders: ONLY from genres OUTSIDE lane/battle/multiplier/army.
+- Homogeneous library: say so via format_gaps ("no_outsider_genres"), return fewer axes. Do not pad.`;
 }
 
 async function callGeminiSynthesis(prompt: string): Promise<any> {
   const body = JSON.stringify({
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.3, responseMimeType: "application/json" },
+    // Deploy M: maxOutputTokens hard cap keeps Flash from over-generating on the DIFFERENTIATION prompt.
+    // Deploy L's prompt made Gemini reason harder per-entry, pushing synthesis past 30s. Output cap bounds it.
+    generationConfig: { temperature: 0.3, responseMimeType: "application/json", maxOutputTokens: 2048 },
   });
   for (let attempt = 0; attempt < 2; attempt++) {
     const r = await fetch(GEMINI_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body });
@@ -87,7 +86,20 @@ export const handler: Handler = async (event) => {
     const libStore = getStore("levelly");
     const indexRaw = await libStore.get("library-index");
     const lib: any[] = indexRaw ? JSON.parse(indexRaw) : [];
-    const competitors = lib.filter(e => e && e.ad_type === "competitor");
+    // Deploy M: cap synthesis input at 30 most recent competitors. Prevents prompt bloat + slow generation
+    // once library scales to 100+ entries. Sort by added_at desc (fall back to id numeric desc), take top 30.
+    const allCompetitors = lib.filter(e => e && e.ad_type === "competitor");
+    const SYNTHESIS_INPUT_CAP = 30;
+    const sorted = [...allCompetitors].sort((a, b) => {
+      const ta = a.added_at ? new Date(a.added_at).getTime() : 0;
+      const tb = b.added_at ? new Date(b.added_at).getTime() : 0;
+      if (tb !== ta) return tb - ta;
+      return (b.id || 0) - (a.id || 0);
+    });
+    const competitors = sorted.slice(0, SYNTHESIS_INPUT_CAP);
+    if (allCompetitors.length > SYNTHESIS_INPUT_CAP) {
+      console.log(`[refresh-market-intel] Capping synthesis input at ${SYNTHESIS_INPUT_CAP} most recent competitors (library has ${allCompetitors.length}).`);
+    }
 
     // Compute code-side derived fields
     const titles = Array.from(new Set(competitors.map(c => c.title).filter(Boolean)));

@@ -3542,6 +3542,10 @@ ${netAdapt ? section("Network adaptations", netAdapt) : ""}
                     <span style={{ display:"inline-flex",alignItems:"center",justifyContent:"center",minWidth:26,height:22,padding:"0 7px",borderRadius:6,fontSize:12,fontWeight:700,background:CONCEPT_ACCENTS[ci%CONCEPT_ACCENTS.length].bg,color:CONCEPT_ACCENTS[ci%CONCEPT_ACCENTS.length].text,border:`0.5px solid ${CONCEPT_ACCENTS[ci%CONCEPT_ACCENTS.length].border}`,letterSpacing:"0.03em",marginRight:2 }}>#{ci+1}</span>
                     {c.is_data_backed&&<span style={pill(D.goldBg,D.gold,D.goldBdr)}>Data-backed</span>}
                     {c.is_experimental&&<span style={pill("#2a1a2e","#f472b6","#9d174d")}>⚠ Experimental</span>}
+                    {/* Deploy M: per-concept intel provenance — shows which differentiation axis or genre outsider this concept lifted from */}
+                    {(c as any).intel_source && typeof (c as any).intel_source === "string" && ((c as any).intel_source as string).trim().length > 0 && (
+                      <span style={pill(D.blueBg, D.blue, D.blueDark)} title={`This concept lifts from market intelligence source: ${(c as any).intel_source}`}>↗ Intel: {(c as any).intel_source}</span>
+                    )}
                     {(c as any).dna_source&&<span style={pill(D.greenBg,D.green,D.greenBdr)}>DNA: {(c as any).dna_source}</span>}
                     {iterateFrom.trim()&&<span style={pill(D.purpleBg,D.purple,D.purpleBdr)}>iterates {iterateFrom.trim()}</span>}
                     <span style={pill(TIER_STYLE["scalable"].bg,TIER_STYLE["scalable"].text,TIER_STYLE["scalable"].border)}>{c.target_segment}</span>

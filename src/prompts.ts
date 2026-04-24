@@ -451,14 +451,9 @@ ABSOLUTE RULE #1 — EVIDENCE-BASED, NO HALLUCINATION:
 Every observation you emit MUST be supported by specific entries in the data below. Cite example creative_ids or titles. Do NOT invent observations not directly present in the data.
 
 ABSOLUTE RULE #2 — DIFFERENTIATION, NOT DESCRIPTION:
-Your job is NOT to describe what the competitor ads have in common with MOC. Your job is to surface what competitors do DIFFERENTLY from MOC, that MOC could learn from. Examples:
-- BAD: "Competitors use multiplier gates" (MOC does this too — useless signal)
-- BAD: "Competitors open with immediate combat" (MOC does this too)
-- BAD: "Competitors show army accumulation" (MOC's core loop — useless)
-- GOOD: "Gold & Goblins opens with passive wealth accumulation instead of active combat — visual language of coins/numbers falling without player input. MOC could test a similar 'passive gains' opener before introducing cannon"
-- GOOD: "Whiteout Survival uses a thermometer/warmth meter as the central stake instead of an HP bar — transferable as a freezing mob count in a snow biome"
-
-If a pattern is ALSO what MOC does, SKIP IT. Only emit observations where the competitor does something MOC currently doesn't.
+Surface what competitors do DIFFERENTLY from MOC. If a pattern is ALSO what MOC does, SKIP IT.
+GOOD example: "Gold & Goblins opens with passive wealth accumulation — MOC could test a passive-gains opener before cannon reveal"
+Only emit observations where the competitor does something MOC does NOT.
 
 COMPETITOR ENTRIES (${competitors.length} total):
 ${JSON.stringify(competitors, null, 2)}
@@ -521,11 +516,12 @@ THRESHOLD:
 - If competitors.length ≥ 6, require ≥2 example_entries per axis.
 
 QUALITY BAR — CRITICAL:
-- If your axis describes something BOTH competitor and MOC do, SKIP it entirely. Empty output is better than describing MOC back to itself.
-- differentiation_hypothesis must be a CONCRETE ad-concept starting point, not a vague principle. "Test a passive opener in snow biome where coins fall into the lane before the cannon appears" GOOD. "Try non-combat openers" BAD.
+- Keep every description field under 180 characters. Keep differentiation_hypothesis under 250 characters.
+- If your axis describes something BOTH competitor and MOC do, SKIP it entirely. Empty output > MOC-describes-itself.
+- differentiation_hypothesis must be CONCRETE (specific scene/mechanic change), not vague.
 - Axis names: specific and quotable. "Passive vs Active Opener" good. "Gameplay Dynamics" bad.
-- Genre outsiders: ONLY include competitors from genres genuinely OUTSIDE lane/battle/multiplier/army. Hypercasual puzzles, tycoons, clickers, simulators, card games.
-- If competitor library is homogeneous (mostly MOC-clones), SAY SO via format_gaps (e.g. "no_outsider_genres") and return fewer/shorter axes. Do not pad.
+- Genre outsiders: ONLY from genres OUTSIDE lane/battle/multiplier/army (clickers, tycoons, puzzles, simulators, card games).
+- Homogeneous library: say so via format_gaps ("no_outsider_genres"), return fewer axes. Do not pad.
 
 Return ONLY the JSON object. No preamble, no markdown fences, no explanation.`;
 
@@ -647,7 +643,13 @@ ${axisStr || "(none — competitor library is too homogeneous with MOC for diffe
 
 ${body}
 
-USE THIS INTELLIGENCE: allocate 1-2 concepts to test a differentiation hypothesis or lift from a genre outsider. Cite the specific differentiation_hypothesis or genre outsider in that concept's experimental_note field (e.g. "lifts Gold & Goblins passive-opener axis — tests whether MOC hook can delay cannon reveal"). Mark those concepts with is_experimental: true (axes test what MOC hasn't proven). Do NOT copy competitor visuals — translate into MOC's lane/cannon/gate/boss vocabulary.`;
+USE THIS INTELLIGENCE: allocate 1-2 concepts to test a differentiation hypothesis or lift from a genre outsider. REQUIRED for concepts that lift from intel:
+- Set concept.intel_source field to the axis_name (e.g. "Passive vs Active Opener") or outsider title (e.g. "Gold & Goblins"). NOT free text. Use the exact axis_name or outsider entry_title from the intel block above.
+- Cite the axis in concept.experimental_note (e.g. "Lifts Passive vs Active Opener axis from Gold & Goblins").
+- Mark is_experimental: true (axes test what MOC hasn't proven).
+- Translate into MOC's lane/cannon/gate/boss vocabulary. Do NOT copy competitor visuals.
+
+Concepts NOT lifting from intel: leave intel_source empty/omitted.`;
 })()}
 
 BIOME TIERS:
