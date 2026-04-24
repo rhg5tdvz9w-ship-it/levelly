@@ -435,7 +435,7 @@ function UploadModal({ onConfirm, onCancel, lib, droppedFile }: { onConfirm: (cf
         {/* Deploy H.1: Competitor-mode compact context input (replaces full hints block) */}
         {adType === "competitor" && (<div style={{ marginBottom:14 }}>
           <span style={labelStyle}>Context <span style={{ fontWeight:400,color:D.textMuted }}>(optional — e.g. game title, source, market observation)</span></span>
-          <textarea style={{ ...inputStyle,minHeight:48,resize:"vertical" as const,background:D.bg,fontSize:11 }} placeholder="e.g. War Games: Rising Tycoon — TikTok promo, gate escalation mechanic" value={context} onChange={e=>setContext(e.target.value)} />
+          <textarea style={{ ...inputStyle,minHeight:48,resize:"vertical" as const,background:D.bg,fontSize:11 }} placeholder="Game: [name] — context. e.g. 'Game: Last War — trophy room hook' (helps market intel group by game)" value={context} onChange={e=>setContext(e.target.value)} />
         </div>)}
         {/* Deploy H.1: Manual frames — hidden for competitors (not useful for market-reference analysis) */}
         {adType !== "competitor" && (<div style={{ marginBottom:16 }}>
@@ -999,6 +999,8 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
             <option value="competitor" style={{ background: D.surface2, color: D.text }}>competitor</option>
             <option value="compound" style={{ background: D.surface2, color: D.text }}>compound</option>
           </select>
+          {/* Deploy N: show game_title pill for competitors when available */}
+          {d.ad_type === "competitor" && (d as any).game_title && <span style={pill(D.blueBg, D.blue, D.blueDark)}>🎮 {(d as any).game_title}</span>}
           {d.ad_type === "competitor" && d.core_fantasy && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)}>{d.core_fantasy}</span>}
           {d.is_compound && <span style={pill(D.goldBg, D.gold, D.goldBdr)}>compound</span>}
           {/* Deploy I: gate escalation badge — shows when analyze detected an ascending xN sequence in the video. */}
@@ -3566,7 +3568,9 @@ ${netAdapt ? section("Network adaptations", netAdapt) : ""}
                   <div style={{ display:"flex",gap:4,marginTop:2 }}>
                     {/* Deploy I: universal copy — pre-uploads renders as hosted URLs so Notion/Docs/Gmail/Slack all render images */}
                     <div onClick={async e=>{ e.stopPropagation();
-                      setCopiedConcept(-2); // transient "uploading" sentinel
+                      // Deploy N: encode ci in sentinel so only THIS button shows "Uploading…", not all 4.
+                      // UPLOADING_CI_OFFSET = 10. ci=0 → -10, ci=1 → -11, ci=2 → -12, ci=3 → -13.
+                      setCopiedConcept(-(ci + 10)); // transient per-button "uploading" sentinel
                       try {
                         // Collect all data: URI renders for this concept and upload them to hosted URLs
                         const sceneUrls: Record<string, string> = {};
@@ -3610,7 +3614,7 @@ ${netAdapt ? section("Network adaptations", netAdapt) : ""}
                         try { await navigator.clipboard.writeText(lines); } catch {}
                         setCopiedConcept(ci); setTimeout(()=>setCopiedConcept(null),2500);
                       }
-                    }} style={{ fontSize:11,padding:"4px 10px",borderRadius:6,background:copiedConcept===ci?D.greenBg:(copiedConcept===-2?D.blueBg:D.blueBg),color:copiedConcept===ci?D.green:D.blue,border:`0.5px solid ${copiedConcept===ci?D.greenBdr:D.blueDark}`,fontWeight:500,cursor:"pointer",whiteSpace:"nowrap" as const,transition:"background .2s,color .2s,border-color .2s" }}>{copiedConcept===-2?"⏳ Uploading…":copiedConcept===ci?"✓ Copied!":"⎘ Copy brief"}</div>
+                    }} style={{ fontSize:11,padding:"4px 10px",borderRadius:6,background:copiedConcept===ci?D.greenBg:(copiedConcept===-(ci+10)?D.blueBg:D.blueBg),color:copiedConcept===ci?D.green:D.blue,border:`0.5px solid ${copiedConcept===ci?D.greenBdr:D.blueDark}`,fontWeight:500,cursor:"pointer",whiteSpace:"nowrap" as const,transition:"background .2s,color .2s,border-color .2s" }}>{copiedConcept===-(ci+10)?"⏳ Uploading…":copiedConcept===ci?"✓ Copied!":"⎘ Copy brief"}</div>
                   </div>
                 </div>
               </div>

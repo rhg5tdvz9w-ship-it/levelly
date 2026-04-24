@@ -22,6 +22,8 @@ export interface DNAEntry {
   creative_status?: "briefed" | "produced" | "running" | "scaling" | "fatigued";
   spend_tier?: string; spend_window_days?: number | null;
   spend_networks?: string[]; spend_notes?: string; spend_data_source?: string;
+  /** Deploy N: game/app title of the source (e.g. "Last War", "Gold & Goblins"). Separate from ad-description title. User-entered on upload OR Gemini-extracted from branding. Used by market intel synthesis to group by source game. */
+  game_title?: string;
   title: string; hook_type: string; hook_timing_seconds: number | null;
   hook_description: string; gate_sequence: string[];
   swarm_peak_moment_seconds: number | null; loss_event_type: string;

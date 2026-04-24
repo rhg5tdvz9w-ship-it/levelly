@@ -390,9 +390,9 @@ ${MOC_EVENTS_GUIDE}
 ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}`:`${UNIVERSAL_EVENTS_GUIDE}`}
 ${config.ad_type==="compound"?"COMPOUND: is_compound:true, segments array required.":""}
-${config.ad_type==="competitor"?"COMPETITOR MODE: Strip ALL MOC-specific vocabulary (Yellow Normie, Tank/Simple/Double/Triple Cannon, named Mob Control champions, MOC-specific biomes). Describe units generically: small unit, large unit, boss 1, boss 2. Use universal event tags only (hook, gate, power_up, obstacle, peak, etc). REQUIRED competitor-only fields — fill all three precisely: (1) core_fantasy: the emotional or mechanical fantasy this ad sells in 3-8 words (e.g. idle reward compounding, delayed gratification payoff, progress wipeout anxiety). (2) transferable_elements: array of 3-5 concrete testable hypotheses for MOC — each must be ACTIONABLE (what to change/add in MOC and what it tests). Bad example: use bigger numbers. Good example: Escalating +N gate values (5 → 50 → 500 → 5000) instead of static +1/+3 — tests whether numerical progression itself drives engagement independent of power gain. (3) moc_inspiration: 1-2 sentence high-level summary of how this ad maps to MOC strategy.":""}
+${config.ad_type==="competitor"?"COMPETITOR MODE: Strip ALL MOC-specific vocabulary (Yellow Normie, Tank/Simple/Double/Triple Cannon, named Mob Control champions, MOC-specific biomes). Describe units generically: small unit, large unit, boss 1, boss 2. Use universal event tags only (hook, gate, power_up, obstacle, peak, etc). REQUIRED competitor-only fields — fill all FOUR precisely: (1) core_fantasy: the emotional or mechanical fantasy this ad sells in 3-8 words (e.g. idle reward compounding, delayed gratification payoff, progress wipeout anxiety). (2) transferable_elements: array of 3-5 concrete testable hypotheses for MOC — each must be ACTIONABLE (what to change/add in MOC and what it tests). Bad example: use bigger numbers. Good example: Escalating +N gate values (5 → 50 → 500 → 5000) instead of static +1/+3 — tests whether numerical progression itself drives engagement independent of power gain. (3) moc_inspiration: 1-2 sentence high-level summary of how this ad maps to MOC strategy. (4) game_title: the NAME OF THE GAME/APP (NOT a description of the ad content). Extract from visible branding — app logo, game name in splash, watermark, UI text. Examples: 'Last War', 'Gold & Goblins', 'Whiteout Survival', 'Kingshot'. If the game_title is PROVIDED in upload_context by the user, use that exact value. If unclear and no user context, return null — do not invent.":""}
 Return ONLY JSON — key_events FIRST, then DNA fields:
-{"key_events":[{"timestamp_seconds":number,"event_type":"hook|gate|power_up|boss_appear|boss_damage|boss_death|obstacle|peak|almost_fail|almost_win|loss","description":string,"frame_evidence":string}],"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"gate_escalation":string|null,"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Obstacle Hit|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string,"tension_arc":string,"rewatch_factor":string},"frame_extraction_gaps":string${config.ad_type==="competitor"?",\"moc_inspiration\":string,\"core_fantasy\":string,\"transferable_elements\":[string]":""}}`;
+{"key_events":[{"timestamp_seconds":number,"event_type":"hook|gate|power_up|boss_appear|boss_damage|boss_death|obstacle|peak|almost_fail|almost_win|loss","description":string,"frame_evidence":string}],"title":string,"is_compound":boolean,"transition_type":string|null,"segments":[]|null,"hook_type":"Challenge|Satisfying|Loss Aversion|Story|FOMO|Tutorial","hook_timing_seconds":number,"hook_description":string,"gate_sequence":[string],"gate_escalation":string|null,"swarm_peak_moment_seconds":number|null,"loss_event_type":"Wrong Gate|Boss Overwhelm|Obstacle Hit|Death Gate|Enemy Overwhelm|None","loss_event_timing_seconds":number|null,"unit_evolution_chain":[string],"cannon_count_log":string,"emotional_arc":string,"biome":"Desert|Cyber-City|Forest|Volcanic|Snow|Toxic|Water|Bunker|Meadow|Unknown","biome_visual_notes":string,"champions_visible":[string],"giant_kills":[{"timestamp_seconds":number,"giant_name":string,"note":string}],"pacing":"Fast|Medium|Slow","key_mechanic":string,"why_it_works":string,"creative_gaps_structured":{"hook_strength":string,"mechanic_clarity":string,"emotional_payoff":string,"tension_arc":string,"rewatch_factor":string},"frame_extraction_gaps":string${config.ad_type==="competitor"?",\"moc_inspiration\":string,\"core_fantasy\":string,\"transferable_elements\":[string],\"game_title\":string|null":""}}`;
 // Field groups for surgical refinement — each group maps to specific concept fields
 export const REFINE_FIELD_GROUPS = {
   visual: ["visual_identity","biome_visual_notes"],
@@ -643,13 +643,32 @@ ${axisStr || "(none — competitor library is too homogeneous with MOC for diffe
 
 ${body}
 
-USE THIS INTELLIGENCE: allocate 1-2 concepts to test a differentiation hypothesis or lift from a genre outsider. REQUIRED for concepts that lift from intel:
-- Set concept.intel_source field to the axis_name (e.g. "Passive vs Active Opener") or outsider title (e.g. "Gold & Goblins"). NOT free text. Use the exact axis_name or outsider entry_title from the intel block above.
-- Cite the axis in concept.experimental_note (e.g. "Lifts Passive vs Active Opener axis from Gold & Goblins").
-- Mark is_experimental: true (axes test what MOC hasn't proven).
-- Translate into MOC's lane/cannon/gate/boss vocabulary. Do NOT copy competitor visuals.
+USE THIS INTELLIGENCE — CRITICAL:
+You must allocate 1-2 of your 4 concepts to lift from a differentiation axis or genre outsider listed above.
+For those concepts — THESE FIELDS ARE MANDATORY, NOT OPTIONAL:
 
-Concepts NOT lifting from intel: leave intel_source empty/omitted.`;
+  "intel_source": <must be EXACT copy of axis_name OR genre_outsider entry_title from intel block>
+  "experimental_note": <must mention which axis/outsider was lifted>
+  "is_experimental": true
+
+CONCRETE EXAMPLE — a brief with 3 concepts:
+
+  Concept 1 (lifts intel):
+    "is_experimental": true,
+    "experimental_note": "Lifts Multi-Boss & Sequential Challenges axis — tests whether twin-boss bridge improves retention",
+    "intel_source": "Multi-Boss & Sequential Challenges"   ← EXACT axis_name
+
+  Concept 2 (lifts outsider):
+    "is_experimental": true,
+    "experimental_note": "Lifts Gold & Goblins passive-opener mechanic",
+    "intel_source": "Gold and Goblins"   ← EXACT entry_title from genre_outsiders
+
+  Concept 3 (pure MOC, no intel):
+    "is_experimental": false,
+    "experimental_note": null,
+    "intel_source": null   ← explicitly null, not missing
+
+Do NOT copy competitor visuals — translate to MOC's lane/cannon/gate/boss vocabulary. Do NOT invent axes that weren't in the intel block above.`;
 })()}
 
 BIOME TIERS:
@@ -675,7 +694,7 @@ ${competitorContext ? `COMPETITOR SOURCING (ACTIVE — use this as primary inspi
 Default (no competitor active, or for non-competitor-inspired concepts): Based on the highest-tension moment in THIS concept's 9-step curve (typically AlmostWin or Pressure++) — describe a stylized visual that screams "I need to see what happens next." Common patterns: tiny mob count facing massive boss, massive swarm about to crush a giant, cannon on 1HP with huge enemy closing. Must be visually distinct from hook_a (different composition, different tension type).
 
 Return ONLY valid JSON — be concise, no padding or elaboration:
-{"analysis":{"patterns_used":string,"dna_sources":[string],"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"is_experimental":boolean,"experimental_note":string|null,"objective":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"hook_timing_seconds":number,"hook_description":string,"hook_a_description":string,"hook_b_description":string,"hook_c_description":string,"unit_evolution_chain":[string],"cannon_count_progression":string,"lane_design":string,"upgrade_triggers":[string],"tension_moments":[string],"network_adaptations":{"AppLovin":string,"Facebook":string,"Google":string},"engagement_hooks":string,"production_script":[{"time":string,"action":string,"visual_cue":string,"audio_cue":string}],"nine_step_curve":{"Pressure":string,"Investment":string,"Validate":string,"Investment2":string,"Payoff":string,"FalseSafety":string,"PressurePlus":string,"AlmostWin":string,"Fail":string},"hook_b_caption":string}]}`;
+{"analysis":{"patterns_used":string,"dna_sources":[string],"strategy":string},"concepts":[{"title":string,"dna_source":string,"is_data_backed":boolean,"is_experimental":boolean,"experimental_note":string|null,"intel_source":string|null,"objective":string,"visual_identity":{"environment":string,"lighting":string,"player_champion":string,"enemy_champion":string,"player_mob_color":string,"enemy_mob_color":string,"gate_values":[string],"cannon_type":string,"mood_notes":string},"hook_timing_seconds":number,"hook_description":string,"hook_a_description":string,"hook_b_description":string,"hook_c_description":string,"unit_evolution_chain":[string],"cannon_count_progression":string,"lane_design":string,"upgrade_triggers":[string],"tension_moments":[string],"network_adaptations":{"AppLovin":string,"Facebook":string,"Google":string},"engagement_hooks":string,"production_script":[{"time":string,"action":string,"visual_cue":string,"audio_cue":string}],"nine_step_curve":{"Pressure":string,"Investment":string,"Validate":string,"Investment2":string,"Payoff":string,"FalseSafety":string,"PressurePlus":string,"AlmostWin":string,"Fail":string},"hook_b_caption":string}]}`;
 };
 
 export const CANNON_VISUALS: Record<string, string> = {
