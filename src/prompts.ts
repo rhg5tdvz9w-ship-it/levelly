@@ -505,9 +505,9 @@ OUTPUT: a compact JSON object with the following schema. Return ONLY valid JSON,
 }
 
 QUANTITY:
-- differentiation_axes: 2-5 entries (fewer is FINE if competitor pool is homogeneous — quality over quantity; if you can only find 2 genuine differentiation points, return 2)
-- genre_outsiders: 0-4 entries (empty is FINE if all competitors are same-genre; that's actually what "no_outsider_genres" signals)
-- ugc_hook_patterns: 0-4 entries (empty OK)
+- differentiation_axes: 2-3 entries (fewer is FINE if competitor pool is homogeneous — quality over quantity; if you can only find 2 genuine differentiation points, return 2)
+- genre_outsiders: 0-2 entries (empty is FINE if all competitors are same-genre; that's actually what "no_outsider_genres" signals)
+- ugc_hook_patterns: 0-3 entries (empty OK)
 - format_gaps: 0-6 codes from the enum
 
 THRESHOLD:
@@ -516,7 +516,7 @@ THRESHOLD:
 - If competitors.length ≥ 6, require ≥2 example_entries per axis.
 
 QUALITY BAR — CRITICAL:
-- Keep every description field under 180 characters. Keep differentiation_hypothesis under 250 characters.
+- Keep every description field under 150 characters. Keep differentiation_hypothesis under 220 characters.
 - If your axis describes something BOTH competitor and MOC do, SKIP it entirely. Empty output > MOC-describes-itself.
 - differentiation_hypothesis must be CONCRETE (specific scene/mechanic change), not vague.
 - Axis names: specific and quotable. "Passive vs Active Opener" good. "Gameplay Dynamics" bad.

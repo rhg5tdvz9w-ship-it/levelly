@@ -35,12 +35,12 @@ OUTPUT SCHEMA — return ONLY valid JSON. No markdown. No prose.
   "format_gaps": [string]
 }
 
-QUANTITY: differentiation_axes 2-5 (quality over quantity — if only 2 are genuine, return 2), genre_outsiders 0-4, ugc_hook_patterns 0-4, format_gaps 0-6.
+QUANTITY: differentiation_axes 2-3 (quality over quantity — if only 2 are genuine, return 2), genre_outsiders 0-2, ugc_hook_patterns 0-3, format_gaps 0-6.
 THRESHOLD: if competitors.length < 3 → empty arrays + format_gaps ["thin_sample"]. If 3-5 → allow confidence:low. If ≥6 → require ≥2 example_entries per axis.
 format_gaps enum: "thin_sample","no_ugc_observed","no_stopwatch_hooks","no_escalation_mechanic","no_ragebait_hooks","no_before_after_hooks","no_non_combat_openers","no_outsider_genres","single_title_dominance","no_biome_diversity"
 
 QUALITY BAR — CRITICAL:
-- Keep every description field under 180 characters. Keep differentiation_hypothesis under 250 characters. This is intelligence for a strategist, not a report.
+- Keep every description field under 150 characters. Keep differentiation_hypothesis under 220 characters. Intelligence for a strategist, not a report.
 - If your axis describes something MOC ALSO does, SKIP it. Empty output > MOC-describes-itself.
 - differentiation_hypothesis must be CONCRETE (specific scene/mechanic change), not vague ("try X").
 - Genre outsiders: ONLY from genres OUTSIDE lane/battle/multiplier/army.
@@ -50,9 +50,10 @@ QUALITY BAR — CRITICAL:
 async function callGeminiSynthesis(prompt: string): Promise<any> {
   const body = JSON.stringify({
     contents: [{ parts: [{ text: prompt }] }],
-    // Deploy M: maxOutputTokens hard cap keeps Flash from over-generating on the DIFFERENTIATION prompt.
-    // Deploy L's prompt made Gemini reason harder per-entry, pushing synthesis past 30s. Output cap bounds it.
-    generationConfig: { temperature: 0.3, responseMimeType: "application/json", maxOutputTokens: 2048 },
+    // Deploy M/M.1: maxOutputTokens hard cap keeps Flash from over-generating on the DIFFERENTIATION prompt.
+    // M=2048 truncated mid-JSON causing 500 Malformed JSON errors. M.1 raised to 4096 (doubled headroom).
+    // At Flash generation ~200 tokens/sec this still finishes in ~20s, staying under 30s Netlify ceiling.
+    generationConfig: { temperature: 0.3, responseMimeType: "application/json", maxOutputTokens: 4096 },
   });
   for (let attempt = 0; attempt < 2; attempt++) {
     const r = await fetch(GEMINI_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body });
@@ -62,10 +63,19 @@ async function callGeminiSynthesis(prompt: string): Promise<any> {
       throw new Error(`Gemini synthesis ${r.status}: ${text.slice(0, 500)}`);
     }
     const data = JSON.parse(text);
-    const jsonText = data.candidates?.[0]?.content?.parts?.find((p: any) => p.text)?.text || "";
+    // Deploy M.1: detect truncation via finishReason BEFORE attempting to parse the inner JSON.
+    // MAX_TOKENS means Gemini stopped generating mid-output because it hit maxOutputTokens. Retry is useless
+    // because the same cap applies. STOP and notify the user with a clear error instead of "Malformed JSON".
+    const candidate = data.candidates?.[0];
+    const finishReason = candidate?.finishReason;
+    if (finishReason === "MAX_TOKENS") {
+      throw new Error("Gemini output truncated (hit maxOutputTokens=4096). Likely too many diverse competitors in library — try reducing competitor library or contact support.");
+    }
+    const jsonText = candidate?.content?.parts?.find((p: any) => p.text)?.text || "";
     try {
       return JSON.parse(jsonText.replace(/^\`\`\`json\s*/, "").replace(/\`\`\`\s*$/, ""));
     } catch (e) {
+      // Only retry if not a truncation case (already handled above). Malformed JSON here = genuinely bad formatting.
       if (attempt === 0) { await new Promise(res => setTimeout(res, 2000)); continue; }
       throw new Error(`Malformed JSON from Gemini synthesis: ${jsonText.slice(0, 300)}`);
     }
