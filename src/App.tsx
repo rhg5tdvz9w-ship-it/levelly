@@ -3441,19 +3441,42 @@ ${netAdapt ? section("Network adaptations", netAdapt) : ""}
                 if (!entry) return null;
                 const di = lib.indexOf(entry);
                 // Deploy G.2: lazy-load full entry frames from cloud if missing (team-uploaded entries)
+                // Deploy O.2: trigger lazy-load when EITHER frames OR full-entry fields are missing.
+                // hasFullData uses hook_type as sentinel — it's set on every Gemini-analyzed entry but never
+                // included in the thin /api/load-index summary, so its absence reliably indicates "needs hydration".
                 const hasFrames = entry.auto_frames?.some(f => f.image_data);
-                if (!hasFrames && !loadEntryLazy.loading.has(entry.id) && !loadEntryLazy.attempted.has(entry.id)) {
+                const hasFullData = (entry as any).hook_type !== undefined && (entry as any).hook_type !== null;
+                if ((!hasFrames || !hasFullData) && !loadEntryLazy.loading.has(entry.id) && !loadEntryLazy.attempted.has(entry.id)) {
                   loadEntryLazy.loading.add(entry.id);
                   loadEntryLazy.attempted.add(entry.id);
                   fetch(`/api/load-entry?id=${entry.id}`)
                     .then(r => r.ok ? r.json() : null)
                     .then(fullEntry => {
                       loadEntryLazy.loading.delete(entry.id);
-                      if (fullEntry && fullEntry.auto_frames?.some((f: any) => f.image_data)) {
-                        // Merge full entry into lib state (keep local fields, add frames)
-                        setLib(currentLib => currentLib.map(e => e.id === entry.id ? { ...e, auto_frames: fullEntry.auto_frames } : e));
-                        // Cache frames in IDB for session persistence
-                        saveFramesToIDB([{ ...entry, auto_frames: fullEntry.auto_frames }] as DNAEntry[]);
+                      // Deploy O.2: FULL ENTRY MERGE — fill in fields missing from index summary without ever
+                      // overwriting local non-undefined values (preserves any in-session edits user just made).
+                      if (fullEntry && typeof fullEntry === "object") {
+                        setLib(currentLib => currentLib.map(e => {
+                          if (e.id !== entry.id) return e;
+                          const merged: any = { ...e };
+                          for (const key of Object.keys(fullEntry)) {
+                            const localVal = merged[key];
+                            const cloudVal = (fullEntry as any)[key];
+                            const localIsEmpty = localVal === undefined || localVal === null
+                              || (Array.isArray(localVal) && localVal.length === 0)
+                              || (typeof localVal === "string" && localVal === "");
+                            const cloudHasValue = cloudVal !== undefined && cloudVal !== null
+                              && !(Array.isArray(cloudVal) && cloudVal.length === 0);
+                            if (localIsEmpty && cloudHasValue) {
+                              merged[key] = cloudVal;
+                            }
+                          }
+                          return merged;
+                        }));
+                        // Cache frames in IDB if cloud provided them
+                        if (fullEntry.auto_frames?.some((f: any) => f.image_data)) {
+                          saveFramesToIDB([{ ...entry, auto_frames: fullEntry.auto_frames }] as DNAEntry[]);
+                        }
                       }
                     })
                     .catch(err => {
