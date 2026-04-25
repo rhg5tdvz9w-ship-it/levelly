@@ -93,6 +93,17 @@ export function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string, lib?:
     };
     const wantedSigs = sigMap[scene] || ["hook"];
 
+    // Deploy O: filter out frames whose description suggests enemy-mob presence when rendering Scene.
+    // Earlier deploys' NO ENEMY MOBS rule in the prompt is sometimes ignored when reference frames visibly contain
+    // enemy mobs. Cheap fix: skip frames whose description text mentions enemy/red mob/purple mob/swarm keywords.
+    // No re-analysis of library entries needed — uses existing FrameExtraction.description field.
+    const ENEMY_MOB_KEYWORDS = ["enemy mob", "enemy mobs", "red mob", "red mobs", "purple mob", "purple mobs", "enemy swarm", "enemy crowd", "enemies on the road", "enemies in the lane"];
+    const frameHasEnemyMobs = (desc: string): boolean => {
+      if (!desc) return false;
+      const d = desc.toLowerCase();
+      return ENEMY_MOB_KEYWORDS.some(kw => d.includes(kw));
+    };
+
     const matchingFrames: {data: string, label: string}[] = [];
     for (const entry of lib) {
       if (matchingFrames.length >= 2) break;
@@ -103,9 +114,18 @@ export function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string, lib?:
       // Only use winner/scalable entries
       if (!["winner","scalable"].includes(entry.tier)) continue;
       // Find a matching frame by significance — check auto_frames for image_data
-      const frames = (entry.auto_frames || []).filter((f: any) =>
+      let frames = (entry.auto_frames || []).filter((f: any) =>
         f.image_data && wantedSigs.some(sig => (f.significance || "").includes(sig))
       );
+      // Deploy O: when rendering Scene, exclude frames whose description suggests enemy mob presence.
+      // Stronger than the prompt-only NO ENEMY MOBS rule (which Gemini sometimes ignores).
+      if (scene === "scene") {
+        const beforeFilter = frames.length;
+        frames = frames.filter((f: any) => !frameHasEnemyMobs(f.description || ""));
+        if (beforeFilter !== frames.length) {
+          console.log(`[Levelly O] Scene-render: filtered ${beforeFilter - frames.length} enemy-mob-tagged frames from ${entry.creative_id || entry.title}`);
+        }
+      }
       if (frames.length > 0) {
         const frame = frames[0];
         matchingFrames.push({

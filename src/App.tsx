@@ -297,6 +297,96 @@ function EnhanceButton({ text, onEnhanced, mode }: { text: string; onEnhanced: (
 }
 
 // ─── Upload Modal ─────────────────────────────────────────────────────────────
+// Deploy O: Bulk upload modal — handles 2+ video files at once, all marked as competitors,
+// optional shared game_title applied to all. Processes 3 in parallel via the existing single-file pipeline.
+// Each file flows through the same handleUpload(...) as a regular competitor upload, just batched.
+type BulkItemStatus = "queued" | "analyzing" | "done" | "failed";
+type BulkItem = { file: File; status: BulkItemStatus; error?: string };
+function BulkUploadModal({ files, onClose, onProcessOne }: {
+  files: File[];
+  onClose: () => void;
+  onProcessOne: (file: File, gameTitle: string) => Promise<void>;
+}) {
+  const [items, setItems] = React.useState<BulkItem[]>(files.map(f => ({ file: f, status: "queued" as BulkItemStatus })));
+  const [gameTitle, setGameTitle] = React.useState<string>("");
+  const [running, setRunning] = React.useState<boolean>(false);
+  const allDone = items.every(i => i.status === "done" || i.status === "failed");
+  const successCount = items.filter(i => i.status === "done").length;
+  const failedCount = items.filter(i => i.status === "failed").length;
+  const startBatch = async () => {
+    setRunning(true);
+    const CONCURRENCY = 3;
+    let cursor = 0;
+    const updateOne = (idx: number, partial: Partial<BulkItem>) => {
+      setItems(prev => prev.map((it, i) => i === idx ? { ...it, ...partial } : it));
+    };
+    const worker = async () => {
+      while (true) {
+        const myIdx = cursor++;
+        if (myIdx >= items.length) return;
+        updateOne(myIdx, { status: "analyzing" });
+        try {
+          await onProcessOne(items[myIdx].file, gameTitle.trim());
+          updateOne(myIdx, { status: "done" });
+        } catch (err: any) {
+          updateOne(myIdx, { status: "failed", error: err?.message || String(err) });
+          console.error("[Levelly O] bulk item failed:", items[myIdx].file.name, err);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+    setRunning(false);
+  };
+  return (
+    <div onClick={e=>e.stopPropagation()} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:24 }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:D.surface,border:`0.5px solid ${D.border}`,borderRadius:14,padding:22,width:560,maxWidth:"95vw",maxHeight:"86vh",overflow:"auto" }}>
+        <h3 style={{ margin:"0 0 6px",fontSize:16,fontWeight:600,color:D.text }}>Bulk competitor upload</h3>
+        <p style={{ margin:"0 0 14px",fontSize:12,color:D.textMuted }}>{items.length} files queued. All will be uploaded as competitors and analyzed in parallel (3 at a time).</p>
+        <div style={{ display:"flex",flexDirection:"column",gap:4,marginBottom:14 }}>
+          <label style={{ fontSize:11,color:D.textMuted,fontWeight:500 }}>Game title (applies to all)</label>
+          <input
+            type="text"
+            value={gameTitle}
+            disabled={running}
+            onChange={e => setGameTitle(e.target.value)}
+            placeholder="e.g. Last War, Whiteout Survival, Gold and Goblins"
+            style={{ fontSize:12,padding:"8px 10px",borderRadius:6,background:D.surface2,border:`0.5px solid ${D.border}`,color:D.text,outline:"none",opacity:running?0.6:1 }}
+          />
+          <span style={{ fontSize:10,color:D.textDim }}>Optional. Applies to every file in this batch. Leave blank if mixed sources.</span>
+        </div>
+        <div style={{ background:D.surface2,border:`0.5px solid ${D.border}`,borderRadius:8,maxHeight:280,overflow:"auto",marginBottom:14 }}>
+          {items.map((item, idx) => {
+            const statusColor = item.status === "done" ? D.green : item.status === "failed" ? D.red : item.status === "analyzing" ? D.blue : D.textDim;
+            const statusIcon = item.status === "done" ? "✓" : item.status === "failed" ? "✕" : item.status === "analyzing" ? "⏳" : "•";
+            return (
+              <div key={idx} style={{ display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderBottom:`0.5px solid ${D.border}`,fontSize:11 }}>
+                <span style={{ minWidth:18,color:statusColor,fontWeight:600 }}>{statusIcon}</span>
+                <span style={{ flex:1,color:D.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" as const }}>{item.file.name}</span>
+                <span style={{ fontSize:10,color:D.textDim }}>{(item.file.size / (1024*1024)).toFixed(1)} MB</span>
+                <span style={{ fontSize:10,color:statusColor,minWidth:62,textAlign:"right" as const }}>{item.status}</span>
+              </div>
+            );
+          })}
+        </div>
+        {allDone && running === false && items.length > 0 && (
+          <div style={{ background:D.greenBg,border:`0.5px solid ${D.greenBdr}`,borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:12,color:D.green }}>
+            ✓ Done: {successCount} succeeded{failedCount > 0 ? `, ${failedCount} failed` : ""}
+          </div>
+        )}
+        <div style={{ display:"flex",gap:8,justifyContent:"flex-end" }}>
+          <button onClick={onClose} disabled={running} style={{ padding:"8px 16px",fontSize:12,borderRadius:6,background:"transparent",border:`0.5px solid ${D.border2}`,color:D.textMuted,cursor:running?"not-allowed":"pointer",opacity:running?0.5:1 }}>
+            {allDone ? "Close" : "Cancel"}
+          </button>
+          {!allDone && (
+            <button onClick={startBatch} disabled={running} style={{ padding:"8px 16px",fontSize:12,fontWeight:600,borderRadius:6,background:running?D.blueBg:D.blue,color:running?D.blue:"#fff",border:`0.5px solid ${D.blueDark}`,cursor:running?"wait":"pointer" }}>
+              {running ? "Analyzing…" : `Start (${items.length} files)`}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 function UploadModal({ onConfirm, onCancel, lib, droppedFile }: { onConfirm: (cfg: UploadConfig, preAttachedFile?: File) => void; onCancel: () => void; lib: DNAEntry[]; droppedFile?: File | null }) {
   const [tier, setTier] = useState<UploadConfig["tier"]>("winner");
   const [adType, setAdType] = useState<UploadConfig["ad_type"]>("moc");
@@ -1648,6 +1738,9 @@ function AppInner() {
     { border: D.purpleBdr,bg: D.purpleBg, text: D.purple, label: "3" },
     { border: D.greenBdr, bg: D.greenBg,  text: D.green,  label: "4" },
   ];
+  // Deploy O: bulk competitor upload state — when 2+ files are dropped, open BulkUploadModal instead.
+  const [showBulkModal, setShowBulkModal] = useState<boolean>(false);
+  const [bulkFiles, setBulkFiles] = useState<File[]>([]);
   // Deploy K: cached market intelligence envelope loaded from /api/load-market-intel.
   // Synthesized from competitor library entries via /api/refresh-market-intel. Injected into briefSystem.
   const [marketIntel, setMarketIntel] = useState<any | null>(null);
@@ -1657,6 +1750,18 @@ function AppInner() {
   // on generated concepts so user can audit what Claude was given.
   const [briefIntelSnapshot, setBriefIntelSnapshot] = useState<any | null>(null);
   const [showIntelPanel, setShowIntelPanel] = useState(false);
+  // Deploy O: bulk upload helper — calls the existing handleUpload pipeline once per file with competitor cfg.
+  // handleUpload's signature expects a React.ChangeEvent<HTMLInputElement>, so we construct a minimal fake event
+  // exposing target.files via Array.from(...). Shares game_title via upload_context (same convention as Deploy N).
+  const handleBulkUploadOne = React.useCallback(async (file: File, gameTitle: string) => {
+    const contextPrefix = gameTitle.trim() ? `[Game: ${gameTitle.trim()}] ` : "";
+    const cfg: UploadConfig = { tier: "inspiration", ad_type: "competitor", context: contextPrefix, manual_frames: [] };
+    // Fake event: handleUpload uses Array.from(e.target.files ?? []), so target.files needs to be array-like.
+    // We pass a single-item array masquerading as FileList. Object.assign to satisfy Array.from's iteration.
+    const fakeFiles = Object.assign([file], { item: (i: number) => i === 0 ? file : null, length: 1 });
+    const fakeEvent = { target: { files: fakeFiles as unknown as FileList } } as React.ChangeEvent<HTMLInputElement>;
+    await handleUpload(fakeEvent, cfg);
+  }, []);
   const refreshMarketIntel = React.useCallback(async () => {
     setMarketIntelRefreshing(true); setMarketIntelError("");
     try {
@@ -2870,6 +2975,14 @@ ${netAdapt ? section("Network adaptations", netAdapt) : ""}
   return (
     <div style={{ background:D.bg,minHeight:"100vh",color:D.text,fontFamily:"system-ui,sans-serif",fontSize:13,position:"relative" }}>
       {showModal&&<UploadModal lib={lib} droppedFile={droppedFile} onConfirm={handleModalConfirm} onCancel={()=>{setShowModal(false);setDroppedFile(null);}} />}
+      {/* Deploy O: bulk upload modal */}
+      {showBulkModal && bulkFiles.length > 0 && (
+        <BulkUploadModal
+          files={bulkFiles}
+          onClose={() => { setShowBulkModal(false); setBulkFiles([]); }}
+          onProcessOne={handleBulkUploadOne}
+        />
+      )}
       {/* Frame zoom lightbox */}
       {zoomedFrame && (
         <div onClick={()=>{ setZoomedFrame(null); setZoomedFrameList([]); }} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center" }}>
@@ -3117,11 +3230,17 @@ ${netAdapt ? section("Network adaptations", netAdapt) : ""}
               onDragLeave={e => { e.preventDefault(); e.stopPropagation(); setHomeDropActive(false); }}
               onDrop={e => {
                 e.preventDefault(); e.stopPropagation(); setHomeDropActive(false);
-                const f = e.dataTransfer.files?.[0];
-                if (f && f.type.startsWith("video/")) {
-                  setDroppedFile(f);
+                // Deploy O: support multi-file drop. 2+ video files → BulkUploadModal. 1 file → regular UploadModal.
+                const allFiles = Array.from(e.dataTransfer.files || []);
+                const videoFiles = allFiles.filter(f => f.type.startsWith("video/"));
+                if (videoFiles.length === 0) return;
+                setAnalysePanelOpen(false); setBriefPanelOpen(false); setLibPanelOpen(false);
+                if (videoFiles.length >= 2) {
+                  setBulkFiles(videoFiles);
+                  setShowBulkModal(true);
+                } else {
+                  setDroppedFile(videoFiles[0]);
                   setShowModal(true);
-                  setAnalysePanelOpen(false); setBriefPanelOpen(false); setLibPanelOpen(false);
                 }
               }}
               style={{ background:homeDropActive?"rgba(63,185,80,0.12)":(analysePanelOpen?"#1a2130":D.surface),border:`0.5px solid ${homeDropActive?D.green:(analysePanelOpen?D.greenBdr:D.border2)}`,borderRadius:12,padding:20,cursor:"pointer",transition:"border-color .18s,background .18s,transform .12s" }}
