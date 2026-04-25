@@ -315,7 +315,11 @@ function BulkUploadModal({ files, onClose, onProcessOne }: {
   const failedCount = items.filter(i => i.status === "failed").length;
   const startBatch = async () => {
     setRunning(true);
-    const CONCURRENCY = 3;
+    // Deploy O.1: HOTFIX — bulk concurrency dropped from 3 to 1 (sequential).
+    // handleUpload's closure-captured `lib` + saveLib's diff-vs-libPrevRef pattern is NOT safe under concurrency.
+    // Parallel runs cause each new bulk entry to silently DELETE prior bulk entries from cloud (last-writer-wins).
+    // Sequential processing fully serializes lib state mutations. Slower (3x) but correct.
+    const CONCURRENCY = 1;
     let cursor = 0;
     const updateOne = (idx: number, partial: Partial<BulkItem>) => {
       setItems(prev => prev.map((it, i) => i === idx ? { ...it, ...partial } : it));
