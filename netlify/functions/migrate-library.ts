@@ -81,6 +81,9 @@ export const handler: Handler = async (event) => {
           is_compound: entry.is_compound,
           champions_visible: entry.champions_visible || [],
           core_fantasy: entry.core_fantasy,
+          // Deploy P: include spend_networks + spend_window_days in index summary.
+          spend_networks: entry.spend_networks || [],
+          spend_window_days: entry.spend_window_days,
         });
       } catch (err: any) {
         failed++;

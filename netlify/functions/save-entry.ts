@@ -48,6 +48,10 @@ export const handler: Handler = async (event) => {
       champions_visible: entry.champions_visible || [],
       core_fantasy: entry.core_fantasy,
       has_frames: hasFramesInCloud, // Deploy G.3
+      // Deploy P: include spend_networks + spend_window_days in index so aggregate counters
+      // (NETWORKS, TOP VELOCITY) reflect reality without requiring every entry to be lazy-loaded.
+      spend_networks: entry.spend_networks || [],
+      spend_window_days: entry.spend_window_days,
     };
 
     const existingIdx = index.findIndex((e: any) => e.id === entry.id);

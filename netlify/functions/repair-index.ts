@@ -72,6 +72,9 @@ export const handler: Handler = async (event) => {
           champions_visible: entry.champions_visible || [],
           core_fantasy: entry.core_fantasy,
           has_frames: hasFramesInCloud,
+          // Deploy P: include spend_networks + spend_window_days in summary so aggregate counters work.
+          spend_networks: entry.spend_networks || [],
+          spend_window_days: entry.spend_window_days,
         };
         // Only count as repair if something actually changed
         const changed = JSON.stringify(summary) !== JSON.stringify(newSummary);

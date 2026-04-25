@@ -2093,12 +2093,32 @@ function AppInner() {
       );
       const consistentDna = await enforceConsistency(rawDna, frameParts, entry.upload_context||"");
       const dna = sanitizeDNA(consistentDna);
-      return {...entry,...dna, id:entry.id, reanalyzed:true, added_at:entry.added_at, file_name:entry.file_name, tier:entry.tier, ad_type:entry.ad_type, auto_frames:entry.auto_frames};
+      // Deploy P: when entry has reanalyzed:true (producer reviewed it via ValidationCard), preserve
+      // producer-touched fields. Producer's intent supersedes any new Gemini analysis. Only re-analyze
+      // wipes producer corrections if reanalyzed flag is false (i.e. card was never producer-reviewed).
+      const preservedFields: any = entry.reanalyzed === true ? {
+        unit_evolution_chain: entry.unit_evolution_chain,
+        giant_kills: entry.giant_kills,
+        gate_sequence: entry.gate_sequence,
+        loss_event_type: entry.loss_event_type,
+        loss_event_timing_seconds: entry.loss_event_timing_seconds,
+        is_compound: entry.is_compound,
+      } : {};
+      return {...entry, ...dna, ...preservedFields, id:entry.id, reanalyzed:true, added_at:entry.added_at, file_name:entry.file_name, tier:entry.tier, ad_type:entry.ad_type, auto_frames:entry.auto_frames};
     } else {
       // Fallback: text-only re-analysis if no frame images stored
       const stripped = { ...entry, auto_frames: entry.auto_frames?.map(f => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance })) };
       const corrected = sanitizeDNA(await callGeminiDirect(reanalysisSystem(stripped),[{text:`Re-analyze: ${entry.title}`}]));
-      return {...entry,...corrected, id:entry.id, reanalyzed:true, added_at:entry.added_at, file_name:entry.file_name, tier:entry.tier, ad_type:entry.ad_type, auto_frames:entry.auto_frames};
+      // Deploy P: same producer-preservation logic for text-only fallback path.
+      const preservedFieldsText: any = entry.reanalyzed === true ? {
+        unit_evolution_chain: entry.unit_evolution_chain,
+        giant_kills: entry.giant_kills,
+        gate_sequence: entry.gate_sequence,
+        loss_event_type: entry.loss_event_type,
+        loss_event_timing_seconds: entry.loss_event_timing_seconds,
+        is_compound: entry.is_compound,
+      } : {};
+      return {...entry, ...corrected, ...preservedFieldsText, id:entry.id, reanalyzed:true, added_at:entry.added_at, file_name:entry.file_name, tier:entry.tier, ad_type:entry.ad_type, auto_frames:entry.auto_frames};
     }
   };
   const handleReanalyzeSingle=async(entry: DNAEntry)=>{
@@ -2282,33 +2302,79 @@ For each description above:
   const [syncingThumbs, setSyncingThumbs] = React.useState(false);
   const [syncProgress, setSyncProgress] = React.useState("");
   const handleSyncThumbnails = async () => {
-    const candidates = lib.filter(e => !e.cloud_thumbnail && e.auto_frames?.some(f => f.image_data));
+    // Deploy P: fetches per-entry blobs from cloud sequentially (no parallel state-mutation risk).
+    // For each entry without cloud_thumbnail: fetch full entry → take first frame with image_data →
+    // generate 150px JPEG → save back via saveLib (which writes per-entry blob + updates index).
+    // Works regardless of which browser, no IDB dependency.
+    const candidates = lib.filter(e => !e.cloud_thumbnail);
     if (candidates.length === 0) {
-      const alreadyHave = lib.filter(e => e.cloud_thumbnail).length;
-      const noFrames = lib.filter(e => !e.auto_frames?.some(f => f.image_data)).length;
-      alert(`Nothing to sync.\n\n• ${alreadyHave} entries already have cloud thumbnails.\n• ${noFrames} entries have no frames in this browser to generate from (re-upload needed).`);
+      alert("All entries already have cloud thumbnails. Nothing to sync.");
       return;
     }
-    if (!confirm(`Generate cloud thumbnails for ${candidates.length} entries? This is safe — only adds thumbnails, no other changes.`)) return;
+    if (!confirm(`Generate cloud thumbnails for ${candidates.length} entries? This fetches each entry's frames from cloud and creates a 150px thumbnail. Safe — adds thumbnails only, no other changes. Estimated time: ~${Math.ceil(candidates.length * 1.5)}s.`)) return;
     setSyncingThumbs(true);
     let updated = [...lib];
     let success = 0;
+    let skipped = 0;
+    let failed = 0;
     for (let i = 0; i < candidates.length; i++) {
       const entry = candidates[i];
-      setSyncProgress(`Syncing ${i+1}/${candidates.length}…`);
+      setSyncProgress(`Syncing ${i+1}/${candidates.length}: ${entry.creative_id || entry.title?.slice(0,30) || entry.id}…`);
       try {
-        const firstFrame = entry.auto_frames?.find(f => f.image_data);
-        if (firstFrame?.image_data) {
-          const thumb = await generateCloudThumbnail(firstFrame.image_data);
-          updated = updated.map(x => x.id === entry.id ? { ...x, cloud_thumbnail: thumb } : x);
-          success++;
+        // Fetch full per-entry blob from cloud (has auto_frames with image_data)
+        const fullResp = await fetch(`/api/load-entry?id=${entry.id}`);
+        if (!fullResp.ok) throw new Error(`load-entry HTTP ${fullResp.status}`);
+        const full = await fullResp.json();
+        const firstFrame = full.auto_frames?.find((f: any) => f.image_data);
+        if (!firstFrame?.image_data) {
+          skipped++;
+          console.warn(`[Levelly P] No frame image_data in cloud for ${entry.creative_id || entry.id}, skipping`);
+          continue;
         }
-      } catch (err) { console.warn(`Thumbnail gen failed for ${entry.title}:`, err); }
+        const thumb = await generateCloudThumbnail(firstFrame.image_data);
+        // Save thumbnail back via single-entry update (avoids whole-lib saveLib which has race risk).
+        const updatedEntry = { ...full, cloud_thumbnail: thumb };
+        const saveResp = await fetch("/api/save-entry", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ entry: updatedEntry }),
+        });
+        if (!saveResp.ok) throw new Error(`save-entry HTTP ${saveResp.status}`);
+        // Reflect in local lib state (so user sees thumbnail immediately without refresh)
+        updated = updated.map(x => x.id === entry.id ? { ...x, cloud_thumbnail: thumb } : x);
+        success++;
+      } catch (err: any) {
+        failed++;
+        console.warn(`[Levelly P] Thumbnail backfill failed for ${entry.creative_id || entry.id}:`, err?.message || err);
+      }
     }
-    saveLib(updated);
+    // Update local React state directly — DO NOT call saveLib (would trigger 41-entry diff write).
+    setLib(updated);
+    libPrevRef.current = updated;
+    // Also update localStorage (just metadata, no frames, tiny payload).
+    try {
+      const withoutFrames = updated.map(e => ({
+        ...e,
+        auto_frames: e.auto_frames?.map((f: FrameExtraction) => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance })),
+      }));
+      localStorage.setItem("levelly_dna_library", JSON.stringify(withoutFrames));
+    } catch {}
     setSyncingThumbs(false);
     setSyncProgress("");
-    alert(`✓ Synced ${success}/${candidates.length} thumbnails. They are now visible to other browsers after the next page reload.`);
+    alert(`✓ Thumbnail sync complete.\n\n• Generated: ${success}\n• Skipped (no source frames): ${skipped}\n• Failed: ${failed}\n\nRefresh the page to see all thumbnails update.`);
+  };
+  // Deploy P: one-time admin button — calls /api/repair-index to rebuild the index from per-entry blobs.
+  // Picks up new summary fields (spend_networks, spend_window_days) for all existing entries.
+  const handleRepairIndex = async () => {
+    if (!confirm("Rebuild library index? This is safe — no entry data is touched. It rebuilds the summary index from per-entry blobs so aggregate counters (NETWORKS, TOP VELOCITY) read correct values.")) return;
+    try {
+      const resp = await fetch("/api/repair-index", { method: "POST" });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+      alert(`✓ Index rebuilt.\n\n• Total entries: ${data.total}\n• Repaired: ${data.repaired}\n• Missing per-entry blobs: ${data.missing_blobs}\n\nReload the page (Cmd+Shift+R) to see updated counters.`);
+    } catch (err: any) {
+      alert(`Repair failed: ${err.message}`);
+    }
   };
 
   // Deploy H.1: when file was pre-attached via drag-drop, skip file picker and feed directly to handleUpload.
@@ -3377,6 +3443,26 @@ ${netAdapt ? section("Network adaptations", netAdapt) : ""}
               </div>
               <div style={{ display:"flex",gap:6,padding:"8px 16px",borderBottom:`0.5px solid ${D.border}`,flexWrap:"wrap" as const }}>
                 {/* Deploy H: removed Sync thumbnails (redundant post-G.3 — cloud_thumbnail auto-generated on save). Removed Clear button (landmine — use Export + manual deletion if needed). */}
+                {/* Deploy P: re-added Sync Thumbnails — H's removal was wrong (cloud_thumbnail is NOT auto-generated for pre-Deploy-E entries; backfill needs explicit action). New flow fetches per-entry blobs from cloud, no IDB dependency. */}
+                {lib.length > 0 && (
+                  <button
+                    style={{ ...btnSec, fontSize: 11 }}
+                    onClick={e => { e.stopPropagation(); handleSyncThumbnails(); }}
+                    disabled={syncingThumbs || analyzing || reanalyzingAll}
+                  >
+                    {syncingThumbs ? (syncProgress || "Syncing…") : "🖼 Sync thumbnails"}
+                  </button>
+                )}
+                {lib.length > 0 && (
+                  <button
+                    style={{ ...btnSec, fontSize: 11 }}
+                    onClick={e => { e.stopPropagation(); handleRepairIndex(); }}
+                    disabled={syncingThumbs || analyzing || reanalyzingAll}
+                    title="Rebuild library index from per-entry blobs. Run after Deploy P to populate spend_networks + spend_window_days fields in index. Safe — no entry data touched."
+                  >
+                    🔧 Repair index
+                  </button>
+                )}
                 {/* Deploy K: market intelligence indicator — replaces Deploy J's "not yet used" warning. */}
                 {(() => {
                   const compCount = lib.filter(d=>d.ad_type==="competitor").length;
