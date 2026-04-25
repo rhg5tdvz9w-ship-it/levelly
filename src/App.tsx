@@ -345,7 +345,8 @@ function BulkUploadModal({ files, onClose, onProcessOne }: {
     <div onClick={e=>e.stopPropagation()} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:24 }}>
       <div onClick={e=>e.stopPropagation()} style={{ background:D.surface,border:`0.5px solid ${D.border}`,borderRadius:14,padding:22,width:560,maxWidth:"95vw",maxHeight:"86vh",overflow:"auto" }}>
         <h3 style={{ margin:"0 0 6px",fontSize:16,fontWeight:600,color:D.text }}>Bulk competitor upload</h3>
-        <p style={{ margin:"0 0 14px",fontSize:12,color:D.textMuted }}>{items.length} files queued. All will be uploaded as competitors and analyzed in parallel (3 at a time).</p>
+        <p style={{ margin:"0 0 6px",fontSize:12,color:D.textMuted }}>{items.length} files queued. Processed sequentially — one at a time, ~30-60s per file.</p>
+        <p style={{ margin:"0 0 14px",fontSize:11,color:D.gold,fontStyle:"italic" as const }}>⚠ Don't click cards or refresh during the run — could cause partial saves.</p>
         <div style={{ display:"flex",flexDirection:"column",gap:4,marginBottom:14 }}>
           <label style={{ fontSize:11,color:D.textMuted,fontWeight:500 }}>Game title (applies to all)</label>
           <input
@@ -1097,8 +1098,8 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
           {d.ad_type === "competitor" && (d as any).game_title && <span style={pill(D.blueBg, D.blue, D.blueDark)}>🎮 {(d as any).game_title}</span>}
           {d.ad_type === "competitor" && d.core_fantasy && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)}>{d.core_fantasy}</span>}
           {d.is_compound && <span style={pill(D.goldBg, D.gold, D.goldBdr)}>compound</span>}
-          {/* Deploy I: gate escalation badge — shows when analyze detected an ascending xN sequence in the video. */}
-          {d.gate_escalation && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)} title={`Gate escalation detected: ${d.gate_escalation}`}>⚡ {d.gate_escalation.replace(/\s*\(.*?\).*$/, "")}</span>}
+          {/* Deploy I: gate upgrade badge — shows when analyze detected an ascending xN sequence in the video. (Renamed P.1: data field stays gate_escalation.) */}
+          {d.gate_escalation && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)} title={`Gate upgrade detected: ${d.gate_escalation}`}>⚡ Gate upgrade: {d.gate_escalation.replace(/\s*\(.*?\).*$/, "")}</span>}
           {d.levelly_brief_title && <span style={pill(D.blueBg, D.blue, D.blueDark)} title={`Levelly brief: ${d.levelly_brief_title}`}>⎇ Levelly</span>}
           {d.reanalyzed && <span style={pill(D.greenBg, D.green, D.greenBdr)}>re-analyzed</span>}
         </div>
@@ -1397,6 +1398,11 @@ ${d.creative_gaps?`<div style="margin-bottom:12px"><div style="font-size:9px;col
             </div>
           ))}
 
+          {/* Deploy P.1: game title editor — always shown for competitors (not gated on intel fields).
+              Lets producer add or edit game_title for previously-analyzed entries. */}
+          {d.ad_type === "competitor" && (
+            <GameTitleEditor entry={d} lib={lib} saveLib={saveLib} />
+          )}
           {d.ad_type === "competitor" && (d.core_fantasy || d.moc_inspiration || (d.transferable_elements && d.transferable_elements.length > 0)) && (
             <div style={{ marginTop: 10, padding: "10px 12px", borderLeft: "2px solid " + D.purple, background: D.purpleBg + "40", borderRadius: 6 }}>
               <div style={{ fontSize: 10, color: D.purple, textTransform: "uppercase", letterSpacing: ".08em", fontWeight: 600, marginBottom: 8 }}>Competitor Intelligence</div>
@@ -1445,6 +1451,76 @@ ${d.creative_gaps?`<div style="margin-bottom:12px"><div style="font-size:9px;col
 
 
 // ─── ValidationCard ──────────────────────────────────────────────────────────
+// Deploy P.1: inline editor for competitor game_title. Lets user add/change game name on
+// previously-analyzed entries (game_title was only settable via upload-context prefix in Deploy N).
+function GameTitleEditor({ entry: d, lib, saveLib }: { entry: DNAEntry; lib: DNAEntry[]; saveLib: (updated: DNAEntry[]) => void }) {
+  const [gameTitle, setGameTitle] = React.useState<string>(((d as any).game_title || "").toString());
+  const [editing, setEditing] = React.useState<boolean>(false);
+  const [saving, setSaving] = React.useState<boolean>(false);
+  // Re-sync when prop changes (e.g. lazy-load finishes)
+  React.useEffect(() => {
+    setGameTitle(((d as any).game_title || "").toString());
+  }, [d.id, (d as any).game_title]);
+  const save = async () => {
+    setSaving(true);
+    try {
+      const trimmed = gameTitle.trim();
+      const updated = lib.map(x => x.id === d.id ? { ...x, game_title: trimmed || undefined } as DNAEntry : x);
+      saveLib(updated);
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const current = ((d as any).game_title || "").toString();
+  return (
+    <div style={{ marginTop: 10, padding: "8px 12px", borderLeft: "2px solid " + D.blue, background: D.blueBg + "40", borderRadius: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 10, color: D.blue, textTransform: "uppercase" as const, letterSpacing: ".08em", fontWeight: 600, minWidth: 80 }}>🎮 Game</span>
+        {!editing ? (
+          <>
+            <span style={{ fontSize: 12, color: current ? D.text : D.textDim, fontStyle: current ? "normal" : "italic", flex: 1 }}>
+              {current || "(not set — click edit to add)"}
+            </span>
+            <button
+              onClick={() => setEditing(true)}
+              style={{ fontSize: 10, padding: "3px 9px", borderRadius: 5, background: "transparent", color: D.blue, border: `0.5px dashed ${D.blue}`, cursor: "pointer", fontFamily: "inherit" }}
+            >
+              {current ? "Edit" : "+ Add"}
+            </button>
+          </>
+        ) : (
+          <>
+            <input
+              type="text"
+              autoFocus
+              value={gameTitle}
+              disabled={saving}
+              onChange={e => setGameTitle(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") save(); else if (e.key === "Escape") { setGameTitle(current); setEditing(false); } }}
+              placeholder="e.g. Last War, Whiteout Survival"
+              style={{ flex: 1, fontSize: 12, padding: "4px 8px", borderRadius: 5, background: D.surface2, border: `0.5px solid ${D.border2}`, color: D.text, fontFamily: "inherit", outline: "none" }}
+            />
+            <button
+              onClick={save}
+              disabled={saving}
+              style={{ fontSize: 10, padding: "3px 9px", borderRadius: 5, background: D.blue, color: "#fff", border: `0.5px solid ${D.blueDark}`, cursor: saving ? "wait" : "pointer", fontFamily: "inherit", fontWeight: 600 }}
+            >
+              {saving ? "…" : "Save"}
+            </button>
+            <button
+              onClick={() => { setGameTitle(current); setEditing(false); }}
+              disabled={saving}
+              style={{ fontSize: 10, padding: "3px 7px", borderRadius: 5, background: "transparent", color: D.textMuted, border: `0.5px solid ${D.border2}`, cursor: "pointer", fontFamily: "inherit" }}
+            >
+              Cancel
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 // Post-analysis producer review panel. Direct-override mode — no Gemini re-run.
 // Principle: producer always wins when they disagree with Gemini/Claude.
 function ValidationCard({ entry: d, lib, saveLib }: { entry: DNAEntry; lib: DNAEntry[]; saveLib: (updated: DNAEntry[]) => void }) {
@@ -1465,6 +1541,19 @@ function ValidationCard({ entry: d, lib, saveLib }: { entry: DNAEntry; lib: DNAE
   const [lossTiming, setLossTiming] = React.useState<string>(d.loss_event_timing_seconds != null ? String(d.loss_event_timing_seconds) : "");
   const [compound, setCompound] = React.useState<boolean>(!!d.is_compound);
   const [applying, setApplying] = React.useState(false);
+
+  // Deploy P.1: re-sync local state when the entry prop changes (e.g. lazy-load finishes mid-modal).
+  // Without this, ValidationCard's local state stays stale and shows empty form on first card-open.
+  // Re-init on entry id change OR when key fields appear (post-hydration).
+  React.useEffect(() => {
+    setChain(d.unit_evolution_chain ?? []);
+    setKillCount((d.giant_kills ?? []).length);
+    setDestructions(parseDestructions(d.gate_sequence ?? []));
+    setLossType(d.loss_event_type ?? "None");
+    setLossTiming(d.loss_event_timing_seconds != null ? String(d.loss_event_timing_seconds) : "");
+    setCompound(!!d.is_compound);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [d.id, JSON.stringify(d.unit_evolution_chain), JSON.stringify(d.giant_kills), d.loss_event_type]);
 
   const originalDestructions = parseDestructions(d.gate_sequence ?? []);
   const isDirty =
@@ -2096,10 +2185,13 @@ function AppInner() {
       // Deploy P: when entry has reanalyzed:true (producer reviewed it via ValidationCard), preserve
       // producer-touched fields. Producer's intent supersedes any new Gemini analysis. Only re-analyze
       // wipes producer corrections if reanalyzed flag is false (i.e. card was never producer-reviewed).
+      // Deploy P.1: gate_escalation added to preserved list — re-analyze should not re-add this field if
+      // producer already corrected gate_sequence (which is the source of the chip).
       const preservedFields: any = entry.reanalyzed === true ? {
         unit_evolution_chain: entry.unit_evolution_chain,
         giant_kills: entry.giant_kills,
         gate_sequence: entry.gate_sequence,
+        gate_escalation: entry.gate_escalation,
         loss_event_type: entry.loss_event_type,
         loss_event_timing_seconds: entry.loss_event_timing_seconds,
         is_compound: entry.is_compound,
@@ -2110,10 +2202,12 @@ function AppInner() {
       const stripped = { ...entry, auto_frames: entry.auto_frames?.map(f => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance })) };
       const corrected = sanitizeDNA(await callGeminiDirect(reanalysisSystem(stripped),[{text:`Re-analyze: ${entry.title}`}]));
       // Deploy P: same producer-preservation logic for text-only fallback path.
+      // Deploy P.1: gate_escalation added.
       const preservedFieldsText: any = entry.reanalyzed === true ? {
         unit_evolution_chain: entry.unit_evolution_chain,
         giant_kills: entry.giant_kills,
         gate_sequence: entry.gate_sequence,
+        gate_escalation: entry.gate_escalation,
         loss_event_type: entry.loss_event_type,
         loss_event_timing_seconds: entry.loss_event_timing_seconds,
         is_compound: entry.is_compound,
