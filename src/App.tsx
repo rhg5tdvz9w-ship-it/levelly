@@ -1540,11 +1540,15 @@ function ValidationCard({ entry: d, lib, saveLib }: { entry: DNAEntry; lib: DNAE
   const [lossType, setLossType] = React.useState<string>(d.loss_event_type ?? "None");
   const [lossTiming, setLossTiming] = React.useState<string>(d.loss_event_timing_seconds != null ? String(d.loss_event_timing_seconds) : "");
   const [compound, setCompound] = React.useState<boolean>(!!d.is_compound);
+  // Deploy Q: producer override for gate upgrade. checkbox toggles field on/off; text input sets the value.
+  const [hasGateUpgrade, setHasGateUpgrade] = React.useState<boolean>(!!d.gate_escalation);
+  const [gateUpgrade, setGateUpgrade] = React.useState<string>(d.gate_escalation || "");
   const [applying, setApplying] = React.useState(false);
 
   // Deploy P.1: re-sync local state when the entry prop changes (e.g. lazy-load finishes mid-modal).
   // Without this, ValidationCard's local state stays stale and shows empty form on first card-open.
   // Re-init on entry id change OR when key fields appear (post-hydration).
+  // Deploy Q: include gate_escalation in re-sync.
   React.useEffect(() => {
     setChain(d.unit_evolution_chain ?? []);
     setKillCount((d.giant_kills ?? []).length);
@@ -1552,8 +1556,10 @@ function ValidationCard({ entry: d, lib, saveLib }: { entry: DNAEntry; lib: DNAE
     setLossType(d.loss_event_type ?? "None");
     setLossTiming(d.loss_event_timing_seconds != null ? String(d.loss_event_timing_seconds) : "");
     setCompound(!!d.is_compound);
+    setHasGateUpgrade(!!d.gate_escalation);
+    setGateUpgrade(d.gate_escalation || "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [d.id, JSON.stringify(d.unit_evolution_chain), JSON.stringify(d.giant_kills), d.loss_event_type]);
+  }, [d.id, JSON.stringify(d.unit_evolution_chain), JSON.stringify(d.giant_kills), d.loss_event_type, d.gate_escalation]);
 
   const originalDestructions = parseDestructions(d.gate_sequence ?? []);
   const isDirty =
@@ -1562,7 +1568,10 @@ function ValidationCard({ entry: d, lib, saveLib }: { entry: DNAEntry; lib: DNAE
     JSON.stringify(destructions) !== JSON.stringify(originalDestructions) ||
     lossType !== (d.loss_event_type ?? "None") ||
     lossTiming !== (d.loss_event_timing_seconds != null ? String(d.loss_event_timing_seconds) : "") ||
-    compound !== !!d.is_compound;
+    compound !== !!d.is_compound ||
+    // Deploy Q: gate upgrade dirty checks
+    hasGateUpgrade !== !!d.gate_escalation ||
+    (hasGateUpgrade && gateUpgrade.trim() !== (d.gate_escalation || ""));
 
   const apply = async () => {
     setApplying(true);
@@ -1584,6 +1593,8 @@ function ValidationCard({ entry: d, lib, saveLib }: { entry: DNAEntry; lib: DNAE
         return ta - tb;
       });
 
+      // Deploy Q: gate_escalation override — null when checkbox unchecked, trimmed string when checked.
+      const newGateEscalation: string | null = hasGateUpgrade && gateUpgrade.trim().length > 0 ? gateUpgrade.trim() : null;
       const corrected: DNAEntry = {
         ...d,
         unit_evolution_chain: chain.filter(c => c.trim().length > 0),
@@ -1592,6 +1603,7 @@ function ValidationCard({ entry: d, lib, saveLib }: { entry: DNAEntry; lib: DNAE
         loss_event_type: lossType,
         loss_event_timing_seconds: lossTiming.trim() === "" ? null : Number(lossTiming),
         is_compound: compound,
+        gate_escalation: newGateEscalation,
         reanalyzed: true,
       };
 
@@ -1670,6 +1682,26 @@ function ValidationCard({ entry: d, lib, saveLib }: { entry: DNAEntry; lib: DNAE
           <span style={{ fontSize: 10, color: D.textDim }}>at</span>
           <input type="number" min="0" value={lossTiming} onChange={e => setLossTiming(e.target.value)} placeholder="—" style={{ ...inputStyle, width: 50 }} disabled={lossType === "None"} />
           <span style={{ fontSize: 10, color: D.textDim }}>s</span>
+        </div>
+      </div>
+
+      {/* Deploy Q: 4b. gate upgrade override */}
+      <div style={rowStyle}>
+        <div style={fieldLabel}>Gate upgrade</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" as const }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 11, color: D.text }}>
+            <input type="checkbox" checked={hasGateUpgrade} onChange={e => setHasGateUpgrade(e.target.checked)} style={{ cursor: "pointer" }} />
+            <span>Has xN gate upgrade sequence</span>
+          </label>
+          {hasGateUpgrade && (
+            <input
+              type="text"
+              value={gateUpgrade}
+              onChange={e => setGateUpgrade(e.target.value)}
+              placeholder="e.g. x2 → x6 → x60"
+              style={{ ...inputStyle, fontSize: 11, minWidth: 200 }}
+            />
+          )}
         </div>
       </div>
 
@@ -2112,6 +2144,10 @@ function AppInner() {
   //   Per-entry blobs include FULL frames (image_data) for cache-clear survivability.
   // libPrevRef tracks the previous state so we can compute the diff on each save.
   const libPrevRef = React.useRef<DNAEntry[]>([]);
+  // Deploy Q: libRef tracks CURRENT lib state, updated on every lib change (not just length changes).
+  // Used by handleUpload to read latest lib at call time instead of via closure capture.
+  // Critical for safety when handleUpload is called concurrently or when other state mutations interleave.
+  const libRef = React.useRef<DNAEntry[]>([]);
   const saveLib = useCallback((updated: DNAEntry[])=>{
     const prev = libPrevRef.current;
     setLib(updated);
@@ -2159,6 +2195,67 @@ function AppInner() {
 
   // Keep libPrevRef in sync on initial load (otherwise first save treats everything as new)
   React.useEffect(() => { libPrevRef.current = lib; }, [lib.length === 0 ? 0 : 1]);
+  // Deploy Q: keep libRef in sync on EVERY lib change. Used by handleUpload + appendEntryToCloud
+  // for stable, fresh state access without closure capture.
+  React.useEffect(() => { libRef.current = lib; }, [lib]);
+
+  // Deploy Q: appendEntryToCloud writes a single entry directly to /api/save-entry. Bypasses saveLib's
+  // diff math entirely — no risk of treating a parallel-added entry as "deleted" because libPrevRef was stale.
+  // Per-entry POST is the atomic cloud unit. localStorage and lib state get updated separately via saveLibAppend.
+  const appendEntryToCloud = React.useCallback(async (entry: DNAEntry) => {
+    try {
+      const resp = await fetch("/api/save-entry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entry }),
+      });
+      if (!resp.ok) throw new Error(`save-entry HTTP ${resp.status}`);
+      setCloudStatus("saved");
+      setTimeout(() => setCloudStatus("idle"), 2000);
+    } catch (err) {
+      console.warn("[Levelly Q] appendEntryToCloud failed:", err);
+      setCloudStatus("error");
+      setTimeout(() => setCloudStatus("idle"), 3000);
+      throw err;
+    }
+  }, []);
+
+  // Deploy Q: saveLibAppend uses functional setLib(prev => ...) so it ALWAYS reads the latest state,
+  // even when called from a stale closure (e.g. parallel handleUpload calls or interleaved state changes).
+  // Three-step write:
+  //   1) Functional setLib appends entry — guaranteed correct concurrent-safe state update
+  //   2) libPrevRef + libRef updated immediately so subsequent diff/saves see correct previous state
+  //   3) appendEntryToCloud POSTs the new entry directly (no diff)
+  // localStorage write happens inside the setLib callback so it sees the same prev as the state update.
+  const saveLibAppend = React.useCallback(async (newEntry: DNAEntry) => {
+    let nextLib: DNAEntry[] = [];
+    setLib(prev => {
+      nextLib = [...prev, newEntry];
+      libPrevRef.current = nextLib;
+      libRef.current = nextLib;
+      // Update localStorage with stripped frames (same convention as saveLib)
+      try {
+        const withoutFrames = nextLib.map(e => ({
+          ...e,
+          auto_frames: e.auto_frames?.map((f: FrameExtraction) => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance })),
+        }));
+        localStorage.setItem("levelly_dna_library", JSON.stringify(withoutFrames));
+      } catch {}
+      return nextLib;
+    });
+    // Cache new entry's frames in IDB (same convention as saveLib)
+    saveFramesToIDB([newEntry]);
+    // Cloud write — direct POST, atomic, no diff
+    if (libraryLoaded) {
+      setCloudStatus("saving");
+      try {
+        await appendEntryToCloud(newEntry);
+      } catch {
+        // appendEntryToCloud already logged + set error status. Don't rethrow — local state is correct,
+        // user can retry via re-upload if cloud failed.
+      }
+    }
+  }, [libraryLoaded, appendEntryToCloud]);
 
   const exportLibrary=()=>{ const blob=new Blob([JSON.stringify(lib,null,2)],{type:"application/json"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`levelly-dna-${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url); };
   const importLibrary=(e: React.ChangeEvent<HTMLInputElement>)=>{ const file=e.target.files?.[0]; if(!file) return; const reader=new FileReader(); reader.onload=()=>{ try { const p=JSON.parse(reader.result as string); if(!Array.isArray(p)) throw new Error(); const m=[...lib]; p.forEach((entry: DNAEntry)=>{ if(!m.find(x=>x.id===entry.id)) m.push(sanitizeDNA(entry) as DNAEntry); }); saveLib(m); } catch { alert("Import failed."); } }; reader.readAsText(file); e.target.value=""; };
@@ -2543,7 +2640,8 @@ For each description above:
         const frameParts = Array.isArray(extractedFrameParts)&&extractedFrameParts.length > 0
           ? [{text:"### EXTRACTED FRAMES — key moments at exact timestamps:"},...extractedFrameParts]
           : [];
-        const rawDna=await callGeminiDirect(analyzeSystem(lib,cfg,autoFrames,duration,frameParts.length>0,hasRefsAvailable),[...frameParts,...(manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"INSTRUCTION: Analyze only the extracted frame images above. DO NOT infer events between frames. Base every finding on visible frame evidence only."}]);
+        // Deploy Q: read latest lib from libRef.current (not closure-captured lib). Stable closure.
+        const rawDna=await callGeminiDirect(analyzeSystem(libRef.current,cfg,autoFrames,duration,frameParts.length>0,hasRefsAvailable),[...frameParts,...(manualParts.length>0?[{text:"### MANUAL FRAMES:"},...manualParts]:[]),{text:`HOOK DATA:${JSON.stringify(hookData)}`},{text:"INSTRUCTION: Analyze only the extracted frame images above. DO NOT infer events between frames. Base every finding on visible frame evidence only."}]);
         setAnalyzeStep("validating");
         const consistentDna = await enforceConsistency(rawDna, frameParts, cfg.context);
         const dna=sanitizeDNA(consistentDna);
@@ -2571,14 +2669,17 @@ For each description above:
             cloudThumbnail = await generateCloudThumbnail(firstFrameWithData.image_data);
           }
         } catch (err) { console.warn("Could not generate cloud thumbnail (non-fatal):", err); }
-        saveLib([...lib,{...dna,id:newId,tier:cfg.tier,ad_type:cfg.ad_type,upload_context:cfg.context,file_name:file.name,added_at:new Date().toISOString(),creative_id:cfg.creative_id,parent_id:cfg.parent_id,levelly_brief_title:cfg.levelly_brief_title,auto_frames:autoFramesWithImages,manual_frames:cfg.manual_frames.map(f=>f.name),cloud_thumbnail:cloudThumbnail}]);
+        // Deploy Q: replaced saveLib([...lib,...]) with saveLibAppend(newEntry).
+        // Atomic single-entry append — no closure-captured lib, no diff math, no race risk under concurrency.
+        const newEntry: DNAEntry = {...dna,id:newId,tier:cfg.tier,ad_type:cfg.ad_type,upload_context:cfg.context,file_name:file.name,added_at:new Date().toISOString(),creative_id:cfg.creative_id,parent_id:cfg.parent_id,levelly_brief_title:cfg.levelly_brief_title,auto_frames:autoFramesWithImages,manual_frames:cfg.manual_frames.map(f=>f.name),cloud_thumbnail:cloudThumbnail};
+        await saveLibAppend(newEntry);
         uploadCompletedRef.current = true;
         setLastAnalyzedId(newId);
         setAnalyzeStep("");
       }
     } catch(err: any){ setAnalyzeErr(err.message); }
     finally { setAnalyzing(false); setUploadConfig(null); if(fileRef.current) fileRef.current.value=""; }
-  },[lib,uploadConfig]);
+  },[uploadConfig, saveLibAppend]); // Deploy Q: removed lib from deps — read via libRef.current. Stable callback identity.
 
   const analyzeCompetitorForBrief = async (ref: { base64: string; mimeType: string; name: string }): Promise<DNAEntry | null> => {
     try {
