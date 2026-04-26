@@ -346,7 +346,7 @@ function BulkUploadModal({ files, onClose, onProcessOne }: {
       <div onClick={e=>e.stopPropagation()} style={{ background:D.surface,border:`0.5px solid ${D.border}`,borderRadius:14,padding:22,width:560,maxWidth:"95vw",maxHeight:"86vh",overflow:"auto" }}>
         <h3 style={{ margin:"0 0 6px",fontSize:16,fontWeight:600,color:D.text }}>Bulk competitor upload</h3>
         <p style={{ margin:"0 0 6px",fontSize:12,color:D.textMuted }}>{items.length} files queued. Processed sequentially — one at a time, ~30-60s per file.</p>
-        <p style={{ margin:"0 0 14px",fontSize:11,color:D.gold,fontStyle:"italic" as const }}>⚠ Don't click cards or refresh during the run — could cause partial saves.</p>
+        <p style={{ margin:"0 0 14px",fontSize:11,color:D.gold,fontStyle:"italic" as const }}>⚠ Keep this tab focused during the run. Switching tabs can throttle video processing and cause filmstrips to be missing.</p>
         <div style={{ display:"flex",flexDirection:"column",gap:4,marginBottom:14 }}>
           <label style={{ fontSize:11,color:D.textMuted,fontWeight:500 }}>Game title (applies to all)</label>
           <input
@@ -1097,7 +1097,23 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
           {/* Deploy N: show game_title pill for competitors when available */}
           {d.ad_type === "competitor" && (d as any).game_title && <span style={pill(D.blueBg, D.blue, D.blueDark)}>🎮 {(d as any).game_title}</span>}
           {d.ad_type === "competitor" && d.core_fantasy && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)}>{d.core_fantasy}</span>}
-          {d.is_compound && <span style={pill(D.goldBg, D.gold, D.goldBdr)}>compound</span>}
+          {/* Deploy S: also clickable in the expanded pill row for competitors. */}
+          {d.is_compound && d.ad_type === "competitor" ? (
+            <span
+              onClick={e => {
+                e.stopPropagation();
+                if (confirm("Mark this competitor ad as NOT compound? This clears the flag.")) {
+                  saveLib(lib.map(x => x.id === d.id ? { ...x, is_compound: false } : x));
+                }
+              }}
+              title="Click to clear compound flag"
+              style={{ ...pill(D.goldBg, D.gold, D.goldBdr), cursor: "pointer" }}
+            >
+              compound ✕
+            </span>
+          ) : d.is_compound ? (
+            <span style={pill(D.goldBg, D.gold, D.goldBdr)}>compound</span>
+          ) : null}
           {/* Deploy I: gate upgrade badge — shows when analyze detected an ascending xN sequence in the video. (Renamed P.1: data field stays gate_escalation.) */}
           {d.gate_escalation && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)} title={`Gate upgrade detected: ${d.gate_escalation}`}>⚡ Gate upgrade: {d.gate_escalation.replace(/\s*\(.*?\).*$/, "")}</span>}
           {d.levelly_brief_title && <span style={pill(D.blueBg, D.blue, D.blueDark)} title={`Levelly brief: ${d.levelly_brief_title}`}>⎇ Levelly</span>}

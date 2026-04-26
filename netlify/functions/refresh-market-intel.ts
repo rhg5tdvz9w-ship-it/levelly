@@ -111,14 +111,41 @@ export const handler: Handler = async (event) => {
       console.log(`[refresh-market-intel] Capping synthesis input at ${SYNTHESIS_INPUT_CAP} most recent competitors (library has ${allCompetitors.length}).`);
     }
 
-    // Compute code-side derived fields
-    const titles = Array.from(new Set(competitors.map(c => c.title).filter(Boolean)));
+    // Deploy S: reads per-entry blobs to get FULL data for synthesis. Index summary alone is missing
+    // moc_inspiration, transferable_elements, hook_type, key_mechanic, gate_escalation,
+    // unit_evolution_chain, why_it_works, hook_timing_seconds — the high-signal synthesis inputs.
+    // Without this fetch, Gemini got null-padded objects and synthesis was thin regardless of library size.
+    const fullCompetitors: any[] = [];
+    let blobMissCount = 0;
+    for (const summary of competitors) {
+      try {
+        const raw = await libStore.get(`entry-${summary.id}`);
+        if (raw) {
+          const full = JSON.parse(raw);
+          // Merge: full blob takes precedence, summary fills any holes (game_title etc).
+          fullCompetitors.push({ ...summary, ...full });
+        } else {
+          fullCompetitors.push(summary);
+          blobMissCount++;
+        }
+      } catch (err) {
+        console.warn(`[Deploy S] Failed to load entry-${summary.id}:`, err);
+        fullCompetitors.push(summary);
+        blobMissCount++;
+      }
+    }
+    if (blobMissCount > 0) {
+      console.log(`[Deploy S] ${blobMissCount} of ${competitors.length} competitors had missing/unreadable per-entry blobs (using index summary as fallback).`);
+    }
+
+    // Compute code-side derived fields — now operating on full data
+    const titles = Array.from(new Set(fullCompetitors.map(c => c.title).filter(Boolean)));
     const titleCounts: Record<string, number> = {};
-    competitors.forEach(c => { if (c.title) titleCounts[c.title] = (titleCounts[c.title] || 0) + 1; });
+    fullCompetitors.forEach(c => { if (c.title) titleCounts[c.title] = (titleCounts[c.title] || 0) + 1; });
     let dominanceWarning: string | null = null;
-    if (competitors.length >= 5) {
+    if (fullCompetitors.length >= 5) {
       const maxCount = Math.max(0, ...Object.values(titleCounts));
-      const maxPct = maxCount / competitors.length;
+      const maxPct = maxCount / fullCompetitors.length;
       if (maxPct > 0.7) {
         const dominantTitle = Object.entries(titleCounts).find(([_, n]) => n === maxCount)?.[0] || "(unknown)";
         dominanceWarning = `${Math.round(maxPct * 100)}% of competitor entries are from "${dominantTitle}"`;
@@ -127,11 +154,12 @@ export const handler: Handler = async (event) => {
 
     // If no competitors at all, write empty digest
     let digest: any;
-    if (competitors.length === 0) {
+    if (fullCompetitors.length === 0) {
       digest = { top_hook_patterns: [], top_core_fantasies: [], ugc_hook_patterns: [], transferable_mechanics: [], gaps_noted: ["thin_sample"] };
     } else {
-      // Trim each entry to fields useful for synthesis (avoid sending frame data)
-      const trimmed = competitors.map(c => ({
+      // Trim each entry to fields useful for synthesis (avoid sending frame data).
+      // Deploy S: trims from fullCompetitors (full per-entry blobs), not just index summaries.
+      const trimmed = fullCompetitors.map(c => ({
         creative_id: c.creative_id || null,
         title: c.title || null,
         core_fantasy: c.core_fantasy || null,
@@ -153,9 +181,10 @@ export const handler: Handler = async (event) => {
     // Build envelope (code-computed fields + LLM digest)
     const envelope = {
       synced_at: new Date().toISOString(),
-      competitor_count: competitors.length,
+      competitor_count: fullCompetitors.length,
       titles_covered: titles,
       dominance_warning: dominanceWarning,
+      blob_miss_count: blobMissCount, // Deploy S: how many entries fell back to index-only data
       digest,
     };
 

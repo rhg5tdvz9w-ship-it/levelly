@@ -131,6 +131,10 @@ export async function extractFramesFromVideo(
 
     const seekNext = () => {
       if (idx >= safeTimestamps.length || !ctx) {
+        // Deploy S: surface silent extraction failures.
+        if (parts.length === 0 && safeTimestamps.length > 0) {
+          console.warn(`[Levelly S] Frame extraction completed with EMPTY result for "${file.name}" (${safeTimestamps.length} timestamps requested). Possible causes: codec issue, tab throttling, video too short. Filmstrip will be missing.`);
+        }
         cleanup();
         resolve(parts);
         return;
@@ -158,8 +162,16 @@ export async function extractFramesFromVideo(
 
     video.addEventListener("error", () => { cleanup(); resolve(parts); });
 
-    // Timeout safety — if video never loads, resolve with empty
-    const timeout = setTimeout(() => { cleanup(); resolve(parts); }, 15000);
+    // Deploy S: timeout 15s → 45s. Browser tab throttling (Chrome's <1Hz timer cap on backgrounded tabs)
+    // can easily exceed 15s for video metadata loading during bulk uploads. 45s gives safer headroom.
+    // Also log warning on empty extraction to surface silent failures (resolve(parts) with parts=[] used to
+    // be treated as success and saved as auto_frames:[] — invisible from UX).
+    const FRAME_EXTRACT_TIMEOUT_MS = 45000;
+    const timeout = setTimeout(() => {
+      console.warn(`[Levelly S] Frame extraction TIMEOUT after ${FRAME_EXTRACT_TIMEOUT_MS}ms for "${file.name}". Browser tab may be throttled — keep tab focused during bulk uploads.`);
+      cleanup();
+      resolve(parts);
+    }, FRAME_EXTRACT_TIMEOUT_MS);
     video.addEventListener("loadedmetadata", () => {
       clearTimeout(timeout);
       seekNext();
