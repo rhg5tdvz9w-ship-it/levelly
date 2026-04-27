@@ -47,13 +47,22 @@ QUALITY BAR — CRITICAL:
 - Homogeneous library: say so via format_gaps ("no_outsider_genres"), return fewer axes. Do not pad.`;
 }
 
-async function callGeminiSynthesis(prompt: string): Promise<any> {
+// Deploy S.1: thrown when output is truncated. Caller can catch and retry with reduced input.
+class MaxTokensError extends Error {
+  constructor(public tokensCap: number) {
+    super(`Gemini output truncated at maxOutputTokens=${tokensCap}`);
+    this.name = "MaxTokensError";
+  }
+}
+
+async function callGeminiSynthesis(prompt: string, maxOutputTokens: number = 8192): Promise<any> {
   const body = JSON.stringify({
     contents: [{ parts: [{ text: prompt }] }],
-    // Deploy M/M.1: maxOutputTokens hard cap keeps Flash from over-generating on the DIFFERENTIATION prompt.
-    // M=2048 truncated mid-JSON causing 500 Malformed JSON errors. M.1 raised to 4096 (doubled headroom).
-    // At Flash generation ~200 tokens/sec this still finishes in ~20s, staying under 30s Netlify ceiling.
-    generationConfig: { temperature: 0.3, responseMimeType: "application/json", maxOutputTokens: 4096 },
+    // Deploy M/M.1/S.1: maxOutputTokens cap. M=2048 truncated, M.1=4096 worked until S delivered richer
+    // input data (per-entry blobs not just index). S.1 bumps to 8192 to fit output of richer synthesis.
+    // Flash generates ~200 tokens/sec → 8192 tokens still finishes in ~25s, under Netlify 30s ceiling.
+    // If 8192 still truncates, caller retries with a smaller input set instead of bumping cap further.
+    generationConfig: { temperature: 0.3, responseMimeType: "application/json", maxOutputTokens },
   });
   for (let attempt = 0; attempt < 2; attempt++) {
     const r = await fetch(GEMINI_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body });
@@ -69,7 +78,8 @@ async function callGeminiSynthesis(prompt: string): Promise<any> {
     const candidate = data.candidates?.[0];
     const finishReason = candidate?.finishReason;
     if (finishReason === "MAX_TOKENS") {
-      throw new Error("Gemini output truncated (hit maxOutputTokens=4096). Likely too many diverse competitors in library — try reducing competitor library or contact support.");
+      // Deploy S.1: throw typed error so handler can catch + retry with reduced input.
+      throw new MaxTokensError(maxOutputTokens);
     }
     const jsonText = candidate?.content?.parts?.find((p: any) => p.text)?.text || "";
     try {
@@ -174,8 +184,31 @@ export const handler: Handler = async (event) => {
         unit_evolution_chain: c.unit_evolution_chain || [],
         why_it_works: c.why_it_works || null,
       }));
+      // Deploy S.1: retry on MAX_TOKENS with reduced input. If 30 competitors produce too-rich output,
+      // 20 most-recent will produce smaller output that fits in 8192 token cap.
+      const SYNTHESIS_RETRY_CAP = 20; // smaller than SYNTHESIS_INPUT_CAP=30
       const prompt = buildSynthesisPrompt(trimmed);
-      digest = await callGeminiSynthesis(prompt);
+      try {
+        digest = await callGeminiSynthesis(prompt, 8192);
+      } catch (err: any) {
+        if (err && err.name === "MaxTokensError" && trimmed.length > SYNTHESIS_RETRY_CAP) {
+          console.log(`[refresh-market-intel] MAX_TOKENS at 8192 with ${trimmed.length} competitors. Retrying with ${SYNTHESIS_RETRY_CAP} most recent.`);
+          const reducedTrimmed = trimmed.slice(0, SYNTHESIS_RETRY_CAP);
+          const reducedPrompt = buildSynthesisPrompt(reducedTrimmed);
+          try {
+            digest = await callGeminiSynthesis(reducedPrompt, 8192);
+            // Mark the digest as having used a reduced input set so user knows
+            digest = { ...digest, _reduced_input: { used: SYNTHESIS_RETRY_CAP, available: trimmed.length } };
+          } catch (err2: any) {
+            if (err2 && err2.name === "MaxTokensError") {
+              throw new Error(`Gemini output truncated even with reduced input (${SYNTHESIS_RETRY_CAP} competitors). Library has very rich diverse data — current synthesis output exceeds 8192 tokens. Workaround: temporarily delete some competitors via UI to reduce active count below 20, then re-refresh. Or contact support to expand schema.`);
+            }
+            throw err2;
+          }
+        } else {
+          throw err;
+        }
+      }
     }
 
     // Build envelope (code-computed fields + LLM digest)

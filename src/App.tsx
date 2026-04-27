@@ -2572,6 +2572,33 @@ For each description above:
   };
   // Deploy P: one-time admin button — calls /api/repair-index to rebuild the index from per-entry blobs.
   // Picks up new summary fields (spend_networks, spend_window_days) for all existing entries.
+  // Deploy S.1: diagnose orphan summaries (in index but no per-entry blob), then offer prune.
+  // Two-step flow: diagnose shows the list, prompts for confirmation; prune actually removes from index.
+  const handleDiagnoseLibrary = async () => {
+    try {
+      const resp = await fetch("/api/diagnose-library");
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+      const orphans: Array<{ id: any; title: string; ad_type: string; added_at: string; creative_id?: string }> = data.orphans || [];
+      if (orphans.length === 0) {
+        alert(`✓ Library healthy.\n\nTotal entries: ${data.total}\nOrphan summaries: 0`);
+        return;
+      }
+      const orphanList = orphans.map(o => `  • ${o.creative_id || o.id} — ${o.title} (${o.ad_type})`).join("\n");
+      const proceed = confirm(`Found ${orphans.length} orphan entries (in index but missing per-entry blob in cloud):\n\n${orphanList}\n\nThese were likely created during pre-Q bulk uploads where parallel writes silently lost data. They cannot be expanded (404 on click) and pollute aggregate counters.\n\nClick OK to remove them from the library index.\nClick Cancel to keep them and investigate manually.\n\nThis only modifies the index — no per-entry blobs are touched.`);
+      if (!proceed) return;
+      const pruneResp = await fetch("/api/prune-orphans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true }),
+      });
+      const pruneData = await pruneResp.json();
+      if (!pruneResp.ok || !pruneData.ok) throw new Error(pruneData.error || `HTTP ${pruneResp.status}`);
+      alert(`✓ Pruned ${pruneData.pruned} orphan entries.\n\nLibrary now has ${pruneData.kept} entries.\n\nReload the page (Cmd+Shift+R) to see the cleaned-up library.`);
+    } catch (err: any) {
+      alert(`Diagnose/prune failed: ${err.message}`);
+    }
+  };
   const handleRepairIndex = async () => {
     if (!confirm("Rebuild library index? This is safe — no entry data is touched. It rebuilds the summary index from per-entry blobs so aggregate counters (NETWORKS, TOP VELOCITY) read correct values.")) return;
     try {
@@ -3672,6 +3699,17 @@ ${netAdapt ? section("Network adaptations", netAdapt) : ""}
                     title="Rebuild library index from per-entry blobs. Run after Deploy P to populate spend_networks + spend_window_days fields in index. Safe — no entry data touched."
                   >
                     🔧 Repair index
+                  </button>
+                )}
+                {/* Deploy S.1: diagnose + prune orphan entries (summaries in index without per-entry blob) */}
+                {lib.length > 0 && (
+                  <button
+                    style={{ ...btnSec, fontSize: 11 }}
+                    onClick={e => { e.stopPropagation(); handleDiagnoseLibrary(); }}
+                    disabled={syncingThumbs || analyzing || reanalyzingAll}
+                    title="Find entries in library that show 404 errors when expanded (orphans from pre-Q bulk-upload race). Lists them, asks for confirmation, then removes from index."
+                  >
+                    🔍 Diagnose library
                   </button>
                 )}
                 {/* Deploy K: market intelligence indicator — replaces Deploy J's "not yet used" warning. */}
