@@ -2052,14 +2052,38 @@ function AppInner() {
             const localByTitleFile=new Map(
               localParsed.map((e: DNAEntry)=>[`${e.title||""}__${e.file_name||""}`,e])
             );
-            const cloudOnlyNew = data.filter((e: DNAEntry)=>{
-              if(localById.has(e.id)) return false;
-              if(e.creative_id?.trim() && localByCreativeId.has(e.creative_id.trim())) return false;
-              const tfKey = `${e.title||""}__${e.file_name||""}`;
-              if(tfKey !== "__" && localByTitleFile.has(tfKey)) return false;
-              return true;
+            // Deploy U: cloud index fields override localStorage for matching entries.
+            // Index summary fields (cloud_thumbnail, spend_networks, spend_window_days, has_frames,
+            // hook_description, is_compound, etc) are authoritative from cloud. localStorage retains
+            // full-detail fields (auto_frames, gate_sequence, etc — which cloud index does not store).
+            // Pre-U: filtered out cloud entries when localStorage had same ID, leaving lib state with
+            // stale localStorage data — caused thumbnails written by Sync to disappear after refresh.
+            const cloudOnlyNew: DNAEntry[] = [];
+            const cloudOverrides = new Map<any, Partial<DNAEntry>>();
+            for (const cloudEntry of data as DNAEntry[]) {
+              const matchedLocal =
+                localById.get(cloudEntry.id) ||
+                (cloudEntry.creative_id?.trim() ? localByCreativeId.get(cloudEntry.creative_id.trim()) : undefined) ||
+                localByTitleFile.get(`${cloudEntry.title||""}__${cloudEntry.file_name||""}`);
+              if (matchedLocal) {
+                cloudOverrides.set(matchedLocal.id, cloudEntry);
+              } else {
+                cloudOnlyNew.push(cloudEntry);
+              }
+            }
+            // Apply cloud overrides onto localStorage entries — cloud fields win, then localStorage fills holes.
+            const localWithCloudFields = localParsed.map((lsEntry: DNAEntry) => {
+              const cloudOverride = cloudOverrides.get(lsEntry.id);
+              if (!cloudOverride) return lsEntry;
+              // Spread localStorage first, then cloud override on top — cloud fields take precedence.
+              // For auto_frames specifically: prefer localStorage's version IF it has any image_data
+              // (preserves IDB-backed frames). Otherwise take cloud's version.
+              const lsHasFrameData = Array.isArray(lsEntry.auto_frames) && lsEntry.auto_frames.some((f: any) => f && f.image_data);
+              const merged: any = { ...lsEntry, ...cloudOverride };
+              if (lsHasFrameData) merged.auto_frames = lsEntry.auto_frames;
+              return merged as DNAEntry;
             });
-            const merged = sanitizeLib([...localParsed, ...cloudOnlyNew]);
+            const merged = sanitizeLib([...localWithCloudFields, ...cloudOnlyNew]);
             mergeFramesFromIDB(merged).then(withFrames => setLib(withFrames)).catch(() => setLib(merged));
           } else {
             const sanitized = sanitizeLib(data);
