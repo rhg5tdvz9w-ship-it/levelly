@@ -527,7 +527,7 @@ QUALITY BAR — CRITICAL:
 
 Return ONLY the JSON object. No preamble, no markdown fences, no explanation.`;
 
-export const briefSystem = (lib: any[], ctx: string, seg: string, iterateFrom?: string, refNote?: string, competitorContext?: { core_fantasy?: string; moc_inspiration?: string; transferable_elements?: string[]; title?: string; lift_intent?: string }, marketIntel?: any) => {
+export const briefSystem = (lib: any[], ctx: string, seg: string, iterateFrom?: string, refNote?: string, competitorContext?: { core_fantasy?: string; moc_inspiration?: string; transferable_elements?: string[]; title?: string; lift_intent?: string; gate_sequence?: string[]; unit_evolution_chain?: string[]; key_mechanic?: string; pacing?: string; tension_moments?: string[]; biome?: string; hook_type?: string; hook_description?: string; gate_escalation?: string | null; user_visual_reference?: any }, marketIntel?: any) => {
   // Deploy H: Extract gate_escalation signal from winner/scalable entries.
   // When a meaningful fraction of high-performers use escalation, surface it so brief can propose it.
   const highPerf = Array.isArray(lib) ? lib.filter((e: any) => e && (e.tier === "winner" || e.tier === "scalable")) : [];
@@ -540,7 +540,11 @@ export const briefSystem = (lib: any[], ctx: string, seg: string, iterateFrom?: 
   const visualRefBlock = refNote ? `\nVISUAL REF: ${refNote}. Inspiration only — DNA is primary.\n` : "";
   const _escSignal = escalationSignal; // Deploy H: appended to prompt body below
 
-  const competitorBlock = competitorContext ? `\nCOMPETITOR INSPIRATION — the user uploaded a competitor ad and wants you to lift specific elements:\n- Source: ${competitorContext.title || "competitor ad"}\n- Core fantasy: ${competitorContext.core_fantasy || "unspecified"}\n- High-level MOC mapping: ${competitorContext.moc_inspiration || "unspecified"}\n- Transferable elements: ${(competitorContext.transferable_elements || []).map((e, i) => `\n  ${i+1}. ${e}`).join("")}\n${competitorContext.lift_intent ? `- USER LIFT INTENT (PRIMARY SIGNAL — lift THIS specifically): ${competitorContext.lift_intent}\n` : ""}\nAPPLICATION RULES:\n1. Concept 1 stays pure MOC-native (proven baseline, no competitor lift). Concepts 2, 3, 4 must EACH lift from a different intel source — different competitor entries OR different differentiation_axes from the synthesis. No two concepts may share the same source. This forces the brief to span multiple intel signals instead of clustering on one.\n2. For each competitor-inspired concept: is_experimental:true, experimental_note explains which element was lifted and how it translates to MOC mechanics.\n3. CRITICAL — lift intent must flow to render-visible fields, not just narrative text:\n   - If user lift intent mentions "lane" / "level design" / "layout" / "structure" → TRANSCRIBE the competitor s lane structure directly into concept.lane_design (describe the lane layout in concrete MOC terms: where +N gates sit, where xN gates sit, where upgrade obstacles sit, what creates the tension).\n   - If lift intent mentions "biome" / "environment" / "visuals" / "art" → set concept.visual_identity.environment to reflect competitor s biome (translated into a MOC-compatible biome name — e.g. competitor s "crystal cavern" → MOC "Cyber-City" or "Toxic").\n   - If lift intent mentions "gates" / "multipliers" / "numbers" / "escalation" → transcribe competitor s numerical progression into concept.visual_identity.gate_values array.\n   - If lift intent mentions "hook" / "opening" / "start" → mirror competitor s hook mechanic in concept.hook_description and hook_a_description.\n4. NEVER copy competitor VISUALS directly (no competitor art style, no competitor characters). Translate the MECHANIC only, in MOC vocabulary.\n` : "";
+  // Deploy W: surface expanded DNA fields when present
+  const expandedDnaBlock = competitorContext ? `${competitorContext.key_mechanic ? `\n- Reference key mechanic: ${competitorContext.key_mechanic}` : ""}${competitorContext.gate_sequence && competitorContext.gate_sequence.length > 0 ? `\n- Reference gate sequence: ${competitorContext.gate_sequence.join(" → ")}` : ""}${competitorContext.gate_escalation ? `\n- Reference gate escalation: ${competitorContext.gate_escalation}` : ""}${competitorContext.unit_evolution_chain && competitorContext.unit_evolution_chain.length > 0 ? `\n- Reference unit evolution chain: ${competitorContext.unit_evolution_chain.join(" → ")}` : ""}${competitorContext.pacing ? `\n- Reference pacing: ${competitorContext.pacing}` : ""}${competitorContext.tension_moments && competitorContext.tension_moments.length > 0 ? `\n- Reference tension peaks: ${competitorContext.tension_moments.slice(0, 3).join("; ")}` : ""}${competitorContext.biome ? `\n- Reference biome: ${competitorContext.biome}` : ""}${competitorContext.hook_type ? `\n- Reference hook type: ${competitorContext.hook_type}` : ""}${competitorContext.hook_description ? `\n- Reference hook description: ${competitorContext.hook_description.slice(0, 250)}` : ""}` : "";
+  // Deploy W: surface user_visual_reference (image extraction) when present
+  const userImageRefBlock = competitorContext?.user_visual_reference ? `\n\nUSER VISUAL REFERENCE (uploaded image, extracted by Gemini Vision — describes what is in the image in its OWN terms, not MOC vocabulary):\n${typeof competitorContext.user_visual_reference === "string" ? competitorContext.user_visual_reference : JSON.stringify(competitorContext.user_visual_reference, null, 2)}\n\nVISUAL REFERENCE APPLICATION: at least 1 of concepts 2-4 should map this reference into MOC vocabulary. Use the "moc_translation_note" inside the reference if present. Specifically: if the reference shows a level layout, transcribe its structure into that concept's lane_design. If it shows an obstacle interaction, encode it as an F2 variant in that concept's mechanic family. If the reference is non-applicable (UI screenshot, abstract, no game elements), the moc_translation_note will say so — in that case, treat as inspirational mood only and do not force-fit.` : "";
+  const competitorBlock = competitorContext ? `\nCOMPETITOR INSPIRATION — the user uploaded a competitor ad and wants you to lift specific elements:\n- Source: ${competitorContext.title || "competitor ad"}\n- Core fantasy: ${competitorContext.core_fantasy || "unspecified"}\n- High-level MOC mapping: ${competitorContext.moc_inspiration || "unspecified"}${expandedDnaBlock}\n- Transferable elements: ${(competitorContext.transferable_elements || []).map((e, i) => `\n  ${i+1}. ${e}`).join("")}\n${competitorContext.lift_intent ? `- USER LIFT INTENT (PRIMARY SIGNAL — lift THIS specifically): ${competitorContext.lift_intent}\n` : ""}${userImageRefBlock}\nAPPLICATION RULES:\n1. Concept 1 stays pure MOC-native (proven baseline, no competitor lift). Concepts 2, 3, 4 must EACH lift from a different intel source — different competitor entries OR different differentiation_axes from the synthesis. No two concepts may share the same source. This forces the brief to span multiple intel signals instead of clustering on one.\n2. For each competitor-inspired concept: is_experimental:true, experimental_note explains which element was lifted and how it translates to MOC mechanics.\n3. CRITICAL — lift intent must flow to render-visible fields, not just narrative text:\n   - If user lift intent mentions "lane" / "level design" / "layout" / "structure" → TRANSCRIBE the competitor s lane structure directly into concept.lane_design (describe the lane layout in concrete MOC terms: where +N gates sit, where xN gates sit, where upgrade obstacles sit, what creates the tension).\n   - If lift intent mentions "biome" / "environment" / "visuals" / "art" → set concept.visual_identity.environment to reflect competitor s biome (translated into a MOC-compatible biome name — e.g. competitor s "crystal cavern" → MOC "Cyber-City" or "Toxic").\n   - If lift intent mentions "gates" / "multipliers" / "numbers" / "escalation" → transcribe competitor s numerical progression into concept.visual_identity.gate_values array.\n   - If lift intent mentions "hook" / "opening" / "start" → mirror competitor s hook mechanic in concept.hook_description and hook_a_description.\n4. NEVER copy competitor VISUALS directly (no competitor art style, no competitor characters). Translate the MECHANIC only, in MOC vocabulary.\n` : "";
   return `MOC Lead Creative Producer. Ground concepts in proven spend data.
 
 DNA LIBRARY (${lib.length} winners):
@@ -587,30 +591,45 @@ CHAMPION DIVERSITY (concept 4 wild card rule):
 - Concept 4 MUST use a DIFFERENT canonical champion from concepts 1-3 (wild card slot — different boss creates differentiation in the brief).
 - If concepts 1-3 all use Red Hulk, concept 4 must NOT use Red Hulk — pick another from the canonical roster.
 
-CORE MECHANIC CATALOG (Deploy V — diversity rule for ALL 4 concepts):
-A "core mechanic" is the central gameplay loop the player would do — NOT a feature or scenario detail.
-Examples of distinct mechanics:
-  M1. Gate progression — classic MOC: cannon flows up the lane, +N gates increase cannon count, xN gates multiply mobs, defeat boss at end. (DEFAULT, PROVEN)
-  M2. Wall/barrier breaking — cannon must destroy walls/barriers to unlock progressively bigger gates or new lanes
-  M3. Bridge/path building — collect resources or pass mobs through a builder gate to construct a bridge that unlocks new path
-  M4. Resource collection → upgrade — collect coins/crystals/energy along the lane, then trigger weapon/cannon upgrade at a stationary upgrade station
-  M5. Multi-lane choice — player visually picks between 2-3 parallel lanes with different gate combos (left risky, middle safe, right reward)
-  M6. Boss damage stacking — focus is on persistent boss HP bar; each gate makes mob attacks stronger; boss survives multiple gate cycles
-  M7. Loss-aversion recovery — ad opens with player FAILING a gate sequence, then "what if you tried this instead" replay shows correct path
-  M8. Vehicle/cannon swap progression — cannon literally transforms (truck → tank → mech) at upgrade triggers, each form has different visual & ability
-  M9. Container/box opening — mob swarm crashes into stacked containers/boxes that hide reward gates or trapped enemy mobs
-  M10. Tower defense inversion — instead of advancing, player defends a base while waves of enemy mobs attack through gates
+MECHANIC FAMILIES (Deploy W — taxonomy refined from Dmitriy's domain knowledge):
+A "core mechanic" is the central gameplay loop — what the PLAYER does to get reward. Pick a family for each concept.
+Combinations across families and variants are ENCOURAGED (e.g. F2/V3+V5: push obstacle that mobs also swarm).
 
-MECHANIC DIVERSITY RULE (HARD CONSTRAINT — affects all 4 concepts):
-- Concept 1 MUST use M1 (Gate progression — proven MOC default, anchor concept).
-- Concepts 2, 3, 4 MUST EACH use a DIFFERENT mechanic from M2-M10. No two concepts may share the same mechanic.
-- The chosen mechanic for each concept must be reflected in:
-    (a) concept.lane_design — describe the spatial layout that supports this mechanic
-    (b) concept.production_script — actions and visual cues must demonstrate the mechanic
-    (c) concept.tension_moments — peak moments derive from the mechanic's payoff loop
-    (d) concept.experimental_note — for concepts 2-4, name the mechanic (e.g. "Mechanic: M3 Bridge building") and cite which intel source inspired it.
-- If a chosen mechanic was lifted from competitor intel, the experimental_note must cite the SPECIFIC competitor (e.g. "M5 Multi-lane choice — lifted from Last War: Survival Game's Y/N army splitter").
-- DO NOT default to feature variations dressed as mechanics. "Concept 2 has gate upgrade x2→x6, concept 3 has different gate upgrade x3→x5→x10" is the SAME mechanic (M1). The mechanics MUST come from different rows of the catalog above.
+FAMILY F1 — Standard gate progression (proven default).
+Cannon flows passively up the lane, gates trigger automatically as mobs pass through, +N adds cannon count, xN multiplies mobs, defeat boss at end. No active interaction with obstacles. The classic MOC pattern.
+
+FAMILY F2 — Active interaction → reward unlock (highest-juice family, dominant in winning competitor ads).
+Player or mobs must DO something to a physical obstacle to gain or unlock the reward. The interaction creates satisfaction; the reward creates investment. Pick one or more variants:
+   V1. Break destructible (functional unlock): cannon shoots → obstacle shatters → reward (gates/upgrade) revealed BEHIND it. Reward was hidden until the break.
+   V2. Break decorative (visible reward on top): obstacle has reward sitting ON TOP from frame 1. Breaking the obstacle is pure satisfaction + necessity (e.g. break to keep mob count balanced between lanes), not unlock.
+   V3. Push/rotate: cannon mobs push or rotate the obstacle to clear the path or expose the reward. Mob momentum does the work, not a shooting action.
+   V4. Lift platform: cannon shoots upward into a pillar/platform, lifting it up so it does useful work (drops stones on enemies, holds open a gate, etc). Constant back-and-forth — stops shooting, platform falls. High tension.
+   V5. Swarm-destroy: mobs pile onto the obstacle and break it by mass contact. No shooting needed, just enough mob volume.
+   COMBINATIONS: V3+V5 (mobs push AND swarm), V1+V2 (some obstacles unlock, others sit on top), V4+V1 (lift to expose breakable behind), etc. Combinations make briefs more original.
+
+FAMILY F3 — Dual/multi-lane choice.
+Visible split — player picks between 2-3 parallel paths with different reward/risk profiles (left safe gates, middle risky multiplier, right upgrade station). Tension comes from path commitment.
+
+FAMILY F4 — Idle core loop (Whiteout Survival / Lords Mobile style).
+Resource gather → base/unit upgrade → repeat. Stationary base (not a flowing lane). Often top-down map view rather than chase cam. Player upgrades buildings, troops, or weapons over visible progression beats. Ad opens on the base, not on a lane.
+
+DIVERSITY RULE (4 concepts must span the taxonomy — soft enforcement on concept 1):
+- Concept 1: SOFT default to F1 (proven baseline). May deviate if competitor intel strongly justifies a different family — e.g. if 70% of winning competitor ads use F2/V1, concept 1 MAY use F2/V1. Default is F1 unless intel strongly suggests otherwise.
+- Concepts 2, 3, 4: each MUST use a different family or family/variant combination from concept 1 AND from each other. Cannot all be F2 with different variants (counts as same family) — at minimum need to span 3 distinct families across concepts 2-4, OR same family with strongly different variant combinations.
+- Each concept's family/variant choice must be cited in concept.experimental_note. Format: "Family: F2/V3+V5 — push-and-swarm obstacle, reward revealed behind. Lifted from: <competitor name or 'pure invention'>".
+
+MECHANIC PROPAGATES TO RENDER FIELDS (not just text):
+- For F2 concepts: concept.lane_design MUST describe (a) what the obstacle is and looks like (e.g. "wooden barrier with iron bands, 2 lanes wide, blocking the path at 4s"), (b) what interaction the player does (shoot/push/lift/swarm), (c) what reward is revealed/sits-on-top (e.g. "+99 gates revealed behind the broken wall"), (d) timestamp of the interaction beat.
+- For F2 concepts: concept.production_script MUST include a beat showing the interaction — e.g. "6s: cannon volley shatters the wooden barrier, +99 gates revealed behind, mobs surge through; satisfying CRACK sound + dust particles."
+- For F2 concepts: concept.visual_identity.gate_values reflects what's actually shown — if reward is "+99 + +99 + +99" stacked, write that. Don't default to "x2 → x4 → x100" which is F1 vocabulary.
+- For F3 concepts: lane_design describes the fork point, both path profiles, and what creates the tension at the choice.
+- For F4 concepts: replace "lane_design" describe with "base_layout" — what the base looks like, what's upgrading, the spatial relationship between gather points and upgrade stations.
+
+HOOK A COMPOSITION PER FAMILY (overrides default boss-dwarfs-cannon when family is not F1):
+- F1: existing default — boss looms 60-70% of frame, cannon tiny at bottom with 4-6 mobs streaming forward.
+- F2: gigantic locked obstacle dominates 60-70% of frame (massive wooden barrier, wall of containers, lifting platform with reward atop it). Reward visible behind cracks or sitting on top (gates/upgrades glowing). Cannon tiny at base of frame, ready to begin the interaction. Boss optional, may be glimpsed beyond the obstacle but is NOT the focal point.
+- F3: top-down or angled overview showing the fork point. Two paths visibly different (one with green +1s, one with red xN multipliers). Cannon at decision moment, mobs streaming behind. Visual must communicate "you have to pick."
+- F4: the base/core dominates frame — visible buildings, units gathering, something obviously upgrading (counters, progress bars). No lane. Hook A is the strategy-game power-fantasy reveal.
 
 ${_escSignal}
 ${(() => {

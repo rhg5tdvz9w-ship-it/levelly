@@ -2935,13 +2935,26 @@ For each description above:
           if (newEntry) {
             saveLib([...lib, newEntry]);
             setLastCompetitorEntry(newEntry);
+            // Deploy W: send the full structural DNA, not just 4 high-level fields.
+            // Brief prompt now reads gate_sequence, unit_evolution_chain, key_mechanic, pacing,
+            // tension_moments, biome, hook_type, hook_description — gives Claude the full blueprint.
             competitorContext = {
               title: newEntry.title,
               core_fantasy: newEntry.core_fantasy,
               moc_inspiration: newEntry.moc_inspiration,
               transferable_elements: newEntry.transferable_elements || [],
               lift_intent: liftIntent.trim() || undefined,
-            };
+              // Deploy W expanded fields:
+              gate_sequence: newEntry.gate_sequence || [],
+              unit_evolution_chain: newEntry.unit_evolution_chain || [],
+              key_mechanic: newEntry.key_mechanic,
+              pacing: newEntry.pacing,
+              tension_moments: (newEntry as any).tension_moments,
+              biome: newEntry.biome,
+              hook_type: newEntry.hook_type,
+              hook_description: newEntry.hook_description,
+              gate_escalation: newEntry.gate_escalation,
+            } as any;
             setBriefProgress("Competitor saved to library. Generating briefs…");
             setBriefRef(null);
             setLiftIntent("");
@@ -2949,7 +2962,38 @@ For each description above:
             refNote = `User visual reference: "${briefRef.name}" (analysis failed)`;
           }
         } else {
-          refNote = `User visual reference: "${briefRef.name}"`;
+          // Deploy W: image reference parsed via Gemini Vision, structured description injected.
+          setBriefProgress("Analyzing visual reference…");
+          try {
+            const vresp = await fetch("/api/analyze-image-ref", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ images: [{ base64: briefRef.base64, mimeType: briefRef.mimeType }] }),
+            });
+            const vdata = await vresp.json();
+            if (vresp.ok && vdata.ok && vdata.description) {
+              // If competitorContext doesn't exist yet (no video), create one carrying just the visual reference.
+              if (!competitorContext) {
+                competitorContext = {
+                  title: `Visual reference: ${briefRef.name}`,
+                  user_visual_reference: vdata.description,
+                  lift_intent: liftIntent.trim() || undefined,
+                } as any;
+              } else {
+                (competitorContext as any).user_visual_reference = vdata.description;
+              }
+              refNote = `Visual reference parsed: "${briefRef.name}" — ${(vdata.description.spatial_layout || "").slice(0, 80)}`;
+              setBriefProgress("Reference parsed. Generating briefs…");
+            } else {
+              console.warn("[Levelly W] image analysis failed:", vdata.error);
+              refNote = `User visual reference: "${briefRef.name}" (image analysis failed — using filename only)`;
+            }
+          } catch (err: any) {
+            console.warn("[Levelly W] image analysis error:", err);
+            refNote = `User visual reference: "${briefRef.name}" (image analysis error)`;
+          }
+          setBriefRef(null);
+          setLiftIntent("");
         }
       }
       const trimmedLib = lib
