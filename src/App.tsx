@@ -1788,6 +1788,18 @@ function LevellyLogo({ scale = 1, variant = "dark" }: { scale?: number; variant?
 function AppInner() {
   const [lib, setLib] = useState<DNAEntry[]>([]);
   const [libraryLoaded, setLibraryLoaded] = useState(false);
+  // Deploy T: track entries that are in localStorage but not in cloud (silent cloud-write failures).
+  // Persists in localStorage so it survives reloads. User sees a banner with retry option.
+  const [pendingCloudSync, setPendingCloudSync] = useState<Array<string | number>>(() => {
+    try { return JSON.parse(localStorage.getItem("levelly_pending_cloud_sync") || "[]"); }
+    catch { return []; }
+  });
+  const [syncingPending, setSyncingPending] = useState(false);
+  const updatePendingSync = React.useCallback((next: Array<string | number>) => {
+    const dedupe = Array.from(new Set(next.map(id => String(id))));
+    setPendingCloudSync(dedupe);
+    try { localStorage.setItem("levelly_pending_cloud_sync", JSON.stringify(dedupe)); } catch {}
+  }, []);
   const [cloudStatus, setCloudStatus] = useState<"idle"|"saving"|"saved"|"error">("idle");
   const [libPanelOpen, setLibPanelOpen] = useState(false);
   const [briefPanelOpen, setBriefPanelOpen] = useState(false);
@@ -2158,6 +2170,44 @@ function AppInner() {
   // - Old path: full library POSTed to /api/save-library (unchanged — backcompat for 30 days)
   // - New path: only CHANGED entries POSTed to /api/save-entry. Deletions to /api/delete-entry.
   //   Per-entry blobs include FULL frames (image_data) for cache-clear survivability.
+  // Deploy T: on libraryLoaded, detect any localStorage-only entries (cloud_index doesn't have them)
+  // and add them to pendingCloudSync. Recovers entries silently lost during pre-T cloud-write failures.
+  React.useEffect(() => {
+    if (!libraryLoaded) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const cloudResp = await fetch("/api/load-index");
+        if (!cloudResp.ok) return;
+        const cloudIndex: any[] = await cloudResp.json();
+        if (!Array.isArray(cloudIndex)) return;
+        const cloudIds = new Set(cloudIndex.map(e => String(e.id)));
+        const ls = (() => {
+          try { return JSON.parse(localStorage.getItem("levelly_dna_library") || "[]"); }
+          catch { return []; }
+        })();
+        if (!Array.isArray(ls)) return;
+        const orphanIds = ls
+          .filter((e: any) => e && typeof e.id !== "undefined" && !cloudIds.has(String(e.id)))
+          .map((e: any) => String(e.id));
+        if (cancelled) return;
+        if (orphanIds.length > 0) {
+          console.warn(`[Levelly T] Detected ${orphanIds.length} localStorage-only entries (not in cloud). Banner will offer retry.`);
+          // Merge with any existing pending list
+          const existing = (() => {
+            try { return JSON.parse(localStorage.getItem("levelly_pending_cloud_sync") || "[]"); }
+            catch { return []; }
+          })();
+          const combined = Array.from(new Set([...existing.map(String), ...orphanIds]));
+          try { localStorage.setItem("levelly_pending_cloud_sync", JSON.stringify(combined)); } catch {}
+          setPendingCloudSync(combined);
+        }
+      } catch (err) {
+        console.warn("[Levelly T] orphan detection failed:", err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [libraryLoaded]);
   // libPrevRef tracks the previous state so we can compute the diff on each save.
   const libPrevRef = React.useRef<DNAEntry[]>([]);
   // Deploy Q: libRef tracks CURRENT lib state, updated on every lib change (not just length changes).
@@ -2267,8 +2317,17 @@ function AppInner() {
       try {
         await appendEntryToCloud(newEntry);
       } catch {
+        // Deploy T: track failed cloud write so user sees a persistent banner with retry option.
         // appendEntryToCloud already logged + set error status. Don't rethrow — local state is correct,
-        // user can retry via re-upload if cloud failed.
+        // user can retry via "Sync to cloud" banner that appears when this list is non-empty.
+        const currentPending = (() => {
+          try { return JSON.parse(localStorage.getItem("levelly_pending_cloud_sync") || "[]"); }
+          catch { return []; }
+        })();
+        const updated = [...currentPending, String(newEntry.id)];
+        const dedupe = Array.from(new Set(updated));
+        try { localStorage.setItem("levelly_pending_cloud_sync", JSON.stringify(dedupe)); } catch {}
+        setPendingCloudSync(dedupe);
       }
     }
   }, [libraryLoaded, appendEntryToCloud]);
@@ -2572,6 +2631,49 @@ For each description above:
   };
   // Deploy P: one-time admin button — calls /api/repair-index to rebuild the index from per-entry blobs.
   // Picks up new summary fields (spend_networks, spend_window_days) for all existing entries.
+  // Deploy T: retry cloud sync for entries stuck in localStorage. Iterates pendingCloudSync list,
+  // POSTs each one's full entry data to /api/save-entry. Removes successful syncs from pending list.
+  const handleRetryCloudSync = async () => {
+    if (syncingPending) return;
+    if (pendingCloudSync.length === 0) return;
+    setSyncingPending(true);
+    let succeeded = 0;
+    let failed = 0;
+    const stillPending: string[] = [];
+    // Read full entry data from current lib state — entries we want to push
+    for (const idVal of pendingCloudSync) {
+      const idStr = String(idVal);
+      // Find by string match (ids stored as numbers, list stores strings)
+      const entry = lib.find(e => String(e.id) === idStr);
+      if (!entry) {
+        // Entry was deleted from lib but still in pending list — drop it
+        continue;
+      }
+      try {
+        // Need the full entry with frames if available — try IDB first
+        let fullEntry: any = { ...entry };
+        try {
+          const withFrames = await mergeFramesFromIDB([entry] as any);
+          if (withFrames && withFrames[0]) fullEntry = { ...entry, ...withFrames[0] };
+        } catch { /* IDB unavailable — push without frames, can be recovered later */ }
+        const resp = await fetch("/api/save-entry", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ entry: fullEntry }),
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        succeeded++;
+      } catch (err) {
+        failed++;
+        stillPending.push(idStr);
+        console.warn(`[Levelly T] retry failed for entry ${idStr}:`, err);
+      }
+    }
+    updatePendingSync(stillPending);
+    setSyncingPending(false);
+    alert(`✓ Cloud sync complete.\n\n• Succeeded: ${succeeded}\n• Still failing: ${failed}\n\n${failed > 0 ? "Entries still in pending list — click again to retry, or contact support if persistent." : "All entries synced. Banner will dismiss."}`);
+  };
+
   // Deploy S.1: diagnose orphan summaries (in index but no per-entry blob), then offer prune.
   // Two-step flow: diagnose shows the list, prompts for confirmation; prune actually removes from index.
   const handleDiagnoseLibrary = async () => {
@@ -3682,6 +3784,24 @@ ${netAdapt ? section("Network adaptations", netAdapt) : ""}
               <div style={{ display:"flex",gap:6,padding:"8px 16px",borderBottom:`0.5px solid ${D.border}`,flexWrap:"wrap" as const }}>
                 {/* Deploy H: removed Sync thumbnails (redundant post-G.3 — cloud_thumbnail auto-generated on save). Removed Clear button (landmine — use Export + manual deletion if needed). */}
                 {/* Deploy P: re-added Sync Thumbnails — H's removal was wrong (cloud_thumbnail is NOT auto-generated for pre-Deploy-E entries; backfill needs explicit action). New flow fetches per-entry blobs from cloud, no IDB dependency. */}
+                {/* Deploy T: cloud-sync banner — shows when entries are stuck in localStorage */}
+                {pendingCloudSync.length > 0 && (
+                  <div style={{ background: D.goldBg, border: `1px solid ${D.goldBdr}`, borderRadius: 6, padding: "8px 12px", marginBottom: 10, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" as const }}>
+                    <span style={{ fontSize: 12, color: D.gold, fontWeight: 500 }}>
+                      ⚠ {pendingCloudSync.length} entr{pendingCloudSync.length === 1 ? "y" : "ies"} not synced to cloud
+                    </span>
+                    <span style={{ fontSize: 11, color: D.textMuted, flex: 1 }}>
+                      These uploads succeeded locally but cloud write failed. Click to retry.
+                    </span>
+                    <button
+                      onClick={e => { e.stopPropagation(); handleRetryCloudSync(); }}
+                      disabled={syncingPending || analyzing || reanalyzingAll}
+                      style={{ ...btnPri, fontSize: 11 }}
+                    >
+                      {syncingPending ? "Syncing…" : "🔄 Sync to cloud"}
+                    </button>
+                  </div>
+                )}
                 {lib.length > 0 && (
                   <button
                     style={{ ...btnSec, fontSize: 11 }}
