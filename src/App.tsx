@@ -1116,6 +1116,31 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
           ) : null}
           {/* Deploy I: gate upgrade badge — shows when analyze detected an ascending xN sequence in the video. (Renamed P.1: data field stays gate_escalation.) */}
           {d.gate_escalation && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)} title={`Gate upgrade detected: ${d.gate_escalation}`}>⚡ Gate upgrade: {d.gate_escalation.replace(/\s*\(.*?\).*$/, "")}</span>}
+          <select
+            value={(d as any).mechanic_family || ""}
+            onChange={e => { e.stopPropagation(); const newVal = e.target.value || null; saveLib(lib.map(x => x.id === d.id ? { ...x, mechanic_family: newVal as any } : x)); }}
+            onClick={e => e.stopPropagation()}
+            style={{ ...pill(D.surface2, D.text, D.border2), fontSize: 9, padding: "2px 6px", border: `0.5px solid ${D.border2}`, cursor: "pointer", fontFamily: "inherit" }}
+            title="Mechanic family override — used by render picker to anchor visual style"
+          >
+            <option value="">⚙ family: untagged</option>
+            <option value="F1">F1 — gate progression</option>
+            <option value="F2/V1">F2/V1 — break (unlock)</option>
+            <option value="F2/V2">F2/V2 — break (decorative)</option>
+            <option value="F2/V3">F2/V3 — push/rotate</option>
+            <option value="F2/V4">F2/V4 — lift platform</option>
+            <option value="F2/V5">F2/V5 — swarm-destroy</option>
+            <option value="F2/V1+V5">F2/V1+V5 — break + swarm</option>
+            <option value="F2/V3+V5">F2/V3+V5 — push + swarm</option>
+            <option value="F2/V4+V5">F2/V4+V5 — lift + swarm</option>
+            <option value="F2/V1+V3">F2/V1+V3 — break + push</option>
+            <option value="F3">F3 — multi-lane choice</option>
+            <option value="F4">F4 — idle core loop</option>
+            <option value="F3+F2/V1">F3+F2/V1 — multi-lane + break</option>
+            <option value="F2/V4+F4">F2/V4+F4 — lift + idle base</option>
+            <option value="F4+F2/V3">F4+F2/V3 — idle + push</option>
+            <option value="other">other</option>
+          </select>
           {d.levelly_brief_title && <span style={pill(D.blueBg, D.blue, D.blueDark)} title={`Levelly brief: ${d.levelly_brief_title}`}>⎇ Levelly</span>}
           {d.reanalyzed && <span style={pill(D.greenBg, D.green, D.greenBdr)}>re-analyzed</span>}
         </div>
@@ -2391,6 +2416,7 @@ function AppInner() {
         loss_event_type: entry.loss_event_type,
         loss_event_timing_seconds: entry.loss_event_timing_seconds,
         is_compound: entry.is_compound,
+        mechanic_family: (entry as any).mechanic_family,
       } : {};
       return {...entry, ...dna, ...preservedFields, id:entry.id, reanalyzed:true, added_at:entry.added_at, file_name:entry.file_name, tier:entry.tier, ad_type:entry.ad_type, auto_frames:entry.auto_frames};
     } else {
@@ -2407,6 +2433,7 @@ function AppInner() {
         loss_event_type: entry.loss_event_type,
         loss_event_timing_seconds: entry.loss_event_timing_seconds,
         is_compound: entry.is_compound,
+        mechanic_family: (entry as any).mechanic_family,
       } : {};
       return {...entry, ...corrected, ...preservedFieldsText, id:entry.id, reanalyzed:true, added_at:entry.added_at, file_name:entry.file_name, tier:entry.tier, ad_type:entry.ad_type, auto_frames:entry.auto_frames};
     }
@@ -3045,7 +3072,10 @@ For each description above:
           // Only add newly arrived concepts
           const newConcepts = job.concepts.slice(lastConceptCount);
           newConcepts.forEach((concept: Concept, i: number) => {
-            setConcepts(prev => [...prev, concept]);
+            const conceptWithRef = briefRef
+              ? { ...concept, user_uploaded_ref: { base64: briefRef.base64, mimeType: briefRef.mimeType, name: briefRef.name } }
+              : concept;
+            setConcepts(prev => [...prev, conceptWithRef]);
             if (lastConceptCount === 0 && i === 0) setExpandedConcept(0);
           });
           lastConceptCount = job.concepts.length;
@@ -3373,8 +3403,19 @@ ${netAdapt ? section("Network adaptations", netAdapt) : ""}
       }
 
       // ── FRESH RENDER MODE ───────────────────────────────────────────────────
-      const refParts=pickRelevantRefs(vi, unitAtScene, lib, scene==="scene"?"start":"hook");
+      const familyTag = (() => {
+        const note = (concept as any).experimental_note || "";
+        const m = note.match(/\[FAMILY:([^\]]+)\]/);
+        return m ? m[1].trim() : undefined;
+      })();
+      const refParts=pickRelevantRefs(vi, unitAtScene, lib, scene==="scene"?"start":"hook", familyTag);
       const prevParts: any[]=[];
+
+      const userUploadedRef = (concept as any).user_uploaded_ref;
+      if (userUploadedRef && scene !== "hook_b" && userUploadedRef.base64 && userUploadedRef.mimeType) {
+        prevParts.push({text:"### USER REFERENCE — match the level layout, mechanic structure, and obstacle placement shown in this image. Translate into MOC visual vocabulary (cannon, mob blobs, gates, biome). The user uploaded this as the structural blueprint for this concept:"});
+        prevParts.push({inlineData:{mimeType:userUploadedRef.mimeType,data:userUploadedRef.base64}});
+      }
 
       const sceneRef = concept.visual_scene || concept.visual_start || null;
       if(scene !== "scene" && sceneRef){

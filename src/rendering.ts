@@ -2,10 +2,29 @@ import type { VisualIdentity } from "./types";
 import { MOC_REFERENCES } from "./refImages";
 
 // ─── Ref image helpers ────────────────────────────────────────────────────────
-export function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string, lib?: any[], scene?: string): any[] {
-  // Deploy A: hook_b is UGC (TikTok-native photo-realistic shot of a real person).
-  // No MOC visual refs — they would contaminate the photorealistic render with cartoon style.
+export function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string, lib?: any[], scene?: string, familyTag?: string): any[] {
   if (scene === "hook_b") return [];
+
+  // Deploy Y5: when concept has mechanic_family tag, find a library entry tagged with same family.
+  // Grab one of its auto_frames as visual anchor for what the mechanic looks like in MOC vocabulary.
+  const familyRefs: any[] = [];
+  if (familyTag && Array.isArray(lib) && lib.length > 0) {
+    const candidates = lib.filter((e: any) => {
+      const f = (e.mechanic_family || "").trim();
+      if (!f || f === "other") return false;
+      return f === familyTag || familyTag.startsWith(f) || f.startsWith(familyTag.split("+")[0]);
+    });
+    const withFrames = candidates.filter((e: any) => Array.isArray(e.auto_frames) && e.auto_frames.some((fr: any) => fr.image_data));
+    const pick = withFrames[0] || candidates[0];
+    if (pick && Array.isArray(pick.auto_frames)) {
+      const framesWithData = pick.auto_frames.filter((fr: any) => fr.image_data);
+      if (framesWithData.length > 0) {
+        const midFrame = framesWithData[Math.floor(framesWithData.length / 2)] || framesWithData[0];
+        familyRefs.push({ text: `### MECHANIC FAMILY REFERENCE (${familyTag}) — match the lane layout, obstacle type, and interaction shown in this library reference. This is an example of ${familyTag} from MOC's existing creative library:` });
+        familyRefs.push({ inlineData: { mimeType: "image/jpeg", data: midFrame.image_data } });
+      }
+    }
+  }
   const biome = vi.environment?.toLowerCase() || "";
   const populated = MOC_REFERENCES.filter(r => !r.base64.startsWith("REPLACE_"));
   if (populated.length === 0) return [];
@@ -151,6 +170,7 @@ export function pickRelevantRefs(vi: VisualIdentity, unitAtScene?: string, lib?:
     }
   }
 
-  return parts;
+  // Deploy Y5: prepend family-ref BEFORE biome/unit/MOC frame parts. Family ref is most specific anchor.
+  return [...familyRefs, ...parts];
 }
 
