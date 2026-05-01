@@ -176,10 +176,12 @@ export const handler: Handler = async (event) => {
         moc_inspiration: c.moc_inspiration || null,
         transferable_elements: c.transferable_elements || [],
         hook_type: c.hook_type || null,
+        hook_format: c.hook_format || null, // Deploy Z1: enables synthesis to filter UGC ads
         hook_description: c.hook_description || null,
         hook_timing_seconds: c.hook_timing_seconds || null,
         biome: c.biome || null,
         key_mechanic: c.key_mechanic || null,
+        mechanic_family: c.mechanic_family || null, // Deploy Z1: enables family-aware synthesis
         gate_escalation: c.gate_escalation || null,
         unit_evolution_chain: c.unit_evolution_chain || [],
         why_it_works: c.why_it_works || null,

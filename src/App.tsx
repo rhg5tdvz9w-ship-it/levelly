@@ -3411,17 +3411,18 @@ ${netAdapt ? section("Network adaptations", netAdapt) : ""}
       const refParts=pickRelevantRefs(vi, unitAtScene, lib, scene==="scene"?"start":"hook", familyTag);
       const prevParts: any[]=[];
 
-      const userUploadedRef = (concept as any).user_uploaded_ref;
-      if (userUploadedRef && scene !== "hook_b" && userUploadedRef.base64 && userUploadedRef.mimeType) {
-        prevParts.push({text:"### USER REFERENCE — match the level layout, mechanic structure, and obstacle placement shown in this image. Translate into MOC visual vocabulary (cannon, mob blobs, gates, biome). The user uploaded this as the structural blueprint for this concept:"});
-        prevParts.push({inlineData:{mimeType:userUploadedRef.mimeType,data:userUploadedRef.base64}});
-      }
-
       const sceneRef = concept.visual_scene || concept.visual_start || null;
       if(scene !== "scene" && sceneRef){
         // Hook renders use the scene render as style anchor for visual consistency
         prevParts.push({text:"### LANE SCENE — match art style, cannon type, mob color, environment, biome EXACTLY. This is the visual reference for consistency:"});
         prevParts.push({inlineData:{mimeType:parseDataURI(sceneRef).mimeType,data:parseDataURI(sceneRef).data}});
+      }
+
+      // Deploy Z3: user_uploaded_ref pushed LAST so Gemini Image weights it most strongly.
+      const userUploadedRef = (concept as any).user_uploaded_ref;
+      if (userUploadedRef && scene !== "hook_b" && userUploadedRef.base64 && userUploadedRef.mimeType) {
+        prevParts.push({text:"### PRIMARY USER REFERENCE — HIGHEST PRIORITY. The user uploaded this image as the structural blueprint for this concept. You MUST replicate the level layout, obstacle placement, mechanic, and spatial composition shown here. Translate ONLY the visual style into MOC vocabulary (cannon at bottom, mob blobs, gate panels, biome). The OBSTACLE TYPES, INTERACTION MECHANIC (lift/break/push/swarm), and REWARD POSITIONING from this image OVERRIDE any inferred layout from biome/scene anchors above. If this image shows a lift platform, the render MUST show a lift platform — NOT a static decoration:"});
+        prevParts.push({inlineData:{mimeType:userUploadedRef.mimeType,data:userUploadedRef.base64}});
       }
 
       const continuityNote = undefined;
@@ -4031,6 +4032,17 @@ ${netAdapt ? section("Network adaptations", netAdapt) : ""}
                               || (typeof localVal === "string" && localVal === "");
                             const cloudHasValue = cloudVal !== undefined && cloudVal !== null
                               && !(Array.isArray(cloudVal) && cloudVal.length === 0);
+                            // Deploy Z2: special-case auto_frames — if local has metadata-only frames
+                            // (no image_data) and cloud has frames WITH image_data, replace local.
+                            // Without this, re-analyzed entries get stuck with stripped frames forever.
+                            if (key === "auto_frames" && Array.isArray(localVal) && Array.isArray(cloudVal)) {
+                              const localHasImg = localVal.some((f: any) => f && f.image_data);
+                              const cloudHasImg = cloudVal.some((f: any) => f && f.image_data);
+                              if (!localHasImg && cloudHasImg) {
+                                merged[key] = cloudVal;
+                                continue;
+                              }
+                            }
                             if (localIsEmpty && cloudHasValue) {
                               merged[key] = cloudVal;
                             }
