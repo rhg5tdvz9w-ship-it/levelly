@@ -2096,45 +2096,22 @@ function AppInner() {
                 cloudOnlyNew.push(cloudEntry);
               }
             }
-            // Deploy BC1 (defensive merge — fixes 4 trust bugs in one patch):
-            // Pre-BC1 logic was naive { ...lsEntry, ...cloudOverride } which let stale or empty cloud values
-            // overwrite user manual edits + DNA fields. Caused: tier reverts (Whiteout winner→inspiration→winner),
-            // title reverts (Last Asylum→Lost Asylum), family tag reverts, lost analysis fields (hook_type,
-            // pacing, swarm_peak wiped on every refresh). All four bugs = same root cause: cloud index summary
-            // contains a field, spread overwrites local good value.
+            // Deploy BC1.3: revert BC1's "local wins if non-empty" logic. BC1 was treating the symptom
+            // (cloud wiping local fields after repair-index regenerated stale summaries) instead of the
+            // cause. BC1.1 fixed the actual cause by adding mechanic_family/hook_format/champions_unverified/
+            // game_title to repair-index + save-entry summaries — cloud is now reliable. With cloud reliable,
+            // BC1's local-wins logic became actively harmful: it preserved stale localStorage values when
+            // cloud was up-to-date (e.g. user changed tier→cloud got it, but localStorage stayed stale somehow,
+            // and BC1 trusted localStorage over cloud).
             //
-            // New logic — field-typed merge:
-            //   (a) CLOUD_AUTHORITATIVE_FIELDS: cloud always wins (system-computed, not user-editable).
-            //   (b) All other fields: LOCAL WINS IF NON-EMPTY. Cloud only fills when local is empty/null/[]/"".
-            //   (c) auto_frames: existing special case preserved (local frames-with-image_data wins).
-            const CLOUD_AUTHORITATIVE_FIELDS = new Set([
-              "cloud_thumbnail", // system-generated 150px JPEG, cloud is canonical
-              "has_frames",      // derived signal computed at save-entry
-            ]);
+            // Restored: original Deploy U behavior — cloud authoritative for summary fields.
+            // For auto_frames specifically: prefer localStorage's version IF it has any image_data
+            // (preserves IDB-backed frames). Otherwise take cloud's version.
             const localWithCloudFields = localParsed.map((lsEntry: DNAEntry) => {
               const cloudOverride = cloudOverrides.get(lsEntry.id);
               if (!cloudOverride) return lsEntry;
               const lsHasFrameData = Array.isArray(lsEntry.auto_frames) && lsEntry.auto_frames.some((f: any) => f && f.image_data);
-              const merged: any = { ...lsEntry };
-              for (const key of Object.keys(cloudOverride)) {
-                const cloudVal = (cloudOverride as any)[key];
-                const localVal = (lsEntry as any)[key];
-                if (CLOUD_AUTHORITATIVE_FIELDS.has(key)) {
-                  // Cloud always wins for system-generated fields
-                  if (cloudVal !== undefined) merged[key] = cloudVal;
-                } else {
-                  // All user-editable + DNA fields: local wins if non-empty
-                  const localIsEmpty = localVal === undefined || localVal === null
-                    || (Array.isArray(localVal) && localVal.length === 0)
-                    || (typeof localVal === "string" && localVal === "");
-                  const cloudHasValue = cloudVal !== undefined && cloudVal !== null
-                    && !(Array.isArray(cloudVal) && cloudVal.length === 0);
-                  if (localIsEmpty && cloudHasValue) {
-                    merged[key] = cloudVal;
-                  }
-                }
-              }
-              // auto_frames special case (preserved from pre-BC1): local frames-with-image_data wins
+              const merged: any = { ...lsEntry, ...cloudOverride };
               if (lsHasFrameData) merged.auto_frames = lsEntry.auto_frames;
               return merged as DNAEntry;
             });
