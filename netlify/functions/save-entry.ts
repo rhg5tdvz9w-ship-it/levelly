@@ -18,9 +18,34 @@ export const handler: Handler = async (event) => {
 
     const store = getStore("levelly");
 
+    // Deploy AA: protect cloud frames from being overwritten by a stripped re-analyze payload.
+    // If incoming entry has empty or stripped auto_frames (no image_data) but existing cloud blob
+    // has frames WITH image_data, preserve the cloud frames in the saved blob. Server-side defense.
+    let entryToSave = entry;
+    const incomingFramesHaveData = Array.isArray(entry.auto_frames)
+      && entry.auto_frames.some((f: any) => f && f.image_data);
+    if (!incomingFramesHaveData) {
+      try {
+        const existingBlob = await store.get(`entry-${entry.id}`);
+        if (existingBlob) {
+          const existingEntry = JSON.parse(existingBlob);
+          const existingFramesHaveData = Array.isArray(existingEntry.auto_frames)
+            && existingEntry.auto_frames.some((f: any) => f && f.image_data);
+          if (existingFramesHaveData) {
+            // Cloud has good frames, incoming doesn't. Preserve cloud's frames.
+            entryToSave = { ...entry, auto_frames: existingEntry.auto_frames };
+            console.log(`[Levelly AA] Preserved ${existingEntry.auto_frames.length} cloud frames for entry ${entry.id} (incoming was stripped)`);
+          }
+        }
+      } catch (err) {
+        console.warn(`[Levelly AA] Frame-preservation check failed for ${entry.id}:`, err);
+        // Fall through — save what client sent (do not block on protection failure)
+      }
+    }
+
     // Write the full entry to its own blob — frames included
     const entryKey = `entry-${entry.id}`;
-    await store.set(entryKey, JSON.stringify(entry));
+    await store.set(entryKey, JSON.stringify(entryToSave));
 
     // Update library-index with the summary fields for fast listing
     let index: any[] = [];
@@ -31,7 +56,9 @@ export const handler: Handler = async (event) => {
 
     // Summary fields used by the library grid — keep lightweight
     // Deploy G.3: has_frames flag lets backfill logic know which entries need frames pushed up.
-    const hasFramesInCloud = Array.isArray(entry.auto_frames) && entry.auto_frames.some((f: any) => f && f.image_data);
+    // Use entryToSave so has_frames reflects what was actually persisted (post-protection).
+    const hasFramesInCloud = Array.isArray(entryToSave.auto_frames)
+      && entryToSave.auto_frames.some((f: any) => f && f.image_data);
     const summary = {
       id: entry.id,
       title: entry.title || "",
@@ -52,6 +79,9 @@ export const handler: Handler = async (event) => {
       // (NETWORKS, TOP VELOCITY) reflect reality without requiring every entry to be lazy-loaded.
       spend_networks: entry.spend_networks || [],
       spend_window_days: entry.spend_window_days,
+      // Deploy AA: producer-set tags + UGC detection survive cross-device by riding in the index summary.
+      mechanic_family: entry.mechanic_family,
+      hook_format: entry.hook_format,
     };
 
     const existingIdx = index.findIndex((e: any) => e.id === entry.id);

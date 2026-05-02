@@ -2618,6 +2618,99 @@ For each description above:
   // Deploy E: bulk-sync cloud thumbnails for entries missing them (one-time migration helper)
   const [syncingThumbs, setSyncingThumbs] = React.useState(false);
   const [syncProgress, setSyncProgress] = React.useState("");
+  // Deploy AA3: recover frames from IndexedDB → cloud for entries where cloud lost frames.
+  // For each lib entry, check IDB. If IDB has frames with image_data AND cloud blob is missing
+  // frames (or has stripped frames), POST the entry+frames back via save-entry.
+  // Frame protection in save-entry (AA1) ensures this can never overwrite good cloud frames.
+  const [syncingIDBFrames, setSyncingIDBFrames] = React.useState<boolean>(false);
+  const [idbSyncProgress, setIdbSyncProgress] = React.useState<string>("");
+  const handleSyncFramesFromIDB = async () => {
+    if (!confirm(`Scan IndexedDB for frames missing from cloud, then push them back? This recovers entries whose cloud frames were destroyed by re-analyze. Safe: server-side AA1 protection prevents overwriting any existing good cloud frames. Estimated time: ~30s for full scan.`)) return;
+    setSyncingIDBFrames(true);
+    setIdbSyncProgress("Reading IndexedDB…");
+    let recovered = 0;
+    let skipped = 0;
+    let failed = 0;
+    try {
+      // Open IDB and read all frame entries
+      const idbFrames = await new Promise<Map<any, any[]>>((resolve, reject) => {
+        const req = indexedDB.open("levelly-frames", 1);
+        req.onerror = () => reject(req.error);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction("frames", "readonly");
+          const store = tx.objectStore("frames");
+          const allReq = store.getAll();
+          allReq.onsuccess = () => {
+            const map = new Map();
+            for (const rec of allReq.result || []) {
+              if (rec && rec.id !== undefined && Array.isArray(rec.frames)) {
+                map.set(rec.id, rec.frames);
+              }
+            }
+            resolve(map);
+          };
+          allReq.onerror = () => reject(allReq.error);
+        };
+      });
+      setIdbSyncProgress(`IDB has ${idbFrames.size} entries. Checking each against cloud…`);
+
+      // For each lib entry, check if IDB has good frames AND cloud is missing them
+      const candidates: any[] = [];
+      for (const entry of lib) {
+        const idbEntryFrames = idbFrames.get(entry.id);
+        if (!idbEntryFrames) continue;
+        const idbHasData = idbEntryFrames.some((f: any) => f && f.image_data);
+        if (!idbHasData) continue;
+        // Check current cloud state via load-entry
+        try {
+          const r = await fetch(`/api/load-entry?id=${entry.id}`);
+          if (!r.ok) {
+            console.warn(`[Levelly AA3] load-entry ${entry.id} returned ${r.status}, skipping`);
+            continue;
+          }
+          const cloud = await r.json();
+          const cloudHasData = Array.isArray(cloud.auto_frames)
+            && cloud.auto_frames.some((f: any) => f && f.image_data);
+          if (!cloudHasData) {
+            candidates.push({ entry, cloudEntry: cloud, idbFrames: idbEntryFrames });
+          } else {
+            skipped++;
+          }
+        } catch (err) {
+          console.warn(`[Levelly AA3] check failed for ${entry.id}:`, err);
+        }
+      }
+      setIdbSyncProgress(`${candidates.length} entries need recovery. Pushing frames back to cloud…`);
+
+      // Push frames back for each candidate
+      for (let i = 0; i < candidates.length; i++) {
+        const { entry, cloudEntry, idbFrames: frames } = candidates[i];
+        setIdbSyncProgress(`Recovering ${i+1}/${candidates.length}: ${entry.creative_id || entry.title?.slice(0, 30) || entry.id}…`);
+        try {
+          // Build the full entry: cloud blob's data + IDB frames
+          const merged = { ...cloudEntry, auto_frames: frames };
+          const r = await fetch("/api/save-entry", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ entry: merged }),
+          });
+          if (!r.ok) throw new Error(`save-entry HTTP ${r.status}`);
+          recovered++;
+        } catch (err) {
+          failed++;
+          console.warn(`[Levelly AA3] recover failed for ${entry.id}:`, err);
+        }
+      }
+    } catch (err: any) {
+      alert(`IDB sync failed: ${err.message || err}`);
+    } finally {
+      setSyncingIDBFrames(false);
+      setIdbSyncProgress("");
+    }
+    alert(`✓ Frame recovery complete.\n\n• Recovered: ${recovered}\n• Already had frames in cloud: ${skipped}\n• Failed: ${failed}\n\n${recovered > 0 ? "Hard refresh the page to see restored filmstrips." : ""}`);
+  };
+
   const handleSyncThumbnails = async () => {
     // Deploy P: fetches per-entry blobs from cloud sequentially (no parallel state-mutation risk).
     // For each entry without cloud_thumbnail: fetch full entry → take first frame with image_data →
@@ -3919,6 +4012,17 @@ ${netAdapt ? section("Network adaptations", netAdapt) : ""}
                     disabled={syncingThumbs || analyzing || reanalyzingAll}
                   >
                     {syncingThumbs ? (syncProgress || "Syncing…") : "🖼 Sync thumbnails"}
+                  </button>
+                )}
+                {/* Deploy AA3: IDB → cloud frame recovery */}
+                {lib.length > 0 && (
+                  <button
+                    style={{ ...btnSec, fontSize: 11 }}
+                    onClick={e => { e.stopPropagation(); handleSyncFramesFromIDB(); }}
+                    disabled={syncingIDBFrames || syncingThumbs || analyzing || reanalyzingAll}
+                    title="Recover frames from IndexedDB to cloud for entries whose cloud frames were destroyed (e.g. by past re-analyze)"
+                  >
+                    {syncingIDBFrames ? (idbSyncProgress || "Recovering…") : "🔄 Recover frames"}
                   </button>
                 )}
                 {lib.length > 0 && (
