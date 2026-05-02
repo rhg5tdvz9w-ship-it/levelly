@@ -82,6 +82,10 @@ export const handler: Handler = async (event) => {
       // Deploy AA: producer-set tags + UGC detection survive cross-device by riding in the index summary.
       mechanic_family: entry.mechanic_family,
       hook_format: entry.hook_format,
+      // Deploy BC1.1: extend summary to mirror repair-index. champions_unverified (BB) and game_title (N)
+      // were only in the per-entry blob — index rewrites lost them. Now both flow through summary.
+      champions_unverified: entry.champions_unverified || [],
+      game_title: entry.game_title,
     };
 
     const existingIdx = index.findIndex((e: any) => e.id === entry.id);

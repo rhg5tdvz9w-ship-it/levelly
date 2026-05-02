@@ -75,6 +75,14 @@ export const handler: Handler = async (event) => {
           // Deploy P: include spend_networks + spend_window_days in summary so aggregate counters work.
           spend_networks: entry.spend_networks || [],
           spend_window_days: entry.spend_window_days,
+          // Deploy BC1.1 (urgent hotfix): missing field propagation. AA2 added these to save-entry summary
+          // but NOT to repair-index — repair-index runs on every load (G.3.1) and was wiping these from
+          // cloud. Caused chronic loss of mechanic_family / hook_format / champions_unverified across
+          // refreshes. Fix: include them in the repair summary so cloud preserves user tags + analyzer fields.
+          mechanic_family: entry.mechanic_family,
+          hook_format: entry.hook_format,
+          champions_unverified: entry.champions_unverified || [],
+          game_title: entry.game_title,
         };
         // Only count as repair if something actually changed
         const changed = JSON.stringify(summary) !== JSON.stringify(newSummary);
