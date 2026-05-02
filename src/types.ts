@@ -30,7 +30,10 @@ export interface DNAEntry {
   loss_event_timing_seconds: number | null; unit_evolution_chain: string[];
   giant_kills?: GiantKill[];
   emotional_arc: string; emotional_beats: EmotionalBeat[]; biome: string;
-  biome_visual_notes: string; champions_visible: string[]; pacing: string;
+  biome_visual_notes: string; champions_visible: string[];
+  /** Deploy BB: champions Gemini saw as candidates but did NOT verify with ≥2 frames + distinctive feature. Surface for producer review, do NOT treat as confirmed presence. */
+  champions_unverified?: string[];
+  pacing: string;
   key_mechanic: string; why_it_works: string; why_it_fails: string | null;
   creative_gaps: string | null;
   creative_gaps_structured?: { hook_strength: string; mechanic_clarity: string; emotional_payoff: string; tension_arc?: string; rewatch_factor?: string; };
@@ -76,6 +79,8 @@ export interface Concept {
   visual_hook_a?: string; visual_hook_b?: string; visual_hook_c?: string;
   hook_a_description?: string; hook_b_description?: string; hook_c_description?: string;
   visual_middle?: string; visual_end?: string; visual_hook?: string; // legacy — hidden in UI
+  /** Deploy BB: outsider concepts (concept 4 with [OUTSIDER:...] tag) self-report whether they're shippable with existing MOC assets + max 1 new modification. "fail" → regenerate. null/undefined for non-outsider concepts. */
+  producibility_check?: "pass" | "fail" | null;
 }
 export interface BriefAnalysis { patterns_used: string; segment_insight: string; strategy: string; dna_sources?: string[]; }
 export type SortMode = "all" | "winner" | "scalable" | "inspiration" | "failed";
