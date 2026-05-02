@@ -2139,6 +2139,16 @@ function AppInner() {
               return merged as DNAEntry;
             });
             const merged = sanitizeLib([...localWithCloudFields, ...cloudOnlyNew]);
+            // Deploy BC1.2: write merged state back to localStorage so future saveLib calls work from
+            // cloud-corrected data. Without this, localStorage stays stale until next user action,
+            // and intermittent saves can persist the stripped state to cloud (e.g. lazy-load timing).
+            try {
+              const withoutFrames = merged.map((e: DNAEntry) => ({
+                ...e,
+                auto_frames: e.auto_frames?.map((f: any) => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance }))
+              }));
+              localStorage.setItem("levelly_dna_library", JSON.stringify(withoutFrames));
+            } catch {}
             mergeFramesFromIDB(merged).then(withFrames => setLib(withFrames)).catch(() => setLib(merged));
           } else {
             const sanitized = sanitizeLib(data);
@@ -2448,7 +2458,13 @@ function AppInner() {
         is_compound: entry.is_compound,
         mechanic_family: (entry as any).mechanic_family,
       } : {};
-      return {...entry, ...dna, ...preservedFields, id:entry.id, reanalyzed:true, added_at:entry.added_at, file_name:entry.file_name, tier:entry.tier, ad_type:entry.ad_type, auto_frames:entry.auto_frames};
+      // Deploy BC1.2: ALWAYS preserve producer-set tags (mechanic_family, hook_format) regardless of
+      // reanalyzed flag. Pre-BC1.2, these were only preserved when entry.reanalyzed === true. But manual
+      // tagging via dropdown doesn't set reanalyzed, so the FIRST re-analyze after manual tag wiped it.
+      const alwaysPreserve: any = {};
+      if ((entry as any).mechanic_family) alwaysPreserve.mechanic_family = (entry as any).mechanic_family;
+      if ((entry as any).hook_format) alwaysPreserve.hook_format = (entry as any).hook_format;
+      return {...entry, ...dna, ...preservedFields, ...alwaysPreserve, id:entry.id, reanalyzed:true, added_at:entry.added_at, file_name:entry.file_name, tier:entry.tier, ad_type:entry.ad_type, auto_frames:entry.auto_frames};
     } else {
       // Fallback: text-only re-analysis if no frame images stored
       const stripped = { ...entry, auto_frames: entry.auto_frames?.map(f => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance })) };
@@ -2465,7 +2481,11 @@ function AppInner() {
         is_compound: entry.is_compound,
         mechanic_family: (entry as any).mechanic_family,
       } : {};
-      return {...entry, ...corrected, ...preservedFieldsText, id:entry.id, reanalyzed:true, added_at:entry.added_at, file_name:entry.file_name, tier:entry.tier, ad_type:entry.ad_type, auto_frames:entry.auto_frames};
+      // Deploy BC1.2: same always-preserve logic for text-only path.
+      const alwaysPreserveText: any = {};
+      if ((entry as any).mechanic_family) alwaysPreserveText.mechanic_family = (entry as any).mechanic_family;
+      if ((entry as any).hook_format) alwaysPreserveText.hook_format = (entry as any).hook_format;
+      return {...entry, ...corrected, ...preservedFieldsText, ...alwaysPreserveText, id:entry.id, reanalyzed:true, added_at:entry.added_at, file_name:entry.file_name, tier:entry.tier, ad_type:entry.ad_type, auto_frames:entry.auto_frames};
     }
   };
   const handleReanalyzeSingle=async(entry: DNAEntry)=>{
