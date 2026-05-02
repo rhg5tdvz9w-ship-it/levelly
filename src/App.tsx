@@ -2096,15 +2096,45 @@ function AppInner() {
                 cloudOnlyNew.push(cloudEntry);
               }
             }
-            // Apply cloud overrides onto localStorage entries — cloud fields win, then localStorage fills holes.
+            // Deploy BC1 (defensive merge — fixes 4 trust bugs in one patch):
+            // Pre-BC1 logic was naive { ...lsEntry, ...cloudOverride } which let stale or empty cloud values
+            // overwrite user manual edits + DNA fields. Caused: tier reverts (Whiteout winner→inspiration→winner),
+            // title reverts (Last Asylum→Lost Asylum), family tag reverts, lost analysis fields (hook_type,
+            // pacing, swarm_peak wiped on every refresh). All four bugs = same root cause: cloud index summary
+            // contains a field, spread overwrites local good value.
+            //
+            // New logic — field-typed merge:
+            //   (a) CLOUD_AUTHORITATIVE_FIELDS: cloud always wins (system-computed, not user-editable).
+            //   (b) All other fields: LOCAL WINS IF NON-EMPTY. Cloud only fills when local is empty/null/[]/"".
+            //   (c) auto_frames: existing special case preserved (local frames-with-image_data wins).
+            const CLOUD_AUTHORITATIVE_FIELDS = new Set([
+              "cloud_thumbnail", // system-generated 150px JPEG, cloud is canonical
+              "has_frames",      // derived signal computed at save-entry
+            ]);
             const localWithCloudFields = localParsed.map((lsEntry: DNAEntry) => {
               const cloudOverride = cloudOverrides.get(lsEntry.id);
               if (!cloudOverride) return lsEntry;
-              // Spread localStorage first, then cloud override on top — cloud fields take precedence.
-              // For auto_frames specifically: prefer localStorage's version IF it has any image_data
-              // (preserves IDB-backed frames). Otherwise take cloud's version.
               const lsHasFrameData = Array.isArray(lsEntry.auto_frames) && lsEntry.auto_frames.some((f: any) => f && f.image_data);
-              const merged: any = { ...lsEntry, ...cloudOverride };
+              const merged: any = { ...lsEntry };
+              for (const key of Object.keys(cloudOverride)) {
+                const cloudVal = (cloudOverride as any)[key];
+                const localVal = (lsEntry as any)[key];
+                if (CLOUD_AUTHORITATIVE_FIELDS.has(key)) {
+                  // Cloud always wins for system-generated fields
+                  if (cloudVal !== undefined) merged[key] = cloudVal;
+                } else {
+                  // All user-editable + DNA fields: local wins if non-empty
+                  const localIsEmpty = localVal === undefined || localVal === null
+                    || (Array.isArray(localVal) && localVal.length === 0)
+                    || (typeof localVal === "string" && localVal === "");
+                  const cloudHasValue = cloudVal !== undefined && cloudVal !== null
+                    && !(Array.isArray(cloudVal) && cloudVal.length === 0);
+                  if (localIsEmpty && cloudHasValue) {
+                    merged[key] = cloudVal;
+                  }
+                }
+              }
+              // auto_frames special case (preserved from pre-BC1): local frames-with-image_data wins
               if (lsHasFrameData) merged.auto_frames = lsEntry.auto_frames;
               return merged as DNAEntry;
             });
