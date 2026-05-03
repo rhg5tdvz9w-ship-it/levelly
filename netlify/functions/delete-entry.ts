@@ -25,12 +25,15 @@ export const handler: Handler = async (event) => {
     try { await store.delete(`entry-${id}`); } catch { /* idempotent */ }
 
     // Remove from library-index
+    // Deploy BC2.1: switch to string comparison. JS Number precision was breaking deletes for
+    // long-decimal IDs like 1774952860023.358 — parseFloat returned slightly-off value, e.id !== idNum
+    // returned true even when "equal", so .filter() KEPT the entry. Caused chronic orphan accumulation
+    // (entries with deleted blob but stale index summary). String compare bypasses precision entirely.
     try {
       const existingIndex = await store.get("library-index");
       if (existingIndex) {
         const index = JSON.parse(existingIndex);
-        const idNum = parseFloat(id);
-        const filtered = index.filter((e: any) => e.id !== idNum && e.id !== id);
+        const filtered = index.filter((e: any) => String(e.id) !== id);
         await store.set("library-index", JSON.stringify(filtered));
       }
     } catch { /* fail open — index may self-heal on next save */ }

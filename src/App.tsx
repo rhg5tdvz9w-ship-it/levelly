@@ -1116,31 +1116,41 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
           ) : null}
           {/* Deploy I: gate upgrade badge — shows when analyze detected an ascending xN sequence in the video. (Renamed P.1: data field stays gate_escalation.) */}
           {d.gate_escalation && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)} title={`Gate upgrade detected: ${d.gate_escalation}`}>⚡ Gate upgrade: {d.gate_escalation.replace(/\s*\(.*?\).*$/, "")}</span>}
-          <select
-            value={(d as any).mechanic_family || ""}
-            onChange={e => { e.stopPropagation(); const newVal = e.target.value || null; saveLib(lib.map(x => x.id === d.id ? { ...x, mechanic_family: newVal as any } : x)); }}
-            onClick={e => e.stopPropagation()}
-            style={{ ...pill(D.surface2, D.text, D.border2), fontSize: 9, padding: "2px 6px", border: `0.5px solid ${D.border2}`, cursor: "pointer", fontFamily: "inherit" }}
-            title="Mechanic family override — used by render picker to anchor visual style"
-          >
-            <option value="">⚙ family: untagged</option>
-            <option value="F1">F1 — gate progression</option>
-            <option value="F2/V1">F2/V1 — break (unlock)</option>
-            <option value="F2/V2">F2/V2 — break (decorative)</option>
-            <option value="F2/V3">F2/V3 — push/rotate</option>
-            <option value="F2/V4">F2/V4 — lift platform</option>
-            <option value="F2/V5">F2/V5 — swarm-destroy</option>
-            <option value="F2/V1+V5">F2/V1+V5 — break + swarm</option>
-            <option value="F2/V3+V5">F2/V3+V5 — push + swarm</option>
-            <option value="F2/V4+V5">F2/V4+V5 — lift + swarm</option>
-            <option value="F2/V1+V3">F2/V1+V3 — break + push</option>
-            <option value="F3">F3 — multi-lane choice</option>
-            <option value="F4">F4 — idle core loop</option>
-            <option value="F3+F2/V1">F3+F2/V1 — multi-lane + break</option>
-            <option value="F2/V4+F4">F2/V4+F4 — lift + idle base</option>
-            <option value="F4+F2/V3">F4+F2/V3 — idle + push</option>
-            <option value="other">other</option>
-          </select>
+          {/* Deploy BC2.1: family pill HIDDEN from producer UI.
+              Reason: F-codes (F1/F2/V1+V5/F4) confused producers — they didn't know what they meant
+              and tagged inconsistently. mechanic_family field still ALIVE under the hood:
+                - Gemini auto-tags during analyze (analyzeSystem schema)
+                - Used by pickRelevantRefs (rendering.ts) for visual anchoring
+                - Used by briefSystem for prompt-side mechanic diversity
+              If producer override needed in future: re-enable by changing SHOW_FAMILY_OVERRIDE to true,
+              or move to an admin/dev-mode panel. Field itself stays in DNAEntry schema. */}
+          {false && (
+            <select
+              value={(d as any).mechanic_family || ""}
+              onChange={e => { e.stopPropagation(); const newVal = e.target.value || null; saveLib(lib.map(x => x.id === d.id ? { ...x, mechanic_family: newVal as any } : x)); }}
+              onClick={e => e.stopPropagation()}
+              style={{ ...pill(D.surface2, D.text, D.border2), fontSize: 9, padding: "2px 6px", border: `0.5px solid ${D.border2}`, cursor: "pointer", fontFamily: "inherit" }}
+              title="Mechanic family override — used by render picker to anchor visual style"
+            >
+              <option value="">⚙ family: untagged</option>
+              <option value="F1">F1 — gate progression</option>
+              <option value="F2/V1">F2/V1 — break (unlock)</option>
+              <option value="F2/V2">F2/V2 — break (decorative)</option>
+              <option value="F2/V3">F2/V3 — push/rotate</option>
+              <option value="F2/V4">F2/V4 — lift platform</option>
+              <option value="F2/V5">F2/V5 — swarm-destroy</option>
+              <option value="F2/V1+V5">F2/V1+V5 — break + swarm</option>
+              <option value="F2/V3+V5">F2/V3+V5 — push + swarm</option>
+              <option value="F2/V4+V5">F2/V4+V5 — lift + swarm</option>
+              <option value="F2/V1+V3">F2/V1+V3 — break + push</option>
+              <option value="F3">F3 — multi-lane choice</option>
+              <option value="F4">F4 — idle core loop</option>
+              <option value="F3+F2/V1">F3+F2/V1 — multi-lane + break</option>
+              <option value="F2/V4+F4">F2/V4+F4 — lift + idle base</option>
+              <option value="F4+F2/V3">F4+F2/V3 — idle + push</option>
+              <option value="other">other</option>
+            </select>
+          )}
           {d.levelly_brief_title && <span style={pill(D.blueBg, D.blue, D.blueDark)} title={`Levelly brief: ${d.levelly_brief_title}`}>⎇ Levelly</span>}
           {d.reanalyzed && <span style={pill(D.greenBg, D.green, D.greenBdr)}>re-analyzed</span>}
         </div>
@@ -2338,10 +2348,23 @@ function AppInner() {
             return { id: entry.id, ok: false } as const;
           })
       );
-      const deletes = toDelete.map(id =>
-        fetch("/api/delete-entry?id=" + id, { method: "DELETE" })
-          .then(r => { if (!r.ok) throw new Error("delete-entry " + id); })
-      );
+      // Deploy BC2.1: deletes also need retry + failure tracking. Pre-BC2.1, single .catch swallowed
+      // any delete failure silently. Cloud kept entries that user removed locally → reappeared on refresh.
+      // Now: 3 retries with backoff, failed delete IDs tracked in pendingCloudSync (with "delete:" prefix
+      // so the retry handler knows to call delete-entry instead of save-entry).
+      const deletes = toDelete.map(async id => {
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            const r = await fetch("/api/delete-entry?id=" + id, { method: "DELETE" });
+            if (r.ok) return { id, ok: true } as const;
+            console.warn(`[Levelly BC2.1] delete-entry HTTP ${r.status} for ${id} (attempt ${attempt}/3)`);
+          } catch (err) {
+            console.warn(`[Levelly BC2.1] delete-entry threw for ${id} (attempt ${attempt}/3):`, err);
+          }
+          if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 1000));
+        }
+        return { id, ok: false } as const;
+      });
       Promise.all(saves)
         .then(saveResults => {
           const failedIds = saveResults.filter(r => !r.ok).map(r => String(r.id));
@@ -2359,8 +2382,22 @@ function AppInner() {
             setCloudStatus("saved");
             setTimeout(() => setCloudStatus("idle"), 2000);
           }
-          // Run deletes after saves resolve (don't block on them for save-status feedback)
-          return Promise.all(deletes).catch(err => console.warn("[Levelly BC2 P2] delete failed:", err));
+          // Deploy BC2.1: deletes use same pendingCloudSync surfacing as saves (P2).
+          // Failed delete IDs prefixed with "delete:" so the retry handler distinguishes them from
+          // failed saves (which use raw IDs). Banner counts both.
+          return Promise.all(deletes).then(deleteResults => {
+            const failedDeletes = deleteResults.filter(r => !r.ok).map(r => `delete:${r.id}`);
+            if (failedDeletes.length > 0) {
+              try {
+                const stored = JSON.parse(localStorage.getItem("levelly_pending_cloud_sync") || "[]");
+                const combined = Array.from(new Set([...(stored as any[]).map(String), ...failedDeletes]));
+                localStorage.setItem("levelly_pending_cloud_sync", JSON.stringify(combined));
+                setPendingCloudSync(combined);
+              } catch (e) { console.warn("[Levelly BC2.1] failed to persist pending delete list:", e); }
+              setCloudStatus("error");
+              setTimeout(() => setCloudStatus("idle"), 3000);
+            }
+          });
         });
     }
   },[libraryLoaded]);
@@ -2874,11 +2911,30 @@ For each description above:
     let succeeded = 0;
     let failed = 0;
     const stillPending: string[] = [];
-    // Read full entry data from current lib state — entries we want to push
+    // Deploy BC2.1: retry handler now handles BOTH failed saves AND failed deletes.
+    // Delete entries are prefixed with "delete:" in pendingCloudSync. Detect prefix → call delete-entry.
+    // Save entries (no prefix) → existing save-entry retry logic.
     for (const idVal of pendingCloudSync) {
       const idStr = String(idVal);
+      const isDelete = idStr.startsWith("delete:");
+      const cleanId = isDelete ? idStr.slice("delete:".length) : idStr;
+
+      if (isDelete) {
+        // Failed delete — retry the delete
+        try {
+          const resp = await fetch(`/api/delete-entry?id=${cleanId}`, { method: "DELETE" });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          succeeded++;
+        } catch (err) {
+          failed++;
+          stillPending.push(idStr);
+          console.warn(`[Levelly BC2.1] retry delete failed for ${cleanId}:`, err);
+        }
+        continue;
+      }
+
       // Find by string match (ids stored as numbers, list stores strings)
-      const entry = lib.find(e => String(e.id) === idStr);
+      const entry = lib.find(e => String(e.id) === cleanId);
       if (!entry) {
         // Entry was deleted from lib but still in pending list — drop it
         continue;
@@ -2900,7 +2956,7 @@ For each description above:
       } catch (err) {
         failed++;
         stillPending.push(idStr);
-        console.warn(`[Levelly T] retry failed for entry ${idStr}:`, err);
+        console.warn(`[Levelly T] retry failed for entry ${cleanId}:`, err);
       }
     }
     updatePendingSync(stillPending);
@@ -3115,6 +3171,16 @@ For each description above:
           ? { ...f, image_data: frameImageMap[f.timestamp_seconds] ?? frameImageMap[Math.round(f.timestamp_seconds)] }
           : f
       );
+      // Deploy BC2.1: generate cloud_thumbnail for competitor entries created via brief panel.
+      // Pre-BC2.1, this function never set cloud_thumbnail — caused "No preview" tiles on every
+      // brief-uploaded competitor entry. Fix: generate from first frame with image_data, same as upload flow.
+      let cloudThumbnail: string | undefined = undefined;
+      try {
+        const firstFrameWithData = autoFramesWithImages.find(f => f.image_data);
+        if (firstFrameWithData?.image_data) {
+          cloudThumbnail = await generateCloudThumbnail(firstFrameWithData.image_data);
+        }
+      } catch (err: any) { console.warn(`[BC2.1] thumbnail generation failed:`, err?.message); }
       return {
         ...dna,
         id: Date.now() + Math.random(),
@@ -3125,6 +3191,7 @@ For each description above:
         added_at: new Date().toISOString(),
         auto_frames: autoFramesWithImages,
         manual_frames: [],
+        cloud_thumbnail: cloudThumbnail,
       } as DNAEntry;
     } catch (err: any) {
       console.warn(`analyzeCompetitorForBrief failed (${adType}):`, err?.message);
