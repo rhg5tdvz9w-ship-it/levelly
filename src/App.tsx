@@ -1899,6 +1899,14 @@ function AppInner() {
   const [briefCtx, setBriefCtx] = useState(""); const [segment, setSegment] = useState("Whale");
   const [iterateFrom, setIterateFrom] = useState("");
   const [briefRef, setBriefRef] = useState<{ base64: string; mimeType: string; name: string } | null>(null);
+  // Deploy BC2 P3: multi-image-ref support. Up to 4 image refs per brief, all propagate to renders + brief prompt.
+  // Video ref stays in `briefRef` (single — only one video can be analyzed for DNA).
+  // Image refs use this separate array. Either or both can be active.
+  const [briefImageRefs, setBriefImageRefs] = useState<{ base64: string; mimeType: string; name: string }[]>([]);
+  // Deploy BC2 P4: ad_type toggle for video ref. When user drops a video, default to "competitor" (universal
+  // analyzer strips MOC-specific vocab). User can flip to "moc" if dropping a MOC-internal clip — runs MOC
+  // analyzer, extracts MOC-vocab DNA (cannon tiers, gate sequences, biome, etc) for richer brief context.
+  const [briefRefAdType, setBriefRefAdType] = useState<"moc" | "competitor">("competitor");
   const [lastCompetitorEntry, setLastCompetitorEntry] = useState<DNAEntry | null>(null);
   const [competitorExpanded, setCompetitorExpanded] = useState(false);
   const [liftIntent, setLiftIntent] = useState("");
@@ -2311,17 +2319,49 @@ function AppInner() {
       for (const prevEntry of prev) {
         if (!updatedById.has(prevEntry.id)) toDelete.push(prevEntry.id);
       }
+      // Deploy BC2 P2: cloud-write failure recovery. Pre-BC2, individual save-entry failures were caught
+      // by Promise.all.catch but only logged + status-flagged. The failed entry's localStorage state was
+      // left "ahead" of cloud — next refresh trusted cloud (BC1.3), reverting user's change silently.
+      // Now: each save tracks its own success. Failed IDs are added to pendingCloudSync (Deploy T's banner)
+      // so user gets explicit retry affordance instead of silent data loss.
       const saves = toSave.map(entry =>
         fetch("/api/save-entry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entry }) })
-          .then(r => { if (!r.ok) throw new Error("save-entry " + entry.id); })
+          .then(r => {
+            if (!r.ok) {
+              console.warn(`[Levelly BC2 P2] save-entry HTTP ${r.status} for ${entry.id}`);
+              return { id: entry.id, ok: false } as const;
+            }
+            return { id: entry.id, ok: true } as const;
+          })
+          .catch(err => {
+            console.warn(`[Levelly BC2 P2] save-entry threw for ${entry.id}:`, err);
+            return { id: entry.id, ok: false } as const;
+          })
       );
       const deletes = toDelete.map(id =>
         fetch("/api/delete-entry?id=" + id, { method: "DELETE" })
           .then(r => { if (!r.ok) throw new Error("delete-entry " + id); })
       );
-      Promise.all([...saves, ...deletes])
-        .then(()=>{ setCloudStatus("saved"); setTimeout(()=>setCloudStatus("idle"),2000); })
-        .catch((err)=>{ console.warn("[Levelly G.3] save failed:", err); setCloudStatus("error"); setTimeout(()=>setCloudStatus("idle"),3000); });
+      Promise.all(saves)
+        .then(saveResults => {
+          const failedIds = saveResults.filter(r => !r.ok).map(r => String(r.id));
+          if (failedIds.length > 0) {
+            // Add failed entry IDs to pendingCloudSync — Deploy T's retry banner picks them up.
+            try {
+              const stored = JSON.parse(localStorage.getItem("levelly_pending_cloud_sync") || "[]");
+              const combined = Array.from(new Set([...(stored as any[]).map(String), ...failedIds]));
+              localStorage.setItem("levelly_pending_cloud_sync", JSON.stringify(combined));
+              setPendingCloudSync(combined);
+            } catch (e) { console.warn("[Levelly BC2 P2] failed to persist pending list:", e); }
+            setCloudStatus("error");
+            setTimeout(() => setCloudStatus("idle"), 3000);
+          } else {
+            setCloudStatus("saved");
+            setTimeout(() => setCloudStatus("idle"), 2000);
+          }
+          // Run deletes after saves resolve (don't block on them for save-status feedback)
+          return Promise.all(deletes).catch(err => console.warn("[Levelly BC2 P2] delete failed:", err));
+        });
     }
   },[libraryLoaded]);
 
@@ -2401,6 +2441,21 @@ function AppInner() {
   const exportLibrary=()=>{ const blob=new Blob([JSON.stringify(lib,null,2)],{type:"application/json"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download=`levelly-dna-${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url); };
   const importLibrary=(e: React.ChangeEvent<HTMLInputElement>)=>{ const file=e.target.files?.[0]; if(!file) return; const reader=new FileReader(); reader.onload=()=>{ try { const p=JSON.parse(reader.result as string); if(!Array.isArray(p)) throw new Error(); const m=[...lib]; p.forEach((entry: DNAEntry)=>{ if(!m.find(x=>x.id===entry.id)) m.push(sanitizeDNA(entry) as DNAEntry); }); saveLib(m); } catch { alert("Import failed."); } }; reader.readAsText(file); e.target.value=""; };
 
+  // Deploy BC2 P1: defensive merge helper. Filters out null/undefined/empty-array/empty-string values
+  // from an object so they don't overwrite good values when spread on top of an existing entry.
+  // Used during re-analyze to prevent Gemini's sparse JSON responses from wiping populated fields.
+  const filterEmptyForMerge = (obj: any): any => {
+    if (!obj || typeof obj !== "object") return {};
+    const out: any = {};
+    for (const [k, v] of Object.entries(obj)) {
+      const isEmpty = v === undefined || v === null
+        || (Array.isArray(v) && v.length === 0)
+        || (typeof v === "string" && v.trim() === "");
+      if (!isEmpty) out[k] = v;
+    }
+    return out;
+  };
+
   const reanalyzeSingle=async(entry: DNAEntry): Promise<DNAEntry>=>{
     // Build frame image parts from stored auto_frames (IndexedDB)
     const framesWithImages = (entry.auto_frames||[]).filter(f => f.image_data);
@@ -2441,7 +2496,13 @@ function AppInner() {
       const alwaysPreserve: any = {};
       if ((entry as any).mechanic_family) alwaysPreserve.mechanic_family = (entry as any).mechanic_family;
       if ((entry as any).hook_format) alwaysPreserve.hook_format = (entry as any).hook_format;
-      return {...entry, ...dna, ...preservedFields, ...alwaysPreserve, id:entry.id, reanalyzed:true, added_at:entry.added_at, file_name:entry.file_name, tier:entry.tier, ad_type:entry.ad_type, auto_frames:entry.auto_frames};
+      // Deploy BC2 P1: defensive re-analyze merge. Filter null/empty values from `dna` BEFORE spread.
+      // Pre-BC2, Gemini's text-only / sparse responses with hook_type=null, pacing=null etc. were
+      // overwriting entry's good values via spread. Result: re-analyze wiped analysis fields permanently
+      // (cloud blob got nulls, repair-index propagated nulls to summary). Now: only non-empty dna keys
+      // survive into the spread — entry's existing values are preserved when dna lacks them.
+      const dnaFiltered = filterEmptyForMerge(dna);
+      return {...entry, ...dnaFiltered, ...preservedFields, ...alwaysPreserve, id:entry.id, reanalyzed:true, added_at:entry.added_at, file_name:entry.file_name, tier:entry.tier, ad_type:entry.ad_type, auto_frames:entry.auto_frames};
     } else {
       // Fallback: text-only re-analysis if no frame images stored
       const stripped = { ...entry, auto_frames: entry.auto_frames?.map(f => ({ timestamp_seconds: f.timestamp_seconds, description: f.description, significance: f.significance })) };
@@ -2462,7 +2523,9 @@ function AppInner() {
       const alwaysPreserveText: any = {};
       if ((entry as any).mechanic_family) alwaysPreserveText.mechanic_family = (entry as any).mechanic_family;
       if ((entry as any).hook_format) alwaysPreserveText.hook_format = (entry as any).hook_format;
-      return {...entry, ...corrected, ...preservedFieldsText, ...alwaysPreserveText, id:entry.id, reanalyzed:true, added_at:entry.added_at, file_name:entry.file_name, tier:entry.tier, ad_type:entry.ad_type, auto_frames:entry.auto_frames};
+      // Deploy BC2 P1: defensive merge for text-only path (same fix as frame-path above).
+      const correctedFiltered = filterEmptyForMerge(corrected);
+      return {...entry, ...correctedFiltered, ...preservedFieldsText, ...alwaysPreserveText, id:entry.id, reanalyzed:true, added_at:entry.added_at, file_name:entry.file_name, tier:entry.tier, ad_type:entry.ad_type, auto_frames:entry.auto_frames};
     }
   };
   const handleReanalyzeSingle=async(entry: DNAEntry)=>{
@@ -2997,7 +3060,10 @@ For each description above:
     finally { setAnalyzing(false); setUploadConfig(null); if(fileRef.current) fileRef.current.value=""; }
   },[uploadConfig, saveLibAppend]); // Deploy Q: removed lib from deps — read via libRef.current. Stable callback identity.
 
-  const analyzeCompetitorForBrief = async (ref: { base64: string; mimeType: string; name: string }): Promise<DNAEntry | null> => {
+  // Deploy BC2 P4: parameterized — accepts adType to route through MOC analyzer or competitor analyzer.
+  // "competitor" (default) — universal vocabulary, strips MOC-specific terms (existing behavior).
+  // "moc" — MOC analyzer with full vocab (cannon tiers, gate sequences, biome). Use for MOC-internal video refs.
+  const analyzeCompetitorForBrief = async (ref: { base64: string; mimeType: string; name: string }, adType: "moc" | "competitor" = "competitor"): Promise<DNAEntry | null> => {
     try {
       const rawB64 = ref.base64.includes(",") ? ref.base64.split(",")[1] : ref.base64;
       const byteChars = atob(rawB64);
@@ -3014,19 +3080,19 @@ For each description above:
       let autoFrames: FrameExtraction[] = [];
       let duration = 30;
       try {
-        const fr = await callGeminiDirect(frameExtractionSystem("competitor"), [
-          { text: "Extract 20-24 key frames from this competitor ad — focus on gameplay moments, mechanics, transformations:" },
+        const fr = await callGeminiDirect(frameExtractionSystem(adType), [
+          { text: adType === "moc" ? "Extract 20-24 key frames from this MOC ad — gates, upgrades, tier changes, boss appearances, almost-fail/win moments:" : "Extract 20-24 key frames from this competitor ad — focus on gameplay moments, mechanics, transformations:" },
           videoPart,
         ]);
         autoFrames = Array.isArray(fr?.frames) ? fr.frames : [];
         duration = typeof fr?.duration_seconds === "number" ? fr.duration_seconds : 30;
-      } catch (err: any) { console.warn("Competitor frame extraction failed:", err?.message); }
+      } catch (err: any) { console.warn(`${adType} frame extraction failed:`, err?.message); }
       let extractedFrameParts: any[] = [];
       try {
         const timestamps = autoFrames.map(f => f.timestamp_seconds).filter(t => typeof t === "number").sort((a, b) => a - b);
         if (timestamps.length > 0) extractedFrameParts = await extractFramesFromVideo(file, timestamps, duration);
-      } catch (err: any) { console.warn("Canvas extraction failed for competitor:", err?.message); }
-      const cfg: UploadConfig = { tier: "inspiration", ad_type: "competitor", context: "", manual_frames: [] };
+      } catch (err: any) { console.warn(`Canvas extraction failed for ${adType}:`, err?.message); }
+      const cfg: UploadConfig = { tier: "inspiration", ad_type: adType, context: "", manual_frames: [] };
       const hasRefsAvailable = MOC_REFERENCES.some(r => !r.base64.startsWith("REPLACE_"));
       const rawDna = await callGeminiDirect(
         analyzeSystem(lib, cfg, autoFrames, duration, extractedFrameParts.length > 0, hasRefsAvailable),
@@ -3053,7 +3119,7 @@ For each description above:
         ...dna,
         id: Date.now() + Math.random(),
         tier: "inspiration",
-        ad_type: "competitor",
+        ad_type: adType,
         upload_context: "",
         file_name: ref.name,
         added_at: new Date().toISOString(),
@@ -3061,7 +3127,7 @@ For each description above:
         manual_frames: [],
       } as DNAEntry;
     } catch (err: any) {
-      console.warn("analyzeCompetitorForBrief failed:", err?.message);
+      console.warn(`analyzeCompetitorForBrief failed (${adType}):`, err?.message);
       return null;
     }
   };
@@ -3077,8 +3143,10 @@ For each description above:
       if (briefRef) {
         const isVideo = briefRef.mimeType.startsWith("video/");
         if (isVideo) {
-          setBriefProgress("Analyzing competitor video…");
-          const newEntry = await analyzeCompetitorForBrief(briefRef);
+          // Deploy BC2 P4: pass adType from user toggle. Default "competitor" preserves prior behavior.
+          // "moc" routes through MOC analyzer for richer DNA when user drops a MOC-internal clip.
+          setBriefProgress(`Analyzing ${briefRefAdType === "moc" ? "MOC" : "competitor"} video…`);
+          const newEntry = await analyzeCompetitorForBrief(briefRef, briefRefAdType);
           if (newEntry) {
             saveLib([...lib, newEntry]);
             setLastCompetitorEntry(newEntry);
@@ -3109,39 +3177,57 @@ For each description above:
             refNote = `User visual reference: "${briefRef.name}" (analysis failed)`;
           }
         } else {
-          // Deploy W: image reference parsed via Gemini Vision, structured description injected.
-          setBriefProgress("Analyzing visual reference…");
+          // Deploy BC2 P3: primary briefRef is image — treat as first item of multi-ref pipeline.
+          // (Logic for analyzing all image refs runs below outside this if-block.)
+        }
+      }
+      // Deploy BC2 P3: collect ALL image refs (primary briefRef if image + extras from briefImageRefs).
+      // Each ref runs through analyze-image-ref independently → array of descriptions.
+      // briefSystem receives `user_visual_references` array (replacing single user_visual_reference).
+      const allImageRefs: { base64: string; mimeType: string; name: string }[] = [];
+      if (briefRef && !briefRef.mimeType.startsWith("video/")) allImageRefs.push(briefRef);
+      for (const r of briefImageRefs) allImageRefs.push(r);
+      if (allImageRefs.length > 0) {
+        setBriefProgress(`Analyzing ${allImageRefs.length} visual reference${allImageRefs.length > 1 ? "s" : ""}…`);
+        const descriptions: any[] = [];
+        const refNotes: string[] = [];
+        for (const r of allImageRefs) {
           try {
             const vresp = await fetch("/api/analyze-image-ref", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ images: [{ base64: briefRef.base64, mimeType: briefRef.mimeType }] }),
+              body: JSON.stringify({ images: [{ base64: r.base64, mimeType: r.mimeType }] }),
             });
             const vdata = await vresp.json();
             if (vresp.ok && vdata.ok && vdata.description) {
-              // If competitorContext doesn't exist yet (no video), create one carrying just the visual reference.
-              if (!competitorContext) {
-                competitorContext = {
-                  title: `Visual reference: ${briefRef.name}`,
-                  user_visual_reference: vdata.description,
-                  lift_intent: liftIntent.trim() || undefined,
-                } as any;
-              } else {
-                (competitorContext as any).user_visual_reference = vdata.description;
-              }
-              refNote = `Visual reference parsed: "${briefRef.name}" — ${(vdata.description.spatial_layout || "").slice(0, 80)}`;
-              setBriefProgress("Reference parsed. Generating briefs…");
+              descriptions.push({ name: r.name, description: vdata.description });
+              refNotes.push(`"${r.name}" — ${(vdata.description.spatial_layout || "").slice(0, 60)}`);
             } else {
-              console.warn("[Levelly W] image analysis failed:", vdata.error);
-              refNote = `User visual reference: "${briefRef.name}" (image analysis failed — using filename only)`;
+              console.warn(`[Levelly BC2 P3] image analysis failed for ${r.name}:`, vdata.error);
+              refNotes.push(`"${r.name}" (analysis failed)`);
             }
           } catch (err: any) {
-            console.warn("[Levelly W] image analysis error:", err);
-            refNote = `User visual reference: "${briefRef.name}" (image analysis error)`;
+            console.warn(`[Levelly BC2 P3] image analysis error for ${r.name}:`, err);
+            refNotes.push(`"${r.name}" (analysis error)`);
           }
-          setBriefRef(null);
-          setLiftIntent("");
         }
+        if (descriptions.length > 0) {
+          if (!competitorContext) {
+            competitorContext = {
+              title: descriptions.length === 1 ? `Visual reference: ${descriptions[0].name}` : `${descriptions.length} visual references`,
+              user_visual_references: descriptions,
+              lift_intent: liftIntent.trim() || undefined,
+            } as any;
+          } else {
+            (competitorContext as any).user_visual_references = descriptions;
+          }
+        }
+        refNote = `Visual references parsed (${descriptions.length}/${allImageRefs.length}): ${refNotes.join("; ")}`;
+        setBriefProgress("References parsed. Generating briefs…");
+        // Clear refs after use (consistent with pre-BC2 behavior for primary ref)
+        if (briefRef && !briefRef.mimeType.startsWith("video/")) setBriefRef(null);
+        if (briefImageRefs.length > 0) setBriefImageRefs([]);
+        setLiftIntent("");
       }
       const trimmedLib = lib
         .filter(d => d.tier === "winner" && d.ad_type !== "competitor" && d.creative_status !== "fatigued")
@@ -3191,9 +3277,19 @@ For each description above:
           if (job.analysis) setBriefAnalysis(job.analysis);
           // Only add newly arrived concepts
           const newConcepts = job.concepts.slice(lastConceptCount);
+          // Deploy BC2 P3: propagate ALL image refs (primary briefRef if image + extras from briefImageRefs)
+          // to every concept as `user_uploaded_refs` array. Render side loops over array, pushes each as a
+          // Gemini Image part. Backward-compat: also keep `user_uploaded_ref` singular pointing at first ref.
+          const conceptImageRefs: { base64: string; mimeType: string; name: string }[] = [];
+          if (briefRef && !briefRef.mimeType.startsWith("video/")) conceptImageRefs.push(briefRef);
+          for (const r of briefImageRefs) conceptImageRefs.push(r);
           newConcepts.forEach((concept: Concept, i: number) => {
-            const conceptWithRef = briefRef
-              ? { ...concept, user_uploaded_ref: { base64: briefRef.base64, mimeType: briefRef.mimeType, name: briefRef.name } }
+            const conceptWithRef = conceptImageRefs.length > 0
+              ? {
+                  ...concept,
+                  user_uploaded_refs: conceptImageRefs.map(r => ({ base64: r.base64, mimeType: r.mimeType, name: r.name })),
+                  user_uploaded_ref: { base64: conceptImageRefs[0].base64, mimeType: conceptImageRefs[0].mimeType, name: conceptImageRefs[0].name },
+                }
               : concept;
             setConcepts(prev => [...prev, conceptWithRef]);
             if (lastConceptCount === 0 && i === 0) setExpandedConcept(0);
@@ -3539,10 +3635,20 @@ ${netAdapt ? section("Network adaptations", netAdapt) : ""}
       }
 
       // Deploy Z3: user_uploaded_ref pushed LAST so Gemini Image weights it most strongly.
-      const userUploadedRef = (concept as any).user_uploaded_ref;
-      if (userUploadedRef && scene !== "hook_b" && userUploadedRef.base64 && userUploadedRef.mimeType) {
-        prevParts.push({text:"### PRIMARY USER REFERENCE — HIGHEST PRIORITY. The user uploaded this image as the structural blueprint for this concept. You MUST replicate the level layout, obstacle placement, mechanic, and spatial composition shown here. Translate ONLY the visual style into MOC vocabulary (cannon at bottom, mob blobs, gate panels, biome). The OBSTACLE TYPES, INTERACTION MECHANIC (lift/break/push/swarm), and REWARD POSITIONING from this image OVERRIDE any inferred layout from biome/scene anchors above. If this image shows a lift platform, the render MUST show a lift platform — NOT a static decoration:"});
-        prevParts.push({inlineData:{mimeType:userUploadedRef.mimeType,data:userUploadedRef.base64}});
+      // Deploy BC2 P3: support multi-ref. Loop over user_uploaded_refs array (preferred) or fall back
+      // to single user_uploaded_ref (backward compat). All refs pushed as separate Gemini Image parts.
+      const userUploadedRefs: any[] = Array.isArray((concept as any).user_uploaded_refs) && (concept as any).user_uploaded_refs.length > 0
+        ? (concept as any).user_uploaded_refs
+        : ((concept as any).user_uploaded_ref ? [(concept as any).user_uploaded_ref] : []);
+      const validRefs = userUploadedRefs.filter((r: any) => r && r.base64 && r.mimeType && !r.mimeType.startsWith("video/"));
+      if (validRefs.length > 0 && scene !== "hook_b") {
+        const refLabel = validRefs.length === 1
+          ? "### PRIMARY USER REFERENCE — HIGHEST PRIORITY. The user uploaded this image as the structural blueprint for this concept. You MUST replicate the level layout, obstacle placement, mechanic, and spatial composition shown here. Translate ONLY the visual style into MOC vocabulary (cannon at bottom, mob blobs, gate panels, biome). The OBSTACLE TYPES, INTERACTION MECHANIC (lift/break/push/swarm), and REWARD POSITIONING from this image OVERRIDE any inferred layout from biome/scene anchors above. If this image shows a lift platform, the render MUST show a lift platform — NOT a static decoration:"
+          : `### ${validRefs.length} USER REFERENCES — HIGHEST PRIORITY (combined blueprint). The user uploaded ${validRefs.length} reference images. SYNTHESIZE the structural elements (lane layout, obstacle types, interaction mechanics, reward placement) ACROSS these references into a SINGLE coherent MOC scene. Each reference contributes a piece — combine them, don't pick one. The OBSTACLE TYPES + INTERACTION MECHANICS + REWARD POSITIONING from these images OVERRIDE biome/scene anchors above. Translate visual style into MOC vocabulary (cannon at bottom, mob blobs, gate panels, biome):`;
+        prevParts.push({ text: refLabel });
+        for (const ref of validRefs) {
+          prevParts.push({ inlineData: { mimeType: ref.mimeType, data: ref.base64 } });
+        }
       }
 
       const continuityNote = undefined;
@@ -4222,8 +4328,73 @@ ${netAdapt ? section("Network adaptations", netAdapt) : ""}
               {/* ── #8 Reference + iterate from (merged) ── */}
               <div style={{ padding:"0 16px 8px" }}>
                 <ReferenceDropZone onRef={setBriefRef} currentRef={briefRef} onClear={() => { setBriefRef(null); setLiftIntent(""); }} iterateFrom={iterateFrom} onIterateFrom={setIterateFrom} />
+                {/* Deploy BC2 P3: multi-image-ref slot panel. Shows beneath primary drop zone whenever
+                    primary is image OR additional refs exist OR room for more. Max 4 image refs total. */}
+                {(() => {
+                  const primaryIsImage = briefRef && !briefRef.mimeType.startsWith("video/");
+                  const totalImageRefs = (primaryIsImage ? 1 : 0) + briefImageRefs.length;
+                  const canAddMore = totalImageRefs < 4 && !(briefRef && briefRef.mimeType.startsWith("video/"));
+                  if (briefImageRefs.length === 0 && !canAddMore) return null;
+                  if (briefImageRefs.length === 0 && !primaryIsImage) return null;
+                  return (
+                    <div style={{ marginTop: 8, padding: "8px 10px", background: D.surface, border: `0.5px solid ${D.border}`, borderRadius: 7 }}>
+                      <div style={{ fontSize: 10, color: D.textDim, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 600, marginBottom: 6 }}>
+                        Image refs ({totalImageRefs}/4) — drop multiple to combine into one brief
+                      </div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {briefImageRefs.map((r, idx) => (
+                          <div key={idx} style={{ position: "relative", width: 56, height: 56, borderRadius: 6, overflow: "hidden", border: `0.5px solid ${D.border}` }}>
+                            <img src={`data:${r.mimeType};base64,${r.base64}`} alt={r.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                            <button
+                              onClick={() => setBriefImageRefs(prev => prev.filter((_, i) => i !== idx))}
+                              title={`Remove ${r.name}`}
+                              style={{ position: "absolute", top: 2, right: 2, width: 16, height: 16, borderRadius: "50%", border: "none", background: "rgba(0,0,0,0.7)", color: "#fff", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}
+                            >×</button>
+                          </div>
+                        ))}
+                        {canAddMore && (
+                          <label style={{ width: 56, height: 56, borderRadius: 6, border: `1px dashed ${D.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: D.textDim, fontSize: 11 }}>
+                            + add
+                            <input
+                              type="file"
+                              accept="image/*"
+                              style={{ display: "none" }}
+                              onChange={async (e) => {
+                                const f = e.target.files?.[0];
+                                if (!f) return;
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                  const result = reader.result as string;
+                                  const m = result.match(/^data:([^;]+);base64,(.*)$/);
+                                  if (m) setBriefImageRefs(prev => [...prev, { base64: m[2], mimeType: m[1], name: f.name }]);
+                                };
+                                reader.readAsDataURL(f);
+                                e.target.value = "";
+                              }}
+                            />
+                          </label>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 10, color: D.textDim, marginTop: 6 }}>
+                        Primary slot above + extras here. All refs combine into one structural blueprint for the brief renders.
+                      </div>
+                    </div>
+                  );
+                })()}
                 {briefRef && briefRef.mimeType.startsWith("video/") && (
                   <div style={{ marginTop:8,padding:"8px 10px",background:D.purpleBg,border:`0.5px solid ${D.purpleBdr}`,borderRadius:7 }}>
+                    {/* Deploy BC2 P4: ad_type toggle for video ref. Routes through MOC analyzer (richer DNA) vs competitor analyzer (universal vocab). */}
+                    <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:8,paddingBottom:8,borderBottom:`0.5px solid ${D.border}` }}>
+                      <span style={{ fontSize:10,color:D.purple,textTransform:"uppercase",letterSpacing:".06em",fontWeight:600 }}>Video type</span>
+                      <button
+                        onClick={() => setBriefRefAdType("competitor")}
+                        style={{ fontSize:11,padding:"3px 9px",borderRadius:5,border:`0.5px solid ${briefRefAdType==="competitor"?D.purple:D.border}`,background:briefRefAdType==="competitor"?D.purpleBg:"transparent",color:briefRefAdType==="competitor"?D.purple:D.textDim,cursor:"pointer",fontWeight:500 }}
+                      >Competitor (other game)</button>
+                      <button
+                        onClick={() => setBriefRefAdType("moc")}
+                        style={{ fontSize:11,padding:"3px 9px",borderRadius:5,border:`0.5px solid ${briefRefAdType==="moc"?D.blue:D.border}`,background:briefRefAdType==="moc"?D.blueBg:"transparent",color:briefRefAdType==="moc"?D.blue:D.textDim,cursor:"pointer",fontWeight:500 }}
+                      >MOC ad (own clip)</button>
+                    </div>
                     <div style={{ fontSize:10,color:D.purple,textTransform:"uppercase",letterSpacing:".06em",fontWeight:600,marginBottom:5 }}>What to lift from this ref</div>
                     <textarea
                       value={liftIntent}
