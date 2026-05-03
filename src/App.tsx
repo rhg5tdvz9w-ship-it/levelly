@@ -210,56 +210,135 @@ function RefineDropZone({ currentRef, onDrop, onClear }: {
   );
 }
 
-function ReferenceDropZone({ onRef, currentRef, onClear, iterateFrom, onIterateFrom }: {
-  onRef: (data: { base64: string; mimeType: string; name: string }) => void;
-  currentRef: { base64: string; mimeType: string; name: string } | null;
-  onClear: () => void;
+// Deploy BC2.2: ReferenceDropZone refactored to multi-ref.
+//  - Single drop zone accepts MULTIPLE files at once (drag-drop or click → multi-select picker)
+//  - Mix of images + 1 video (videos cap at 1, images up to maxImages)
+//  - Each ref shown as removable thumbnail
+//  - lift_intent and ad_type toggle for video moved into THIS component (always visible when ≥1 ref)
+type BriefRef = { base64: string; mimeType: string; name: string };
+function ReferenceDropZone({ refs, onRefsChange, iterateFrom, onIterateFrom, liftIntent, onLiftIntent, videoAdType, onVideoAdType, maxImages = 4 }: {
+  refs: BriefRef[];
+  onRefsChange: (next: BriefRef[]) => void;
   iterateFrom: string;
   onIterateFrom: (v: string) => void;
+  liftIntent: string;
+  onLiftIntent: (v: string) => void;
+  videoAdType: "moc" | "competitor";
+  onVideoAdType: (v: "moc" | "competitor") => void;
+  maxImages?: number;
 }) {
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const processFile = async (file: File) => {
-    if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) return;
-    const base64 = await fileToBase64(file);
-    onRef({ base64, mimeType: file.type, name: file.name });
+  const videoRef = refs.find(r => r.mimeType.startsWith("video/"));
+  const imageRefs = refs.filter(r => r.mimeType.startsWith("image/"));
+  const canAddVideo = !videoRef;
+  const canAddImage = imageRefs.length < maxImages;
+
+  const processFiles = async (files: FileList | File[]) => {
+    const arr = Array.from(files);
+    const next: BriefRef[] = [...refs];
+    let videoSlotUsed = !!videoRef;
+    for (const f of arr) {
+      if (f.type.startsWith("video/")) {
+        if (videoSlotUsed) continue; // only 1 video slot
+        const base64 = await fileToBase64(f);
+        next.push({ base64, mimeType: f.type, name: f.name });
+        videoSlotUsed = true;
+      } else if (f.type.startsWith("image/")) {
+        const currentImages = next.filter(r => r.mimeType.startsWith("image/")).length;
+        if (currentImages >= maxImages) continue;
+        const base64 = await fileToBase64(f);
+        next.push({ base64, mimeType: f.type, name: f.name });
+      }
+    }
+    onRefsChange(next);
   };
-  const hasAnyRef = currentRef || iterateFrom.trim();
+
+  const removeRef = (ref: BriefRef) => onRefsChange(refs.filter(r => r !== ref));
+
+  const hasAnyRef = refs.length > 0 || iterateFrom.trim();
+
   return (
     <div style={{ marginBottom: 10, borderRadius: 8, border: `1.5px solid ${dragging ? D.purple : hasAnyRef ? D.purpleBdr : D.border2}`, background: hasAnyRef ? D.purpleBg : "transparent", transition: "border-color .15s, background .15s", overflow: "hidden" }}>
-      <input ref={inputRef} type="file" accept="image/*,video/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); e.target.value = ""; }} />
+      <input ref={inputRef} type="file" multiple accept="image/*,video/*" style={{ display: "none" }} onChange={e => { if (e.target.files) processFiles(e.target.files); e.target.value = ""; }} />
 
-      {/* Drop area */}
+      {/* Drop area + thumbnails */}
       <div
         onDragOver={e => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
-        onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files?.[0]; if (f) processFile(f); }}
-        onClick={() => !currentRef && inputRef.current?.click()}
-        style={{ padding: "9px 14px", display: "flex", alignItems: "center", gap: 10, cursor: currentRef ? "default" : "pointer" }}
+        onDrop={e => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files) processFiles(e.dataTransfer.files); }}
+        onClick={() => (canAddVideo || canAddImage) && inputRef.current?.click()}
+        style={{ padding: "10px 14px", cursor: (canAddVideo || canAddImage) ? "pointer" : "default" }}
       >
-        {currentRef ? (
-          <>
-            <div style={{ fontSize: 15, flexShrink: 0 }}>{currentRef.mimeType.startsWith("image/") ? "🖼" : "🎬"}</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 11, fontWeight: 500, color: D.purple, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{currentRef.name}</div>
-              <div style={{ fontSize: 10, color: D.textDim, marginTop: 1 }}>Visual ref · DNA primary</div>
-            </div>
-            <button onClick={e => { e.stopPropagation(); onClear(); }} style={{ background: "none", border: "none", color: D.textDim, cursor: "pointer", fontSize: 14, padding: "0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
-          </>
-        ) : (
-          <div style={{ flex: 1, padding: "14px 8px", border: `2px dashed ${dragging ? D.purple : D.border2}`, borderRadius: 8, textAlign: "center" as const, transition: "border-color .15s, background .15s", background: dragging ? `${D.purpleBg}` : "transparent", display: "flex", flexDirection: "column" as const, alignItems: "center", justifyContent: "center", gap: 4 }}>
+        {refs.length === 0 ? (
+          <div style={{ padding: "14px 8px", border: `2px dashed ${dragging ? D.purple : D.border2}`, borderRadius: 8, textAlign: "center" as const, transition: "border-color .15s, background .15s", background: dragging ? `${D.purpleBg}` : "transparent", display: "flex", flexDirection: "column" as const, alignItems: "center", justifyContent: "center", gap: 4 }}>
             <div style={{ fontSize: 22, opacity: dragging ? 1 : 0.55 }}>📥</div>
             <div style={{ fontSize: 12, color: dragging ? D.purple : D.text, fontWeight: 600 }}>
-              {dragging ? "Release to add reference" : "Drag & drop image or video"}
+              {dragging ? "Release to add references" : "Drag & drop images or video"}
             </div>
             <div style={{ fontSize: 10, color: D.textDim, fontWeight: 400 }}>
-              {dragging ? " " : "or click to browse"}
+              {dragging ? " " : `1 video + up to ${maxImages} images · click to browse`}
+            </div>
+          </div>
+        ) : (
+          <div>
+            <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8, marginBottom: 6 }}>
+              {refs.map((r, i) => (
+                <div key={i} style={{ position: "relative" as const, width: 64, height: 64, borderRadius: 7, overflow: "hidden", border: `0.5px solid ${D.purpleBdr}`, background: D.surface }}>
+                  {r.mimeType.startsWith("image/") ? (
+                    <img src={`data:${r.mimeType};base64,${r.base64}`} alt={r.name} style={{ width: "100%", height: "100%", objectFit: "cover" as const }} />
+                  ) : (
+                    <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" as const, alignItems: "center", justifyContent: "center", gap: 2, fontSize: 22 }}>
+                      🎬
+                      <div style={{ fontSize: 8, color: D.textDim, textAlign: "center" as const, padding: "0 4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const, width: "100%" }}>video</div>
+                    </div>
+                  )}
+                  <button
+                    onClick={e => { e.stopPropagation(); removeRef(r); }}
+                    title={`Remove ${r.name}`}
+                    style={{ position: "absolute" as const, top: 2, right: 2, width: 18, height: 18, borderRadius: "50%", border: "none", background: "rgba(0,0,0,0.75)", color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}
+                  >×</button>
+                </div>
+              ))}
+              {(canAddVideo || canAddImage) && (
+                <div style={{ width: 64, height: 64, borderRadius: 7, border: `1.5px dashed ${D.border2}`, display: "flex", alignItems: "center", justifyContent: "center", color: D.textDim, fontSize: 11 }}>+ add</div>
+              )}
+            </div>
+            <div style={{ fontSize: 10, color: D.textDim }}>
+              {refs.length} ref{refs.length > 1 ? "s" : ""} · {videoRef ? "1 video" : "no video"} · {imageRefs.length}/{maxImages} images
             </div>
           </div>
         )}
       </div>
 
-      {/* Divider + creative ID input — Deploy D fix: input always rendered (was vanishing on first keystroke) */}
+      {/* Lift intent + video ad_type toggle — always visible when ≥1 ref */}
+      {refs.length > 0 && (
+        <div style={{ borderTop: `0.5px solid ${D.purpleBdr}`, padding: "8px 14px" }}>
+          {videoRef && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 9, color: D.purple, textTransform: "uppercase" as const, letterSpacing: ".06em", fontWeight: 600 }}>Video type</span>
+              <button
+                onClick={() => onVideoAdType("competitor")}
+                style={{ fontSize: 10, padding: "2px 8px", borderRadius: 5, border: `0.5px solid ${videoAdType === "competitor" ? D.purple : D.border}`, background: videoAdType === "competitor" ? D.purpleBg : "transparent", color: videoAdType === "competitor" ? D.purple : D.textDim, cursor: "pointer", fontWeight: 500 }}
+              >Competitor (other game)</button>
+              <button
+                onClick={() => onVideoAdType("moc")}
+                style={{ fontSize: 10, padding: "2px 8px", borderRadius: 5, border: `0.5px solid ${videoAdType === "moc" ? D.blue : D.border}`, background: videoAdType === "moc" ? D.blueBg : "transparent", color: videoAdType === "moc" ? D.blue : D.textDim, cursor: "pointer", fontWeight: 500 }}
+              >MOC ad (own clip)</button>
+            </div>
+          )}
+          <div style={{ fontSize: 10, color: D.purple, textTransform: "uppercase" as const, letterSpacing: ".06em", fontWeight: 600, marginBottom: 5 }}>What to lift from {refs.length > 1 ? "these refs" : "this ref"}</div>
+          <textarea
+            value={liftIntent}
+            onChange={e => onLiftIntent(e.target.value)}
+            placeholder={refs.length > 1 ? "e.g. lane layout from ref 1 + biome from ref 2 + boss from ref 3" : "e.g. the breakable wall mechanic / the boss kick hook / the lane layout"}
+            style={{ width: "100%", boxSizing: "border-box" as const, fontSize: 12, padding: "6px 8px", background: "transparent", border: `0.5px solid ${D.border}`, borderRadius: 6, minHeight: 42, resize: "vertical" as const, outline: "none", fontFamily: "inherit", color: D.text, lineHeight: 1.5 } as React.CSSProperties}
+          />
+          <div style={{ fontSize: 10, color: D.textDim, marginTop: 4 }}>Optional. Empty = use refs as general inspiration. Specific = forces ALL 4 concepts to respect the lift.</div>
+        </div>
+      )}
+
+      {/* Iterate from creative ID */}
       <div style={{ borderTop: `0.5px solid ${hasAnyRef ? D.purpleBdr : D.border2}`, padding: "7px 14px", display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: 9, fontWeight: 600, color: D.textDim, letterSpacing: "0.08em", flexShrink: 0 }}>ITERATE FROM</span>
         <div style={{ display: "flex", alignItems: "center", flex: 1, gap: 6, background: iterateFrom.trim() ? `${D.purpleBdr}22` : "transparent", border: iterateFrom.trim() ? `0.5px solid ${D.purpleBdr}` : "none", borderRadius: 5, padding: iterateFrom.trim() ? "1px 8px" : 0 }}>
@@ -277,13 +356,14 @@ function ReferenceDropZone({ onRef, currentRef, onClear, iterateFrom, onIterateF
 }
 
 // ─── Enhance Button ────────────────────────────────────────────────────────────
-function EnhanceButton({ text, onEnhanced, mode }: { text: string; onEnhanced: (s: string) => void; mode: "upload"|"brief" }) {
+// Deploy BC2.2: optional context prop — when present, Claude knows about attached refs.
+function EnhanceButton({ text, onEnhanced, mode, context }: { text: string; onEnhanced: (s: string) => void; mode: "upload"|"brief"; context?: { refs?: { name: string; mimeType: string }[]; videoDna?: { title?: string; key_mechanic?: string; biome?: string; hook_type?: string } } }) {
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   async function run() {
     setLoading(true);
     try {
-      const enhanced = await enhanceText(text, mode);
+      const enhanced = await enhanceText(text, mode, context);
       onEnhanced(enhanced);
       setDone(true); setTimeout(() => setDone(false), 2000);
     } catch { /* silently fail — user keeps their text */ }
@@ -1113,6 +1193,20 @@ function LibraryCard({ d, di, expandedDNA, setExpandedDNA, lib, saveLib, reanaly
             </span>
           ) : d.is_compound ? (
             <span style={pill(D.goldBg, D.gold, D.goldBdr)}>compound</span>
+          ) : d.ad_type === "competitor" ? (
+            /* Deploy BC2.1: ADD compound tag for competitors that Gemini missed. Symmetric with the remove (✕) above. */
+            <span
+              onClick={e => {
+                e.stopPropagation();
+                if (confirm("Mark this competitor ad as compound (multiple ads stitched together)?")) {
+                  saveLib(lib.map(x => x.id === d.id ? { ...x, is_compound: true } : x));
+                }
+              }}
+              title="Click to mark as compound"
+              style={{ ...pill(D.surface2, D.textDim, D.border2), cursor: "pointer", opacity: 0.7 }}
+            >
+              + compound
+            </span>
           ) : null}
           {/* Deploy I: gate upgrade badge — shows when analyze detected an ascending xN sequence in the video. (Renamed P.1: data field stays gate_escalation.) */}
           {d.gate_escalation && <span style={pill(D.purpleBg, D.purple, D.purpleBdr)} title={`Gate upgrade detected: ${d.gate_escalation}`}>⚡ Gate upgrade: {d.gate_escalation.replace(/\s*\(.*?\).*$/, "")}</span>}
@@ -1908,14 +2002,10 @@ function AppInner() {
   const [reanalysisProgress, setReanalysisProgress] = useState("");
   const [briefCtx, setBriefCtx] = useState(""); const [segment, setSegment] = useState("Whale");
   const [iterateFrom, setIterateFrom] = useState("");
-  const [briefRef, setBriefRef] = useState<{ base64: string; mimeType: string; name: string } | null>(null);
-  // Deploy BC2 P3: multi-image-ref support. Up to 4 image refs per brief, all propagate to renders + brief prompt.
-  // Video ref stays in `briefRef` (single — only one video can be analyzed for DNA).
-  // Image refs use this separate array. Either or both can be active.
-  const [briefImageRefs, setBriefImageRefs] = useState<{ base64: string; mimeType: string; name: string }[]>([]);
-  // Deploy BC2 P4: ad_type toggle for video ref. When user drops a video, default to "competitor" (universal
-  // analyzer strips MOC-specific vocab). User can flip to "moc" if dropping a MOC-internal clip — runs MOC
-  // analyzer, extracts MOC-vocab DNA (cannon tiers, gate sequences, biome, etc) for richer brief context.
+  // Deploy BC2.2: consolidated multi-ref state. Single array holds 1 video (optional) + up to 4 images.
+  // Replaces pre-BC2.2 split between `briefRef` (single) + `briefImageRefs` (extras).
+  // ReferenceDropZone manages the array; video ad_type + lift_intent are sibling state used during gen.
+  const [briefRefs, setBriefRefs] = useState<{ base64: string; mimeType: string; name: string }[]>([]);
   const [briefRefAdType, setBriefRefAdType] = useState<"moc" | "competitor">("competitor");
   const [lastCompetitorEntry, setLastCompetitorEntry] = useState<DNAEntry | null>(null);
   const [competitorExpanded, setCompetitorExpanded] = useState(false);
@@ -3207,58 +3297,45 @@ For each description above:
     try {
       let competitorContext: { core_fantasy?: string; moc_inspiration?: string; transferable_elements?: string[]; title?: string } | undefined = undefined;
       let refNote: string | undefined = undefined;
-      if (briefRef) {
-        const isVideo = briefRef.mimeType.startsWith("video/");
-        if (isVideo) {
-          // Deploy BC2 P4: pass adType from user toggle. Default "competitor" preserves prior behavior.
-          // "moc" routes through MOC analyzer for richer DNA when user drops a MOC-internal clip.
-          setBriefProgress(`Analyzing ${briefRefAdType === "moc" ? "MOC" : "competitor"} video…`);
-          const newEntry = await analyzeCompetitorForBrief(briefRef, briefRefAdType);
-          if (newEntry) {
-            saveLib([...lib, newEntry]);
-            setLastCompetitorEntry(newEntry);
-            // Deploy W: send the full structural DNA, not just 4 high-level fields.
-            // Brief prompt now reads gate_sequence, unit_evolution_chain, key_mechanic, pacing,
-            // tension_moments, biome, hook_type, hook_description — gives Claude the full blueprint.
-            competitorContext = {
-              title: newEntry.title,
-              core_fantasy: newEntry.core_fantasy,
-              moc_inspiration: newEntry.moc_inspiration,
-              transferable_elements: newEntry.transferable_elements || [],
-              lift_intent: liftIntent.trim() || undefined,
-              // Deploy W expanded fields:
-              gate_sequence: newEntry.gate_sequence || [],
-              unit_evolution_chain: newEntry.unit_evolution_chain || [],
-              key_mechanic: newEntry.key_mechanic,
-              pacing: newEntry.pacing,
-              tension_moments: (newEntry as any).tension_moments,
-              biome: newEntry.biome,
-              hook_type: newEntry.hook_type,
-              hook_description: newEntry.hook_description,
-              gate_escalation: newEntry.gate_escalation,
-            } as any;
-            setBriefProgress("Competitor saved to library. Generating briefs…");
-            setBriefRef(null);
-            setLiftIntent("");
-          } else {
-            refNote = `User visual reference: "${briefRef.name}" (analysis failed)`;
-          }
+      // Deploy BC2.2: consolidated multi-ref pipeline. briefRefs is array of all dropped refs.
+      const videoRef = briefRefs.find(r => r.mimeType.startsWith("video/"));
+      const imageRefs = briefRefs.filter(r => r.mimeType.startsWith("image/"));
+
+      // Step 1: process video ref (max 1) through MOC or competitor analyzer
+      if (videoRef) {
+        setBriefProgress(`Analyzing ${briefRefAdType === "moc" ? "MOC" : "competitor"} video…`);
+        const newEntry = await analyzeCompetitorForBrief(videoRef, briefRefAdType);
+        if (newEntry) {
+          saveLib([...lib, newEntry]);
+          setLastCompetitorEntry(newEntry);
+          competitorContext = {
+            title: newEntry.title,
+            core_fantasy: newEntry.core_fantasy,
+            moc_inspiration: newEntry.moc_inspiration,
+            transferable_elements: newEntry.transferable_elements || [],
+            lift_intent: liftIntent.trim() || undefined,
+            gate_sequence: newEntry.gate_sequence || [],
+            unit_evolution_chain: newEntry.unit_evolution_chain || [],
+            key_mechanic: newEntry.key_mechanic,
+            pacing: newEntry.pacing,
+            tension_moments: (newEntry as any).tension_moments,
+            biome: newEntry.biome,
+            hook_type: newEntry.hook_type,
+            hook_description: newEntry.hook_description,
+            gate_escalation: newEntry.gate_escalation,
+          } as any;
+          setBriefProgress("Video analyzed. Continuing…");
         } else {
-          // Deploy BC2 P3: primary briefRef is image — treat as first item of multi-ref pipeline.
-          // (Logic for analyzing all image refs runs below outside this if-block.)
+          refNote = `Video ref "${videoRef.name}" — analysis failed`;
         }
       }
-      // Deploy BC2 P3: collect ALL image refs (primary briefRef if image + extras from briefImageRefs).
-      // Each ref runs through analyze-image-ref independently → array of descriptions.
-      // briefSystem receives `user_visual_references` array (replacing single user_visual_reference).
-      const allImageRefs: { base64: string; mimeType: string; name: string }[] = [];
-      if (briefRef && !briefRef.mimeType.startsWith("video/")) allImageRefs.push(briefRef);
-      for (const r of briefImageRefs) allImageRefs.push(r);
-      if (allImageRefs.length > 0) {
-        setBriefProgress(`Analyzing ${allImageRefs.length} visual reference${allImageRefs.length > 1 ? "s" : ""}…`);
+
+      // Step 2: process all image refs through analyze-image-ref
+      if (imageRefs.length > 0) {
+        setBriefProgress(`Analyzing ${imageRefs.length} visual reference${imageRefs.length > 1 ? "s" : ""}…`);
         const descriptions: any[] = [];
         const refNotes: string[] = [];
-        for (const r of allImageRefs) {
+        for (const r of imageRefs) {
           try {
             const vresp = await fetch("/api/analyze-image-ref", {
               method: "POST",
@@ -3270,11 +3347,11 @@ For each description above:
               descriptions.push({ name: r.name, description: vdata.description });
               refNotes.push(`"${r.name}" — ${(vdata.description.spatial_layout || "").slice(0, 60)}`);
             } else {
-              console.warn(`[Levelly BC2 P3] image analysis failed for ${r.name}:`, vdata.error);
+              console.warn(`[Levelly BC2.2] image analysis failed for ${r.name}:`, vdata.error);
               refNotes.push(`"${r.name}" (analysis failed)`);
             }
           } catch (err: any) {
-            console.warn(`[Levelly BC2 P3] image analysis error for ${r.name}:`, err);
+            console.warn(`[Levelly BC2.2] image analysis error for ${r.name}:`, err);
             refNotes.push(`"${r.name}" (analysis error)`);
           }
         }
@@ -3287,13 +3364,17 @@ For each description above:
             } as any;
           } else {
             (competitorContext as any).user_visual_references = descriptions;
+            // If video also active, lift_intent already set above; ensure it propagates to image-ref handling
+            if (!(competitorContext as any).lift_intent) (competitorContext as any).lift_intent = liftIntent.trim() || undefined;
           }
         }
-        refNote = `Visual references parsed (${descriptions.length}/${allImageRefs.length}): ${refNotes.join("; ")}`;
+        refNote = `${videoRef ? "Video + " : ""}Image refs parsed (${descriptions.length}/${imageRefs.length}): ${refNotes.join("; ")}`;
         setBriefProgress("References parsed. Generating briefs…");
-        // Clear refs after use (consistent with pre-BC2 behavior for primary ref)
-        if (briefRef && !briefRef.mimeType.startsWith("video/")) setBriefRef(null);
-        if (briefImageRefs.length > 0) setBriefImageRefs([]);
+      }
+
+      // Clear refs after consumption
+      if (briefRefs.length > 0) {
+        setBriefRefs([]);
         setLiftIntent("");
       }
       const trimmedLib = lib
@@ -3344,12 +3425,9 @@ For each description above:
           if (job.analysis) setBriefAnalysis(job.analysis);
           // Only add newly arrived concepts
           const newConcepts = job.concepts.slice(lastConceptCount);
-          // Deploy BC2 P3: propagate ALL image refs (primary briefRef if image + extras from briefImageRefs)
-          // to every concept as `user_uploaded_refs` array. Render side loops over array, pushes each as a
-          // Gemini Image part. Backward-compat: also keep `user_uploaded_ref` singular pointing at first ref.
-          const conceptImageRefs: { base64: string; mimeType: string; name: string }[] = [];
-          if (briefRef && !briefRef.mimeType.startsWith("video/")) conceptImageRefs.push(briefRef);
-          for (const r of briefImageRefs) conceptImageRefs.push(r);
+          // Deploy BC2.2: propagate all IMAGE refs from consolidated briefRefs array to every concept.
+          // (Video ref doesn't propagate as image — it goes through analyzeCompetitorForBrief separately.)
+          const conceptImageRefs: { base64: string; mimeType: string; name: string }[] = briefRefs.filter(r => r.mimeType.startsWith("image/"));
           newConcepts.forEach((concept: Concept, i: number) => {
             const conceptWithRef = conceptImageRefs.length > 0
               ? {
@@ -4389,89 +4467,21 @@ ${netAdapt ? section("Network adaptations", netAdapt) : ""}
                 <div style={{ display:"flex",alignItems:"flex-start",gap:8 }}>
                   <textarea style={{ flex:1,boxSizing:"border-box",fontSize:14,padding:"9px 11px",background:"transparent",border:"none",minHeight:64,resize:"vertical",outline:"none",fontFamily:"inherit",color:D.text,lineHeight:1.6 } as React.CSSProperties}
                     placeholder="Describe your idea — biome, hook type, emotional arc, network target…" value={briefCtx} onChange={e=>setBriefCtx(e.target.value)} />
-                  {briefCtx.trim().length>10&&<div style={{ paddingTop:4,flexShrink:0 }}><EnhanceButton text={briefCtx} onEnhanced={setBriefCtx} mode="brief" /></div>}
+                  {briefCtx.trim().length>10&&<div style={{ paddingTop:4,flexShrink:0 }}><EnhanceButton text={briefCtx} onEnhanced={setBriefCtx} mode="brief" context={{ refs: briefRefs.map(r => ({ name: r.name, mimeType: r.mimeType })), videoDna: lastCompetitorEntry ? { title: lastCompetitorEntry.title, key_mechanic: lastCompetitorEntry.key_mechanic, biome: lastCompetitorEntry.biome, hook_type: lastCompetitorEntry.hook_type } : undefined }} /></div>}
                 </div>
               </div>
-              {/* ── #8 Reference + iterate from (merged) ── */}
+              {/* ── #8 Reference + iterate from (Deploy BC2.2: single drop zone, multi-ref) ── */}
               <div style={{ padding:"0 16px 8px" }}>
-                <ReferenceDropZone onRef={setBriefRef} currentRef={briefRef} onClear={() => { setBriefRef(null); setLiftIntent(""); }} iterateFrom={iterateFrom} onIterateFrom={setIterateFrom} />
-                {/* Deploy BC2 P3: multi-image-ref slot panel. Shows beneath primary drop zone whenever
-                    primary is image OR additional refs exist OR room for more. Max 4 image refs total. */}
-                {(() => {
-                  const primaryIsImage = briefRef && !briefRef.mimeType.startsWith("video/");
-                  const totalImageRefs = (primaryIsImage ? 1 : 0) + briefImageRefs.length;
-                  const canAddMore = totalImageRefs < 4 && !(briefRef && briefRef.mimeType.startsWith("video/"));
-                  if (briefImageRefs.length === 0 && !canAddMore) return null;
-                  if (briefImageRefs.length === 0 && !primaryIsImage) return null;
-                  return (
-                    <div style={{ marginTop: 8, padding: "8px 10px", background: D.surface, border: `0.5px solid ${D.border}`, borderRadius: 7 }}>
-                      <div style={{ fontSize: 10, color: D.textDim, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 600, marginBottom: 6 }}>
-                        Image refs ({totalImageRefs}/4) — drop multiple to combine into one brief
-                      </div>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        {briefImageRefs.map((r, idx) => (
-                          <div key={idx} style={{ position: "relative", width: 56, height: 56, borderRadius: 6, overflow: "hidden", border: `0.5px solid ${D.border}` }}>
-                            <img src={`data:${r.mimeType};base64,${r.base64}`} alt={r.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                            <button
-                              onClick={() => setBriefImageRefs(prev => prev.filter((_, i) => i !== idx))}
-                              title={`Remove ${r.name}`}
-                              style={{ position: "absolute", top: 2, right: 2, width: 16, height: 16, borderRadius: "50%", border: "none", background: "rgba(0,0,0,0.7)", color: "#fff", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}
-                            >×</button>
-                          </div>
-                        ))}
-                        {canAddMore && (
-                          <label style={{ width: 56, height: 56, borderRadius: 6, border: `1px dashed ${D.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: D.textDim, fontSize: 11 }}>
-                            + add
-                            <input
-                              type="file"
-                              accept="image/*"
-                              style={{ display: "none" }}
-                              onChange={async (e) => {
-                                const f = e.target.files?.[0];
-                                if (!f) return;
-                                const reader = new FileReader();
-                                reader.onload = () => {
-                                  const result = reader.result as string;
-                                  const m = result.match(/^data:([^;]+);base64,(.*)$/);
-                                  if (m) setBriefImageRefs(prev => [...prev, { base64: m[2], mimeType: m[1], name: f.name }]);
-                                };
-                                reader.readAsDataURL(f);
-                                e.target.value = "";
-                              }}
-                            />
-                          </label>
-                        )}
-                      </div>
-                      <div style={{ fontSize: 10, color: D.textDim, marginTop: 6 }}>
-                        Primary slot above + extras here. All refs combine into one structural blueprint for the brief renders.
-                      </div>
-                    </div>
-                  );
-                })()}
-                {briefRef && briefRef.mimeType.startsWith("video/") && (
-                  <div style={{ marginTop:8,padding:"8px 10px",background:D.purpleBg,border:`0.5px solid ${D.purpleBdr}`,borderRadius:7 }}>
-                    {/* Deploy BC2 P4: ad_type toggle for video ref. Routes through MOC analyzer (richer DNA) vs competitor analyzer (universal vocab). */}
-                    <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:8,paddingBottom:8,borderBottom:`0.5px solid ${D.border}` }}>
-                      <span style={{ fontSize:10,color:D.purple,textTransform:"uppercase",letterSpacing:".06em",fontWeight:600 }}>Video type</span>
-                      <button
-                        onClick={() => setBriefRefAdType("competitor")}
-                        style={{ fontSize:11,padding:"3px 9px",borderRadius:5,border:`0.5px solid ${briefRefAdType==="competitor"?D.purple:D.border}`,background:briefRefAdType==="competitor"?D.purpleBg:"transparent",color:briefRefAdType==="competitor"?D.purple:D.textDim,cursor:"pointer",fontWeight:500 }}
-                      >Competitor (other game)</button>
-                      <button
-                        onClick={() => setBriefRefAdType("moc")}
-                        style={{ fontSize:11,padding:"3px 9px",borderRadius:5,border:`0.5px solid ${briefRefAdType==="moc"?D.blue:D.border}`,background:briefRefAdType==="moc"?D.blueBg:"transparent",color:briefRefAdType==="moc"?D.blue:D.textDim,cursor:"pointer",fontWeight:500 }}
-                      >MOC ad (own clip)</button>
-                    </div>
-                    <div style={{ fontSize:10,color:D.purple,textTransform:"uppercase",letterSpacing:".06em",fontWeight:600,marginBottom:5 }}>What to lift from this ref</div>
-                    <textarea
-                      value={liftIntent}
-                      onChange={e => setLiftIntent(e.target.value)}
-                      placeholder="e.g. the escalating gate values — use 5, 50, 500 instead of static +1 / lift the boss kick hook / use the lane layout"
-                      style={{ width:"100%",boxSizing:"border-box",fontSize:12,padding:"6px 8px",background:"transparent",border:`0.5px solid ${D.border}`,borderRadius:6,minHeight:42,resize:"vertical",outline:"none",fontFamily:"inherit",color:D.text,lineHeight:1.5 } as React.CSSProperties}
-                    />
-                    <div style={{ fontSize:10,color:D.textDim,marginTop:4 }}>Optional. If empty, Levelly uses the full competitor intelligence as general inspiration.</div>
-                  </div>
-                )}
+                <ReferenceDropZone
+                  refs={briefRefs}
+                  onRefsChange={setBriefRefs}
+                  iterateFrom={iterateFrom}
+                  onIterateFrom={setIterateFrom}
+                  liftIntent={liftIntent}
+                  onLiftIntent={setLiftIntent}
+                  videoAdType={briefRefAdType}
+                  onVideoAdType={setBriefRefAdType}
+                />
               </div>
               <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderTop:`0.5px solid ${D.border}` }}>
                 {generating && briefProgress
