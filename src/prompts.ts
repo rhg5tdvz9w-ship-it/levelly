@@ -486,10 +486,16 @@ FIX THESE SPECIFIC ISSUES:
 4. unit_evolution_chain — count only UPGRADE CONTAINERS (with cannon icon on top) destroyed. REMOVE tiers beyond what containers justify. Most ads: 1-2 upgrades.
 5. giant_kills — add any missed boss deaths as [{timestamp_seconds, giant_name, note}]
 6. If compound ad: fill segments array
+7. BC2.4 strategic layer (MANDATORY for MOC entries — ad_type === "moc"). If missing or empty in EXISTING JSON, populate now:
+   - core_fantasy_moc: 3-8 word fantasy this MOC ad sells (e.g. "near-loss reversal", "delayed power compounding", "incomplete-collection anxiety", "swarm dominance triumph"). Reflects emotional core for Whale 45-59M USA / Dolphin 35-44M USA.
+   - winning_pattern: 1-2 sentences. For tier=winner/scalable: WHY this ad worked, citing specific frame evidence (mechanic/moment/visual). For tier=failed: WHY it failed, pinpoint failure beat. NOT a platitude — be specific.
+   - replicable_elements: array of 3-5 testable elements from this entry that anchor next briefs. Format: "<concrete element> → testable hypothesis for next brief". For failed entries: describe what to AVOID. NEVER leave empty for MOC entries.
+8. BC2.4 strategic layer (MANDATORY for competitor entries — ad_type === "competitor"). If missing or empty in EXISTING JSON, populate now:
+   - moc_lift_concrete: ONE specific scene/mechanic to recreate in MOC. Format: "[Ts] <competitor mechanic> → MOC: <concrete translation in MOC vocabulary>". Replaces vague moc_inspiration as the producer-actionable field. NEVER leave empty for competitor entries.
 ${GATE_GUIDE}
 ${BIOME_GUIDE}
 ${CHAMPION_GUIDE}
-Return CORRECTED full JSON with all original fields.`;
+Return CORRECTED full JSON with all original fields PLUS the BC2.4 fields above (core_fantasy_moc, winning_pattern, replicable_elements for MOC entries; moc_lift_concrete for competitor entries).`;
 
 // Deploy K: Market Research synthesis prompt.
 // Extracts cross-ad patterns from competitor library entries. Output is a structured JSON digest
@@ -606,7 +612,7 @@ export const briefSystem = (lib: any[], ctx: string, seg: string, iterateFrom?: 
   const hasLiftIntent = !!(competitorContext?.lift_intent && competitorContext.lift_intent.trim().length > 0);
   // BC2.3: refs are now emitted into the prompt body directly (not nested inside competitorBlock).
   // Adds precedence rule: lift_intent OVERRIDES the "concept 1 stays pure MOC-native" baseline.
-  const userImageRefBlock = visualRefs.length > 0 ? `\n\nUSER VISUAL REFERENCES (${visualRefs.length} uploaded image${visualRefs.length > 1 ? "s" : ""}, extracted by Gemini Vision — describes what is IN each image in its OWN terms, not MOC vocabulary):\n${visualRefs.map((r, i) => `\n[REF ${i + 1}${r.name ? ` — ${r.name}` : ""}]:\n${typeof r.description === "string" ? r.description : JSON.stringify(r.description, null, 2)}`).join("\n")}\n\nVISUAL REFERENCE APPLICATION RULES:\n${hasLiftIntent
+  const userImageRefBlock = visualRefs.length > 0 ? `\n\nUSER VISUAL REFERENCES (${visualRefs.length} uploaded image${visualRefs.length > 1 ? "s" : ""}, extracted by Gemini Vision — describes what is IN each image in its OWN terms, not MOC vocabulary):\n${visualRefs.map((r, i) => `\n[REF ${i + 1}${r.name ? ` — ${r.name}` : ""}]:\n${typeof r.description === "string" ? r.description : JSON.stringify(r.description, null, 2)}`).join("\n")}\n\nFIRST-PASS REF EXTRACTION (BC2.5 — do this internally before writing concepts):\nFor EACH visual reference above, extract these 4 fields internally (do NOT surface in JSON output, but USE them to drive lane_design / gate_values / biome / hook_a/c):\n  - lane_layout: 1 sentence describing what kind of lane structure this ref shows (linear, fork, multi-lane, base/no-lane, bridge, etc).\n  - obstacle_types: array of obstacle/mechanic words visible (gate, container, barrier, lift platform, breakable wall, none, etc).\n  - gate_values_visible: array of any numbers/multipliers visible in the ref (+1, x3, +99, x100, none).\n  - biome_hint: which MOC biome best matches the visual (Desert, Foggy Forest, Water, Bunker, Volcanic, Snow, Cyber-City, Toxic, Meadow, none).\nThen propagate these extracted fields into render-visible fields per the INTEL PROPAGATION block. The extraction step is internal — it forces structured reasoning before writing the concepts, so the lift becomes mechanical not aesthetic.\n\nVISUAL REFERENCE APPLICATION RULES:\n${hasLiftIntent
     ? `- USER PROVIDED EXPLICIT LIFT INTENT (see USER LIFT INTENT below if competitor active, or producer brief context above) — ALL 4 concepts MUST respect the visual reference(s). The lift_intent describes HOW to use the references.\n- PRECEDENCE (BC2.3): when lift_intent is set, lift_intent OVERRIDES the "concept 1 stays pure MOC-native baseline" rule. Concept 1 may still favor proven biomes (Desert/Foggy Forest/Water/Bunker/Meadow) for statistical safety, but its lane_design + gate_values + hook_a/c MUST reflect the visual reference structure. The other 3 concepts have full intel propagation per INTEL PROPAGATION block below.\n- This also OVERRIDES the OUTSIDER ANCHOR rule for concept 4 — when explicit lift intent is set, concept 4 must lift from the user's visual reference, NOT from a genre outsider.\n- Across ALL 4 concepts: the user's visual reference structure (lane layout, obstacle types, mechanics shown) MUST appear in concept.lane_design + concept.production_script + concept.hook_a_description + concept.hook_c_description + concept.visual_identity.gate_values. Each concept must set intel_source = "user_visual_ref" (or "user_visual_ref_<N>" if distinguishing across refs).\n- If multiple refs are provided (${visualRefs.length} here), SYNTHESIZE — combine elements from different refs into each concept. No concept may rely on only one ref.\n- Translate visuals to MOC vocabulary (cannon, mob swarm, +N/xN gates, container, biome). Forbid net-new entity types not in MOC vocab.`
     : `- At least 1 of concepts 2-4 should map a reference into MOC vocabulary. Use "moc_translation_note" inside each reference if present. Set intel_source = "user_visual_ref" on those concepts.\n- If multiple refs (${visualRefs.length} here), distribute across different concepts — don't have all concepts lift from the same ref.\n- If a reference is non-applicable (UI screenshot, abstract, no game elements), the moc_translation_note will say so — treat as inspirational mood only.`}` : "";
 
@@ -701,8 +707,10 @@ PLAYER UNIT TERMINOLOGY — CRITICAL:
 - CORRECT language: "Mob swarm passes through x4 gate, multiplying from 6 to 24 mobs" / "Swarm passes through +1 gate, adding 1 more firing cannon (now 2 cannons)"
 - The "player_mob_color" field = the colour of the small blob mobs (e.g. blue). The cannon is always blue/grey.
 BIOME SELECTION: If user specifies a biome in their prompt, use EXACTLY that biome for data-backed concepts. Do NOT substitute. Desert+Facebook = CZ65 ($7K/d top-1) + CT43 as primary DNA. Foggy Forest+Facebook = CB57+CR17. Water = CZ94+CV73. Biome directly determines network fit — match the user's stated target.
-9-STEP CURVE (required for every concept — map each beat to a specific timestamp/mechanic):
-Pressure(0-2s: threat visible) → Investment(2-6s: +N gates, cannon count grows) → Validate(6-8s: first upgrade, swarm power up) → Investment2(8-12s: more +N gates, mob multiply) → Payoff(12-15s: giant defeated or upgrade complete) → FalseSafety(15-18s: second threat appears) → Pressure++(18-22s: almost-fail, mobs depleted) → AlmostWin(22-24s: final push, last few mobs) → Fail(24-26s: BATTLE FAILED screen)
+9-STEP CURVE (required for every concept — map each beat to a specific timestamp/mechanic).
+BC2.5: timing recalibrated against library data (n=21 MOC winners — avg ad length 40.9s, peak action 15.3s, hook bimodal 0s/4s). Old timing capped at 26s; real winners run 30-55s.
+Pressure(0-4s: threat visible — supports both instant 0s hook and 4s delayed-reveal pattern observed in 50% of winners) → Investment(4-10s: +N gates, cannon count grows) → Validate(10-15s: first upgrade event, swarm power up — peak action zone, lib avg 15.3s) → Investment2(15-22s: more +N gates, mob multiplier xN gates) → Payoff(22-30s: giant defeated or major upgrade complete) → FalseSafety(30-34s: second threat appears, brief reprieve) → Pressure++(34-38s: almost-fail, mobs depleted, near wipeout) → AlmostWin(38-42s: final push, last few mobs vs near-zero boss HP) → Fail(40-50s: BATTLE FAILED screen — lib range 23-56s, target 40-45s as median)
+DURATION GUIDANCE: target 40-45s total ad length per concept. Concepts that need compression (e.g. AppLovin 15s cuts) should explicitly note shorter duration in nine_step_curve and compress proportionally — NOT use the old 26s scaffold.
 Each concept MUST fill the nine_step_curve JSON field with a 1-sentence description of what happens at that beat for that specific concept.
 CHAMPION DIVERSITY (concept 4 wild card rule):
 - Concepts 1-3 MAY use the same canonical champion across concepts (consistency is OK).
@@ -760,6 +768,16 @@ Each concept's experimental_note MUST start with the structured family tag in sq
   "[FAMILY:F2/V3+V5] Push-and-swarm obstacle, reward revealed behind. Lifted from: <competitor name or 'pure invention or 'genre_outsider:LastAsylum'>"
 
 If you write a concept body without first computing distinct tags, you have violated the rule. Always do STEP 1-4 internally before writing.
+
+HOOK TYPE PRE-FLIGHT DIVERSITY CHECK (BC2.5 — HARD CONSTRAINT, run BEFORE writing concepts, parallel to the FAMILY check above):
+Before writing any concept body:
+  STEP 1. Decide hook_type for each of the 4 concepts. Pick from the shuffled HOOK_TYPES list provided later in this prompt.
+  STEP 2. Verify ALL 4 hook_type values are DISTINCT. No two concepts may share an identical hook_type.
+  STEP 3. Verify the 4 hook_types span at least 3 emotional registers — Loss Aversion / Challenge / Story / Satisfying / FOMO / Tutorial each map to different registers; reject sets where 3 of 4 hooks share a register (e.g. 3× Challenge variants).
+  STEP 4. CONCEPT 1 default: "Challenge" — library data (n=21 winners) shows 70% of MOC winners use Challenge hook type. Concepts 2-4 must each pick a different hook_type.
+  STEP 5. If any check fails, change one or two concepts' hook_types BEFORE writing concept bodies.
+
+If you write concept bodies without first computing 4 distinct hook_types, you have violated the rule. Always do STEPS 1-5 internally before writing.
 
 MECHANIC PROPAGATES TO RENDER FIELDS (not just text):
 - For F2 concepts: concept.lane_design MUST describe (a) what the obstacle is and looks like (e.g. "wooden barrier with iron bands, 2 lanes wide, blocking the path at 4s"), (b) what interaction the player does (shoot/push/lift/swarm), (c) what reward is revealed/sits-on-top (e.g. "+99 gates revealed behind the broken wall"), (d) timestamp of the interaction beat.

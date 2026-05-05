@@ -1544,18 +1544,52 @@ ${d.creative_gaps?`<div style="margin-bottom:12px"><div style="font-size:9px;col
             </div>
           ))}
 
+          {/* BC2.4: MOC Strategic Layer — surfaces core_fantasy_moc, winning_pattern, replicable_elements
+              for every MOC entry (winners + failures). Failure pattern data is as valuable as winner pattern data. */}
+          {d.ad_type === "moc" && (d.core_fantasy_moc || d.winning_pattern || (d.replicable_elements && d.replicable_elements.length > 0)) && (
+            <div style={{ marginTop: 10, padding: "10px 12px", borderLeft: "2px solid " + D.blue, background: D.blueBg + "40", borderRadius: 6 }}>
+              <div style={{ fontSize: 10, color: D.blue, textTransform: "uppercase", letterSpacing: ".08em", fontWeight: 600, marginBottom: 8 }}>MOC Strategic Layer</div>
+              {d.core_fantasy_moc && (
+                <div style={{ marginBottom: 8 }}>
+                  <span style={labelStyle}>Core fantasy (MOC)</span>
+                  <p style={{ margin: 0, fontSize: 11, color: D.text, lineHeight: 1.5, fontWeight: 500 }}>{d.core_fantasy_moc}</p>
+                </div>
+              )}
+              {d.winning_pattern && (
+                <div style={{ marginBottom: 8 }}>
+                  <span style={labelStyle}>{d.tier === "failed" ? "Failure pattern" : "Winning pattern"}</span>
+                  <p style={{ margin: 0, fontSize: 11, color: D.textMuted, lineHeight: 1.6 }}>{d.winning_pattern}</p>
+                </div>
+              )}
+              {d.replicable_elements && d.replicable_elements.length > 0 && (
+                <div>
+                  <span style={labelStyle}>Replicable elements</span>
+                  <ul style={{ margin: "4px 0 0", paddingLeft: 16, fontSize: 11, color: D.textMuted, lineHeight: 1.6 }}>
+                    {d.replicable_elements.map((el, i) => (<li key={i} style={{ marginBottom: 4 }}>{el}</li>))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Deploy P.1: game title editor — always shown for competitors (not gated on intel fields).
               Lets producer add or edit game_title for previously-analyzed entries. */}
           {d.ad_type === "competitor" && (
             <GameTitleEditor entry={d} lib={lib} saveLib={saveLib} />
           )}
-          {d.ad_type === "competitor" && (d.core_fantasy || d.moc_inspiration || (d.transferable_elements && d.transferable_elements.length > 0)) && (
+          {d.ad_type === "competitor" && (d.core_fantasy || d.moc_inspiration || d.moc_lift_concrete || (d.transferable_elements && d.transferable_elements.length > 0)) && (
             <div style={{ marginTop: 10, padding: "10px 12px", borderLeft: "2px solid " + D.purple, background: D.purpleBg + "40", borderRadius: 6 }}>
               <div style={{ fontSize: 10, color: D.purple, textTransform: "uppercase", letterSpacing: ".08em", fontWeight: 600, marginBottom: 8 }}>Competitor Intelligence</div>
               {d.core_fantasy && (
                 <div style={{ marginBottom: 8 }}>
                   <span style={labelStyle}>Core fantasy</span>
                   <p style={{ margin: 0, fontSize: 11, color: D.text, lineHeight: 1.5, fontWeight: 500 }}>{d.core_fantasy}</p>
+                </div>
+              )}
+              {d.moc_lift_concrete && (
+                <div style={{ marginBottom: 8 }}>
+                  <span style={labelStyle}>MOC lift (concrete)</span>
+                  <p style={{ margin: 0, fontSize: 11, color: D.text, lineHeight: 1.5, fontWeight: 500 }}>{d.moc_lift_concrete}</p>
                 </div>
               )}
               {d.moc_inspiration && (
