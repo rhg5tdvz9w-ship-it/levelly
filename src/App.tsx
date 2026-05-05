@@ -159,7 +159,8 @@ function AnalysisProgressPanel({ step, fileName, error }: { step: string; fileNa
 }
 
 // ─── #8 Reference Zone (merged: file drop + creative ID) ─────────────────────
-// ─── Deploy F: Refine annotation drop zone — compact horizontal version for inside refine UI ──
+// ─── Deploy F + BC2.3.1: Refine annotation drop zone — visual style now matches brief panel ReferenceDropZone ──
+// Single-image only (refinement pipeline edits ONE render at a time). Same look as the multi-ref brief zone.
 function RefineDropZone({ currentRef, onDrop, onClear }: {
   currentRef: { base64: string; mimeType: string; name: string } | null;
   onDrop: (file: File) => void;
@@ -169,41 +170,41 @@ function RefineDropZone({ currentRef, onDrop, onClear }: {
   const inputRef = React.useRef<HTMLInputElement>(null);
   const processFile = (f: File) => { if (f.type.startsWith("image/")) onDrop(f); };
   return (
-    <div style={{ marginBottom: 8 }}>
+    <div style={{ marginBottom: 10, borderRadius: 8, border: `1.5px solid ${dragging ? D.purple : currentRef ? D.purpleBdr : D.border2}`, background: currentRef ? D.purpleBg : "transparent", transition: "border-color .15s, background .15s", overflow: "hidden" }}>
       <input ref={inputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); e.target.value = ""; }} />
       <div
         onDragOver={e => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files?.[0]; if (f) processFile(f); }}
         onClick={() => !currentRef && inputRef.current?.click()}
-        style={{
-          padding: currentRef ? "8px 12px" : "10px 12px",
-          border: `1.5px dashed ${dragging ? D.blue : currentRef ? D.purpleBdr : D.border2}`,
-          borderRadius: 6,
-          background: dragging ? D.blueBg : currentRef ? D.purpleBg : "transparent",
-          cursor: currentRef ? "default" : "pointer",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          transition: "border-color .15s, background .15s",
-        }}
+        style={{ padding: "10px 14px", cursor: currentRef ? "default" : "pointer" }}
       >
-        {currentRef ? (
-          <>
-            <img src={`data:${currentRef.mimeType};base64,${currentRef.base64}`} alt="annotation preview" style={{ width: 32, height: 32, objectFit: "cover" as const, borderRadius: 4, flexShrink: 0, border: `0.5px solid ${D.purpleBdr}` }} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 11, color: D.purple, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>📎 {currentRef.name}</div>
-              <div style={{ fontSize: 9, color: D.textDim }}>annotation will guide the edit</div>
+        {!currentRef ? (
+          <div style={{ padding: "14px 8px", border: `2px dashed ${dragging ? D.purple : D.border2}`, borderRadius: 8, textAlign: "center" as const, transition: "border-color .15s, background .15s", background: dragging ? D.purpleBg : "transparent", display: "flex", flexDirection: "column" as const, alignItems: "center", justifyContent: "center", gap: 4 }}>
+            <div style={{ fontSize: 22, opacity: dragging ? 1 : 0.55 }}>📥</div>
+            <div style={{ fontSize: 12, color: dragging ? D.purple : D.text, fontWeight: 600 }}>
+              {dragging ? "Release to add annotation" : "Drag & drop annotation image"}
             </div>
-            <button onClick={e => { e.stopPropagation(); onClear(); }} style={{ background: "none", border: "none", color: D.textDim, cursor: "pointer", fontSize: 14, padding: "0 4px", lineHeight: 1, flexShrink: 0 }}>✕</button>
-          </>
+            <div style={{ fontSize: 10, color: D.textDim, fontWeight: 400 }}>
+              {dragging ? " " : "Optional · screenshot / markup will guide the edit · click to browse"}
+            </div>
+          </div>
         ) : (
-          <>
-            <span style={{ fontSize: 14, opacity: dragging ? 1 : 0.5 }}>📎</span>
-            <div style={{ fontSize: 11, color: dragging ? D.blue : D.textMuted, fontWeight: 500 }}>
-              {dragging ? "Drop annotation image" : "Optional: drag screenshot/annotation here to guide the edit"}
+          <div>
+            <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8, marginBottom: 6 }}>
+              <div style={{ position: "relative" as const, width: 64, height: 64, borderRadius: 7, overflow: "hidden", border: `0.5px solid ${D.purpleBdr}`, background: D.surface }}>
+                <img src={`data:${currentRef.mimeType};base64,${currentRef.base64}`} alt={currentRef.name} style={{ width: "100%", height: "100%", objectFit: "cover" as const }} />
+                <button
+                  onClick={e => { e.stopPropagation(); onClear(); }}
+                  title={`Remove ${currentRef.name}`}
+                  style={{ position: "absolute" as const, top: 2, right: 2, width: 18, height: 18, borderRadius: "50%", border: "none", background: "rgba(0,0,0,0.75)", color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}
+                >×</button>
+              </div>
             </div>
-          </>
+            <div style={{ fontSize: 10, color: D.textDim }}>
+              📎 {currentRef.name} · annotation will guide the edit
+            </div>
+          </div>
         )}
       </div>
     </div>
@@ -4655,6 +4656,19 @@ ${netAdapt ? section("Network adaptations", netAdapt) : ""}
                   </div>
                   <div style={{ fontSize:15,fontWeight:600,color:expandedConcept===ci?D.text:D.textMuted,marginBottom:6,transition:"color .15s" }}>{c.title}</div>
                   {c.is_experimental&&c.experimental_note&&<p style={{ margin:"0 0 6px",fontSize:11,color:"#f472b6",fontStyle:"italic" }}>{c.experimental_note}</p>}
+                  {/* BC2.4: surface what was lifted from the DNA/intel source — single italic line under chips. */}
+                  {(() => {
+                    const sourceTitle = ((c as any).dna_source || (c as any).intel_source || "").toString().replace(/^(moc_winner|competitor):/, "").trim();
+                    if (!sourceTitle || sourceTitle === "user_visual_ref") return null;
+                    const matchingEntry = lib.find(e => e.title === sourceTitle || e.creative_id === sourceTitle);
+                    if (!matchingEntry) return null;
+                    const liftSeed = (matchingEntry.replicable_elements && matchingEntry.replicable_elements[0])
+                      || matchingEntry.moc_lift_concrete
+                      || (matchingEntry.transferable_elements && matchingEntry.transferable_elements[0]);
+                    if (!liftSeed) return null;
+                    const truncated = liftSeed.length > 140 ? liftSeed.slice(0, 140) + "…" : liftSeed;
+                    return <p style={{ margin:"0 0 6px", fontSize:11, color:D.textMuted, fontStyle:"italic", lineHeight:1.4 }} title={liftSeed}>↳ Lifted: {truncated}</p>;
+                  })()}
                   <p style={{ margin:"0 0 10px",fontSize:12,color:D.textMuted,lineHeight:1.5 }}>{c.objective}</p>
                   <div style={{ display:"flex",gap:6,flexWrap:"wrap" as const }}>
                     {(c as any).hook_timing_seconds!=null&&<span style={{ fontSize:10,padding:"2px 8px",borderRadius:4,background:D.blueBg,color:D.blue,border:`0.5px solid ${D.blueDark}` }}>Hook {(c as any).hook_timing_seconds}s</span>}
