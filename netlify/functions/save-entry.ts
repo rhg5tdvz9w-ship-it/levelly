@@ -86,6 +86,12 @@ export const handler: Handler = async (event) => {
       // were only in the per-entry blob — index rewrites lost them. Now both flow through summary.
       champions_unverified: entry.champions_unverified || [],
       game_title: entry.game_title,
+      // BC2.4: MOC strategic layer + competitor concrete-lift. MUST also be added to repair-index.ts
+      // (recurring field-loss pattern from BC1.1 era — backend bug if forgotten).
+      core_fantasy_moc: entry.core_fantasy_moc,
+      winning_pattern: entry.winning_pattern,
+      replicable_elements: entry.replicable_elements || [],
+      moc_lift_concrete: entry.moc_lift_concrete,
     };
 
     const existingIdx = index.findIndex((e: any) => e.id === entry.id);

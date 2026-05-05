@@ -84,6 +84,16 @@ export const handler: Handler = async (event) => {
           // Deploy P: include spend_networks + spend_window_days in index summary.
           spend_networks: entry.spend_networks || [],
           spend_window_days: entry.spend_window_days,
+          // BC2.4: bring migrate-library in sync with save-entry + repair-index.
+          // BC1.1 fields (mechanic_family, hook_format, champions_unverified, game_title) were missing here too.
+          mechanic_family: entry.mechanic_family,
+          hook_format: entry.hook_format,
+          champions_unverified: entry.champions_unverified || [],
+          game_title: entry.game_title,
+          core_fantasy_moc: entry.core_fantasy_moc,
+          winning_pattern: entry.winning_pattern,
+          replicable_elements: entry.replicable_elements || [],
+          moc_lift_concrete: entry.moc_lift_concrete,
         });
       } catch (err: any) {
         failed++;

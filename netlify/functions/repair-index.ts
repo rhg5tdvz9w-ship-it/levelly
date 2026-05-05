@@ -83,6 +83,12 @@ export const handler: Handler = async (event) => {
           hook_format: entry.hook_format,
           champions_unverified: entry.champions_unverified || [],
           game_title: entry.game_title,
+          // BC2.4: MOC strategic layer + competitor concrete-lift. Mirrors save-entry summary.
+          // KEEP IN SYNC with save-entry.ts — repair-index wipes any field not listed here.
+          core_fantasy_moc: entry.core_fantasy_moc,
+          winning_pattern: entry.winning_pattern,
+          replicable_elements: entry.replicable_elements || [],
+          moc_lift_concrete: entry.moc_lift_concrete,
         };
         // Only count as repair if something actually changed
         const changed = JSON.stringify(summary) !== JSON.stringify(newSummary);

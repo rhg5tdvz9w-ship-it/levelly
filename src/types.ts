@@ -45,6 +45,12 @@ export interface DNAEntry {
   core_fantasy?: string;
   transferable_elements?: string[];
   levelly_brief_title?: string;
+  /** BC2.4: MOC strategic layer — applies to every MOC entry (winners + failed) for pattern learning across both. */
+  core_fantasy_moc?: string;          // 3-8 word fantasy this MOC ad sells
+  winning_pattern?: string;            // 1-2 sentences: why THIS ad worked (or why it failed)
+  replicable_elements?: string[];      // 3-5 lift seeds for next briefs (parallel to competitor.transferable_elements)
+  /** BC2.4: replaces vague moc_inspiration on competitor entries with a concrete timestamp + translation. Old field kept for backward compat. */
+  moc_lift_concrete?: string;
 }
 export interface FrameExtraction { timestamp_seconds: number; description: string; significance: string; image_data?: string; }
 export interface UploadConfig {
