@@ -434,17 +434,18 @@ EDGE CASES:
 
 Critical for UGC pattern synthesis (refresh-market-intel.ts) downstream — accurate tagging unlocks ugc_hook_patterns generation.
 
-mechanic_family detection (Deploy Y4): tag the ad's primary gameplay loop:
-  F1 = Standard gate progression (passive lane, classic MOC).
-  F2 = Active interaction → reward unlock. Variants:
-    V1 = break destructible (reward hidden behind)
-    V2 = break decorative (reward sits on top)
-    V3 = push/rotate
+mechanic_family detection (Deploy Y4, BC2.6 paradox fix): tag the ad's primary gameplay loop:
+  F1 = Standard gate progression (CLASSIC MOC). Cannon flows up the lane; +N gates add cannons; xN gates multiply mobs; standard upgrade containers (cannon icon on top, mob swarm destroys them = cannon tier-up) are F1-COMPATIBLE — they are the canonical MOC mechanic, NOT F2. Boss appears at end. This is the dominant baseline pattern.
+  F2 = Active interaction → NON-STANDARD reward unlock (a NON-canonical obstacle, distinct from the standard cannon-icon upgrade container). Variants:
+    V1 = break destructible non-canon obstacle (e.g. wooden barrier, ice wall, brick gate) revealing GATES or MULTIPLIERS hidden behind it — NOT a standard cannon-tier upgrade container
+    V2 = break decorative obstacle (reward sits on top, e.g. coin chest, gem block)
+    V3 = push/rotate obstacle
     V4 = lift platform
-    V5 = swarm-destroy (mobs pile on, no shooting)
-  F3 = Dual/multi-lane choice
-  F4 = Idle core loop (resource gather → upgrade → repeat, stationary base)
+    V5 = swarm-destroy a non-canon obstacle (mobs pile on, no shooting required)
+  F3 = Dual/multi-lane choice (visible split, player picks between paths)
+  F4 = Idle core loop (resource gather → upgrade → repeat, stationary base, often top-down map)
   Combinations tagged with + ("F2/V1+V5", "F3+F2/V1", "F2/V4+F4").
+  PARADOX RULE: An ad with cannon upgrades but ONLY via standard cannon-icon containers = F1, NOT F2/V1. F2/V1 requires a non-canonical obstacle hiding different rewards. If unsure, default to F1.
   Tag "other" if unclear. This taxonomy enables downstream brief generation to pull same-family library entries as visual references.
 
 Return ONLY JSON — key_events FIRST, then DNA fields:
@@ -721,12 +722,12 @@ MECHANIC FAMILIES (Deploy W — taxonomy refined from Dmitriy's domain knowledge
 A "core mechanic" is the central gameplay loop — what the PLAYER does to get reward. Pick a family for each concept.
 Combinations across families and variants are ENCOURAGED (e.g. F2/V3+V5: push obstacle that mobs also swarm).
 
-FAMILY F1 — Standard gate progression (proven default).
-Cannon flows passively up the lane, gates trigger automatically as mobs pass through, +N adds cannon count, xN multiplies mobs, defeat boss at end. No active interaction with obstacles. The classic MOC pattern.
+FAMILY F1 — Standard gate progression (proven default, classic MOC).
+Cannon flows up the lane, gates trigger automatically as mobs pass through, +N adds cannon count, xN multiplies mobs, defeat boss at end. STANDARD upgrade containers (cannon icon on top, mob swarm destroys them = cannon tier-up: Simple → Double → Triple → Tank) are F1-COMPATIBLE — they are canonical MOC, NOT F2. F1 is the dominant winning pattern in our library.
 
-FAMILY F2 — Active interaction → reward unlock (highest-juice family, dominant in winning competitor ads).
-Player or mobs must DO something to a physical obstacle to gain or unlock the reward. The interaction creates satisfaction; the reward creates investment. Pick one or more variants:
-   V1. Break destructible (functional unlock): cannon shoots → obstacle shatters → reward (gates/upgrade) revealed BEHIND it. Reward was hidden until the break.
+FAMILY F2 — Active interaction → NON-STANDARD reward unlock (highest-juice family, dominant in winning competitor ads).
+Player or mobs must DO something to a NON-CANONICAL obstacle (NOT the standard cannon-icon upgrade container) to gain or unlock a NON-CANNON-TIER reward. The interaction creates satisfaction; the reward creates investment. Pick one or more variants:
+   V1. Break destructible (functional unlock): cannon shoots → NON-CANON obstacle (wooden barrier, ice wall, brick gate) shatters → reward (GATES, MULTIPLIERS, NEW LANES) revealed BEHIND it. NOT a standard cannon-tier upgrade — that's F1.
    V2. Break decorative (visible reward on top): obstacle has reward sitting ON TOP from frame 1. Breaking the obstacle is pure satisfaction + necessity (e.g. break to keep mob count balanced between lanes), not unlock.
    V3. Push/rotate: cannon mobs push or rotate the obstacle to clear the path or expose the reward. Mob momentum does the work, not a shooting action.
    V4. Lift platform: cannon shoots upward into a pillar/platform, lifting it up so it does useful work (drops stones on enemies, holds open a gate, etc). Constant back-and-forth — stops shooting, platform falls. High tension.
@@ -778,6 +779,22 @@ Before writing any concept body:
   STEP 5. If any check fails, change one or two concepts' hook_types BEFORE writing concept bodies.
 
 If you write concept bodies without first computing 4 distinct hook_types, you have violated the rule. Always do STEPS 1-5 internally before writing.
+
+CAPTION DIVERSITY PRE-FLIGHT CHECK (BC2.6 — HARD CONSTRAINT, run AFTER hook_b_caption is drafted for all 4 concepts):
+Before returning the JSON, verify the 4 hook_b_caption values span 4 different ANGLES. Caption angle taxonomy:
+  ANGLE A — POV / Discovery: "POV: you just...", "wait until you see...", "I tried...", "you HAVE to see..."
+  ANGLE B — Challenge / Time-pressure: "can you beat...", "30 sec to...", "99% fail at...", "harder than it looks..."
+  ANGLE C — Pain / Relatable / Frustration: "when the boss...", "every time I...", "tell me why...", "this is rage..."
+  ANGLE D — Tutorial / Tip / Reveal: "the trick that...", "nobody told me...", "the secret to...", "here's how..."
+  ANGLE E — Comparison / Before-After: "day 1 vs day 30...", "me before vs after...", "expectation vs reality..."
+  ANGLE F — Social / Couch: "even my wife...", "showed my dad...", "the whole family..."
+RULES:
+  STEP 1. Tag each hook_b_caption with its angle (A-F).
+  STEP 2. Verify ALL 4 angle tags are DISTINCT. Cannot have 2 captions with the same angle.
+  STEP 3. If any 2 captions share an angle, REWRITE one to a different angle BEFORE returning JSON.
+  STEP 4. The angle SHOULD align with the concept's hook_type emotional register but does NOT need to be identical (e.g. Challenge hook_type can use Angle A POV "POV: you accepted the 30s challenge" rather than always Angle B).
+
+If you return a JSON with 2+ captions sharing an angle, you have violated the rule. Always run STEPS 1-3 before returning.
 
 MECHANIC PROPAGATES TO RENDER FIELDS (not just text):
 - For F2 concepts: concept.lane_design MUST describe (a) what the obstacle is and looks like (e.g. "wooden barrier with iron bands, 2 lanes wide, blocking the path at 4s"), (b) what interaction the player does (shoot/push/lift/swarm), (c) what reward is revealed/sits-on-top (e.g. "+99 gates revealed behind the broken wall"), (d) timestamp of the interaction beat.
@@ -1077,7 +1094,7 @@ NOTE: This slot will be enhanced with competitor market analysis data once the m
     : "";
 
   return [
-    "Mob Control mobile game screenshot. MATCH the MOC reference images above EXACTLY in art style, 3D render quality, colour palette, and cartoon aesthetic.",
+    "Mob Control mobile game screenshot — STYLIZED 3D RENDERED stylized-realism style (NOT 2D illustrated, NOT hand-drawn cartoon, NOT anime, NOT painted concept art, NOT flat-shaded). Think Unity/Unreal mobile-game cinematic, painted PBR textures with stylized cartoon proportions. MATCH the MOC reference images above EXACTLY in art style, 3D render quality, colour palette, and cartoon aesthetic.",
     chainNote,
     "", sceneDesc, "", biomeRule, "",
     cannonNote,
@@ -1088,7 +1105,7 @@ NOTE: This slot will be enhanced with competitor market analysis data once the m
     `LIGHTING: ${vi.lighting} | MOOD: ${vi.mood_notes}`,
     continuityNote ? `CONTINUITY: ${continuityNote}` : "",
     "", compositionRule,
-    "ART STYLE: Exact 3D cartoon render matching the reference images — same colour saturation, same mob blob shape, same flat gate rectangle style. Match references precisely.",
+    "ART STYLE LOCK (BC2.6 — anti-drift): 3D RENDERED stylized realism — painted PBR textures, baked lighting, soft cartoon proportions, vibrant saturated colors. FORBIDDEN: 2D flat illustration, hand-drawn line art, anime/manga style, watercolor, sketchbook style, Pixar/Disney CGI realism. ALLOWED: stylized mobile-game 3D render matching Mob Control's visual identity exactly. Match references precisely.",
   ].filter(Boolean).join("\n");
 };
 
@@ -1106,11 +1123,18 @@ export const ENHANCE_REFINE_SYSTEM = `You are a Mob Control creative producer re
 
 export const ENHANCE_BRIEF_SYSTEM = `You are a Mob Control creative producer helping structure brief prompts for generation.
 
+CANONICAL ANCHORS (BC2.6 — use ONLY to disambiguate vague user mentions, NEVER to invent):
+- BIOME canonical list: Foggy Forest, Desert, Water, Bunker, Cyber-City, Volcanic, Snow, Toxic, Meadow. If user wrote vague biome (e.g. "forest", "city"), map to closest canonical name. Never invent a biome outside this list.
+- CHAMPION canonical roster (concepts 1-2): Yellow Normie, Mobzilla, Captain Kaboom, Kraken, Nexus, Skeleton, Knight, Femme Zombie, Red Hulk. If user wrote a vague champion ("a giant", "a boss"), map to closest canonical name. Never invent.
+- CANNON tiers (exact spelling): Simple Cannon, Double Cannon, Triple Cannon, Tank. Never invent intermediate tiers.
+- GATE terminology: +N = cannon firing count increase, xN = mob multiplier. Use precisely.
+- FAMILY taxonomy: F1 = standard gate progression (classic MOC, includes upgrade containers), F2 = active interaction with non-canon obstacle, F3 = multi-lane choice, F4 = idle base loop. If user mentions a mechanic, map to closest family.
+
 RULES — follow strictly:
 - PRESERVE the user's exact creative intent, all specific details, unit names, mechanics, and preferences. Do not change or replace anything they said.
-- ONLY add: the specific biome name if mentioned vaguely, target network if implied, MOC gate terminology (+N = cannon upgrade, xN = mob multiplier) if gates are mentioned.
-- Do NOT invent new biomes, hooks, champions, mechanics, camera rules, or creative directions not mentioned by the user.
+- ONLY add: canonical biome/champion/cannon/gate/family terms (per anchors above) when user mentions vague equivalents, MOC gate terminology (+N = cannon upgrade, xN = mob multiplier) if gates are mentioned.
+- Do NOT invent new biomes, hooks, champions, mechanics, camera rules, or creative directions not mentioned by the user OR not in the canonical anchors above.
 - Do NOT expand the scope, add cinematic language, or make it more elaborate than the user intended.
 - Output: plain text, max 5 sentences, no bullet points.
 
-Your job is to clarify and structure the user's idea — not to creatively reimagine it.`;
+Your job is to clarify and structure the user's idea — anchored to canonical MOC terminology — not to creatively reimagine it.`;
